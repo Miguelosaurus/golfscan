@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "name": "Project Overview & Tech Stack",
+      "description": "This is a React Native mobile application built with Expo for a golf-tracking utility. Key technologies include: Expo Router for navigation, NativeWind (Tailwind for RN) for styling, tRPC with a Hono backend for a type-safe API, TanStack Query for server state management, and Zustand for global client state."
+    },
+    {
+      "name": "State Management Guidelines",
+      "description": "To maintain a clear data flow, adhere to the following state management principles:\n1. **TanStack Query (React Query)**: Use for all server state. This includes fetching, caching, and updating data that comes from the backend (e.g., golf courses, rounds, player data). Define clear and consistent query keys to manage caching and invalidation effectively.\n2. **Zustand**: Use for global, client-side UI state that needs to be accessed across many components. Examples include authentication status, theme preferences, or the state of a multi-step modal. Avoid storing server data in Zustand.\n3. **React `useState`/`useReducer`**: Use for local, component-specific state that is not shared. Examples include form inputs or controlling the visibility of a dropdown within a single component."
+    },
+    {
+      "name": "Backend (tRPC & Hono)",
+      "description": "The backend is a Hono server running tRPC. To keep it scalable, when adding new models or significant features, create a new router file for that domain (e.g., `roundRouter.ts`, `playerRouter.ts`) and merge it into the main app router in `backend/trpc/hono.ts`. ALWAYS define input and output schemas using Zod for every tRPC procedure to ensure end-to-end type safety."
+    },
+    {
+      "name": "Component Architecture",
+      "description": "Build small, reusable components and place them in the `components/` directory. If a component is complex and only used on a single screen, it's acceptable to co-locate it with the screen file. Keep components focused on a single responsibility."
+    },
+    {
+      "name": "Navigation (Expo Router)",
+      "description": "Navigation is file-system based. New screens are created by adding files to the `app/` directory. The main navigation structure, including stack navigators and modals, is configured in `app/_layout.tsx`. All global screen options and navigators should be defined here."
+    },
+    {
+      "name": "Styling (NativeWind)",
+      "description": "Styling is done using NativeWind, which uses Tailwind CSS syntax. Define and use a consistent color palette and theme from `constants/colors.ts` to ensure a uniform look and feel. Avoid using inline styles with arbitrary values."
+    },
+    {
+        "name": "API Keys and Environment Variables",
+        "description": "Manage all secret keys and environment-specific configurations through a `.env` file at the root of the project. Do not hardcode any API keys or secrets directly in the code. Ensure `.env` is listed in the `.gitignore` file."
+    }
+  ]
+} 
