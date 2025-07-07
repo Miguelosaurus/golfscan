@@ -29,6 +29,7 @@ interface GolfState {
   updatePlayerHandicap: (playerId: string, handicap: number) => void;
   calculatePlayerHandicap: (playerId: string) => number | null;
   linkPlayerToUser: (playerId: string) => void;
+  mergePlayerData: (targetPlayerId: string, sourcePlayerId: string, finalName: string) => void;
   getCourseById: (courseId: string) => Course | undefined;
   getFrequentCourses: () => CourseUsage[];
   trackCourseUsage: (courseId: string, courseName: string) => void;
@@ -187,6 +188,42 @@ export const useGolfStore = create<GolfState>()(
         }));
         
         return { players: updatedPlayers };
+      }),
+      
+      mergePlayerData: (targetPlayerId, sourcePlayerId, finalName) => set((state) => {
+        // Find both players
+        const targetPlayer = state.players.find(p => p.id === targetPlayerId);
+        const sourcePlayer = state.players.find(p => p.id === sourcePlayerId);
+        
+        if (!targetPlayer || !sourcePlayer) return state;
+        
+        // Update the target player with the final name and keep better handicap
+        const mergedPlayer = {
+          ...targetPlayer,
+          name: finalName,
+          handicap: targetPlayer.handicap ?? sourcePlayer.handicap,
+          isUser: targetPlayer.isUser || sourcePlayer.isUser, // Keep user status if either has it
+        };
+        
+        // Update all rounds to use the target player ID
+        const updatedRounds = state.rounds.map(round => ({
+          ...round,
+          players: round.players.map(player => 
+            player.playerId === sourcePlayerId 
+              ? { ...player, playerId: targetPlayerId, playerName: finalName }
+              : player
+          )
+        }));
+        
+        // Remove the source player and update the target player
+        const updatedPlayers = state.players
+          .filter(p => p.id !== sourcePlayerId)
+          .map(p => p.id === targetPlayerId ? mergedPlayer : p);
+        
+        return {
+          players: updatedPlayers,
+          rounds: updatedRounds
+        };
       }),
       
       getCourseById: (courseId) => {

@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   Alert
 } from 'react-native';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
@@ -19,17 +19,20 @@ import { Plus, Minus } from 'lucide-react-native';
 
 export default function ManualCourseEntryScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { addCourse } = useGolfStore();
   
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
-  const [holes, setHoles] = useState<Hole[]>(
-    Array.from({ length: 18 }, (_, i) => ({
-      number: i + 1,
-      par: 4,
-      distance: 0
-    }))
-  );
+  const [holes, setHoles] = useState<Hole[]>(() => {
+    if (params.holes) {
+      try {
+        const parsed = JSON.parse(params.holes as string);
+        if (Array.isArray(parsed) && parsed.length) return parsed as Hole[];
+      } catch {}
+    }
+    return Array.from({ length: 18 }, (_, i) => ({ number: i + 1, par: 4, distance: 0 }));
+  });
   
   const handleParChange = (index: number, value: string) => {
     const par = parseInt(value, 10);

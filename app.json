@@ -4,7 +4,9 @@
       "slug": "golf-score-tracker-u82dxka",
       "version": "1.0.0",
       "orientation": "portrait",
-      "icon": "./assets/images/icon.png",
+      "runtimeVersion": {
+        "policy": "sdkVersion"
+      },
       "scheme": "myapp",
       "userInterfaceStyle": "automatic",
       "newArchEnabled": true,
@@ -14,17 +16,10 @@
       },
       "ios": {
         "supportsTablet": true,
-        "bundleIdentifier": "app.rork.golf-score-tracker-u82dxka"
+        "bundleIdentifier": "com.golfscanai.app"
       },
       "android": {
-        "adaptiveIcon": {
-          "foregroundImage": "./assets/images/adaptive-icon.png",
-          "backgroundColor": "#ffffff"
-        },
-        "package": "app.rork.golf-score-tracker-u82dxka"
-      },
-      "web": {
-        "favicon": "./assets/images/favicon.png"
+        "package": "com.golfscanai.app"
       },
       "plugins": [
         [

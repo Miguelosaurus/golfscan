@@ -200,7 +200,11 @@ export default function HomeScreen() {
       
       <View style={styles.profileSection}>
         <View style={styles.avatarContainer}>
-          <Text style={styles.avatarText}>{currentUser?.name?.charAt(0) || 'G'}</Text>
+          {currentUser?.photoUrl ? (
+            <Image source={{ uri: currentUser.photoUrl }} style={{ width: 80, height: 80, borderRadius: 40 }} />
+          ) : (
+            <Text style={styles.avatarText}>{currentUser?.name?.charAt(0) || 'G'}</Text>
+          )}
         </View>
         
         <Text style={styles.userName}>{currentUser?.name || 'Golf Player'}</Text>

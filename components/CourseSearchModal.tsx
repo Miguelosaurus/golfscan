@@ -11,11 +11,14 @@ import {
   Alert
 } from 'react-native';
 import { colors } from '@/constants/colors';
-import { trpc } from '@/lib/trpc';
+import { trpcClient } from '@/lib/trpc';
 import { convertApiCourseToLocal, getCourseDisplayName, formatCourseLocation, getTeeBoxOptions } from '@/utils/course-helpers';
 import { Course } from '@/types';
 import { useGolfStore } from '@/store/useGolfStore';
-import { Search, X, MapPin, ChevronDown, Clock, Star } from 'lucide-react-native';
+import { Search, X, MapPin, ChevronDown, Clock, Star, PlusCircle } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
+import { getDistanceInKm } from '@/utils/helpers';
 
 interface CourseSearchModalProps {
   visible: boolean;
@@ -23,12 +26,14 @@ interface CourseSearchModalProps {
   onSelectCourse: (course: Course) => void;
 }
 
-export const CourseSearchModal: React.FC<CourseSearchModalProps> = ({
+export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualCourse?: () => void }> = ({
   visible,
   onClose,
-  onSelectCourse
+  onSelectCourse,
+  onAddManualCourse,
 }) => {
   const { getFrequentCourses, getCourseById, addCourse } = useGolfStore();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]); // Changed from ApiCourse[] to any[]
   const [loading, setLoading] = useState(false);
@@ -36,7 +41,59 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps> = ({
   const [showTeeSelection, setShowTeeSelection] = useState(false);
   const [showFrequent, setShowFrequent] = useState(true);
 
+  // User location & nearby courses
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [nearbyCourses, setNearbyCourses] = useState<any[]>([]);
+
   const frequentCourses = getFrequentCourses();
+
+  // Acquire user location when modal becomes visible
+  useEffect(() => {
+    if (!visible) return;
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+        const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setUserLocation(coords);
+
+        // Reverse-geocode to get the user's city so we can query nearby courses
+        const geo = await Location.reverseGeocodeAsync(coords);
+        let queries: string[] = [];
+        if (geo && geo.length) {
+          const g = geo[0];
+          if (g.city) queries.push(g.city);
+          if (g.region) queries.push(g.region);
+          if (g.district) queries.push(g.district);
+        }
+        // Always add a generic fallback to broaden results
+        queries.push('golf');
+
+        for (const q of queries) {
+          try {
+            const results = await trpcClient.golfCourse.searchCourses.query({ query: q });
+            if (results && results.length) {
+              // Sort by distance if we have coordinates
+              const sorted = results.sort((a: any, b: any) => {
+                const d1 = getDistanceInKm(coords.latitude, coords.longitude, a.location.latitude, a.location.longitude);
+                const d2 = getDistanceInKm(coords.latitude, coords.longitude, b.location.latitude, b.location.longitude);
+                return d1 - d2;
+              });
+              setNearbyCourses(sorted as any[]);
+              break;
+            }
+          } catch (e) {
+            console.log('Nearby course search error', e);
+          }
+        }
+      } catch (e) {
+        console.log('Location error', e);
+      }
+    })();
+  }, [visible]);
 
   useEffect(() => {
     if (searchQuery.length >= 3) {
@@ -55,8 +112,20 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps> = ({
     if (searchQuery.length < 3) return;
     setLoading(true);
     try {
-      const results = await trpc.golfCourse.searchCourses.query({ query: searchQuery });
-      setSearchResults(results);
+      // Use the vanilla tRPC client for imperative call to avoid React-hook runtime constraints
+      const results = await trpcClient.golfCourse.searchCourses.query({ query: searchQuery });
+
+      // If we have user location, sort by distance so closest appear first
+      let sorted = results;
+      if (userLocation) {
+        sorted = [...results].sort((a: any, b: any) => {
+          const d1 = getDistanceInKm(userLocation.latitude, userLocation.longitude, a.location.latitude, a.location.longitude);
+          const d2 = getDistanceInKm(userLocation.latitude, userLocation.longitude, b.location.latitude, b.location.longitude);
+          return d1 - d2;
+        });
+      }
+
+      setSearchResults(sorted);
     } catch (error) {
       console.error('Search error:', error);
       Alert.alert('Error', 'Failed to search courses. Please check your internet connection and try again.');
@@ -148,6 +217,20 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps> = ({
     </TouchableOpacity>
   );
 
+  const renderNearbySection = () => (
+    nearbyCourses.length > 0 && (
+      <View style={styles.frequentSection}>
+        <Text style={styles.sectionTitle}>Nearby Courses</Text>
+        <FlatList
+          data={nearbyCourses}
+          renderItem={renderCourseItem}
+          keyExtractor={(item) => item.id.toString()}
+          showsVerticalScrollIndicator={false}
+        />
+      </View>
+    )
+  );
+
   const renderTeeOption = (teeName: string, index: number) => (
     <TouchableOpacity
       key={index}
@@ -200,13 +283,15 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps> = ({
               <View style={styles.frequentSection}>
                 <Text style={styles.sectionTitle}>Frequent Courses</Text>
                 <FlatList
-                  data={frequentCourses}
+                  data={frequentCourses.slice(0, 2)}
                   renderItem={renderFrequentCourse}
                   keyExtractor={(item) => item.courseId}
                   showsVerticalScrollIndicator={false}
                 />
               </View>
             )}
+
+            {showFrequent && renderNearbySection()}
 
             {!showFrequent && (
               <FlatList
@@ -218,8 +303,20 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps> = ({
                 ListEmptyComponent={
                   searchQuery.length >= 3 && !loading ? (
                     <View style={styles.emptyContainer}>
-                      <Text style={styles.emptyText}>No courses found</Text>
-                      <Text style={styles.emptySubtext}>Try a different search term</Text>
+                      <Text style={styles.emptyText}>Can't find your course?</Text>
+                      <Text style={styles.emptySubtext}>Add it manually below.</Text>
+
+                      <TouchableOpacity
+                        style={styles.manualEntryButton}
+                        onPress={() => {
+                          handleClose();
+                          if (onAddManualCourse) onAddManualCourse();
+                          else router.push('/manual-course-entry');
+                        }}
+                      >
+                        <PlusCircle size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                        <Text style={styles.manualEntryText}>Add Course Manually</Text>
+                      </TouchableOpacity>
                     </View>
                   ) : searchQuery.length > 0 && searchQuery.length < 3 ? (
                     <View style={styles.emptyContainer}>
@@ -397,6 +494,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  manualEntryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${colors.primary}10`,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: `${colors.primary}20`,
+  },
+  manualEntryText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.primary,
   },
   teeSelectionContainer: {
     padding: 16,

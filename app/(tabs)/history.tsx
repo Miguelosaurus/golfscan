@@ -6,7 +6,8 @@ import {
   FlatList, 
   TouchableOpacity,
   TextInput,
-  Image
+  Image,
+  Alert
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,13 +17,15 @@ import { RoundCard } from '@/components/RoundCard';
 import { CourseCard } from '@/components/CourseCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Round, Player, PlayerSummary, Course } from '@/types';
-import { History, Camera, Search, Users, Flag } from 'lucide-react-native';
+import { History, Camera, Search, Users, Flag, Check, X, Link, Edit } from 'lucide-react-native';
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const { rounds, players, courses } = useGolfStore();
+  const { rounds, players, courses, updatePlayer, mergePlayerData } = useGolfStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'rounds' | 'players' | 'courses'>('rounds');
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   
   const filteredRounds = rounds
     .filter(round => 
@@ -56,6 +59,50 @@ export default function HistoryScreen() {
   
   const navigateToScanScorecard = () => {
     router.push('/scan-scorecard');
+  };
+  
+  const toggleSelectMode = () => {
+    setIsSelectMode(!isSelectMode);
+    setSelectedPlayerIds([]);
+  };
+  
+  const togglePlayerSelection = (playerId: string) => {
+    setSelectedPlayerIds(prev => 
+      prev.includes(playerId) 
+        ? prev.filter(id => id !== playerId)
+        : [...prev, playerId]
+    );
+  };
+  
+  const handleMergePlayers = () => {
+    if (selectedPlayerIds.length !== 2) {
+      Alert.alert('Error', 'Please select exactly 2 players to merge.');
+      return;
+    }
+    
+    const playerData = selectedPlayerIds.map(id => getUniquePlayers().find(p => p.id === id)).filter(Boolean);
+    if (playerData.length !== 2) return;
+    
+    Alert.prompt(
+      'Merge Players',
+      `Enter the final name for merging "${playerData[0]!.name}" and "${playerData[1]!.name}":`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Merge',
+          onPress: (finalName) => {
+            if (finalName && finalName.trim()) {
+              mergePlayerData(selectedPlayerIds[0], selectedPlayerIds[1], finalName.trim());
+              setIsSelectMode(false);
+              setSelectedPlayerIds([]);
+              Alert.alert('Success', 'Players merged successfully.');
+            }
+          }
+        }
+      ],
+      'plain-text',
+      playerData[0]!.name
+    );
   };
   
   const renderRoundItem = ({ item }: { item: Round }) => (
@@ -110,11 +157,29 @@ export default function HistoryScreen() {
     const player = players.find(p => p.id === item.id);
     const name = player?.name || item.name;
     const photoUrl = player?.photoUrl;
+    const isSelected = selectedPlayerIds.includes(item.id);
+    
     return (
       <TouchableOpacity 
-        style={[styles.playerCard, item.isUser && styles.userPlayerCard]}
-        onPress={() => navigateToPlayerDetails(item.id)}
+        style={[
+          styles.playerCard, 
+          item.isUser && styles.userPlayerCard,
+          isSelected && styles.selectedPlayerCard
+        ]}
+        onPress={() => {
+          if (isSelectMode) {
+            togglePlayerSelection(item.id);
+          } else {
+            navigateToPlayerDetails(item.id);
+          }
+        }}
       >
+        {isSelectMode && (
+          <View style={styles.selectionIndicator}>
+            {isSelected && <Check size={20} color={colors.background} />}
+          </View>
+        )}
+        
         <View style={[styles.playerAvatar, item.isUser && styles.userPlayerAvatar]}>
           {photoUrl ? (
             <Image source={{ uri: photoUrl }} style={{ width: 50, height: 50, borderRadius: 25 }} />
@@ -265,6 +330,42 @@ export default function HistoryScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={getEmptyState()}
+        ListHeaderComponent={
+          activeTab === 'players' && getUniquePlayers().length > 1 ? (
+            <View style={styles.playerManagement}>
+              <TouchableOpacity 
+                style={[styles.managementButton, isSelectMode && styles.activeManagementButton]}
+                onPress={toggleSelectMode}
+              >
+                <Edit size={16} color={isSelectMode ? colors.background : colors.primary} />
+                <Text style={[styles.managementButtonText, isSelectMode && styles.activeManagementButtonText]}>
+                  {isSelectMode ? 'Cancel' : 'Manage'}
+                </Text>
+              </TouchableOpacity>
+              
+              {isSelectMode && (
+                <TouchableOpacity 
+                  style={[
+                    styles.managementButton, 
+                    styles.mergeButton,
+                    selectedPlayerIds.length !== 2 && styles.disabledButton
+                  ]}
+                  onPress={handleMergePlayers}
+                  disabled={selectedPlayerIds.length !== 2}
+                >
+                  <Link size={16} color={selectedPlayerIds.length === 2 ? colors.background : colors.textSecondary} />
+                  <Text style={[
+                    styles.managementButtonText, 
+                    styles.mergeButtonText,
+                    selectedPlayerIds.length !== 2 && styles.disabledButtonText
+                  ]}>
+                    Merge ({selectedPlayerIds.length}/2)
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
@@ -345,6 +446,22 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: `${colors.primary}05`,
   },
+  selectedPlayerCard: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}10`,
+  },
+  selectionIndicator: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   playerAvatar: {
     width: 50,
     height: 50,
@@ -398,5 +515,43 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
+  },
+  playerManagement: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  managementButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: `${colors.primary}15`,
+  },
+  activeManagementButton: {
+    backgroundColor: colors.primary,
+  },
+  managementButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.primary,
+    marginLeft: 6,
+  },
+  activeManagementButtonText: {
+    color: colors.background,
+  },
+  mergeButton: {
+    backgroundColor: colors.primary,
+  },
+  mergeButtonText: {
+    color: colors.background,
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  disabledButtonText: {
+    color: colors.textSecondary,
   },
 });

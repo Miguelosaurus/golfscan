@@ -1,42 +1,49 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
-  StyleSheet, 
   TouchableOpacity, 
-  Image,
+  StyleSheet, 
+  Alert, 
+  ScrollView, 
+  Dimensions, 
   ActivityIndicator,
-  Alert,
-  Platform,
-  ScrollView,
   TextInput,
-  FlatList
+  Image,
+  PanResponder,
+  Animated,
+  LayoutAnimation,
+  Platform,
+  UIManager
 } from 'react-native';
-import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { PanGestureHandler, State, FlatList } from 'react-native-gesture-handler';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { colors } from '@/constants/colors';
-import { Button } from '@/components/Button';
-import { CourseSearchModal } from '@/components/CourseSearchModal';
-import { useGolfStore } from '@/store/useGolfStore';
-import { generateUniqueId } from '@/utils/helpers';
 import { 
   Camera, 
   Image as ImageIcon, 
-  RotateCcw, 
-  User, 
-  Link as LinkIcon, 
-  Edit, 
   X, 
-  Check, 
-  Flag, 
+  Users, 
+  User, 
+  GripVertical, 
+  Plus, 
+  Link as LinkIcon, 
+  MapPin,
   ChevronDown,
-  Plus,
   Calendar,
-  GripVertical,
-  Trash2
+  Trash2,
+  Flag,
+  RotateCcw
 } from 'lucide-react-native';
+import { colors } from '@/constants/colors';
+import { generateUniqueId } from '@/utils/helpers';
+import { useGolfStore } from '@/store/useGolfStore';
+import { mockCourses } from '@/mocks/courses';
+import { CourseSearchModal } from '@/components/CourseSearchModal';
+import { Button } from '@/components/Button';
+import { Hole } from '@/types';
 
 interface DetectedPlayer {
   id: string;
@@ -53,11 +60,11 @@ interface DetectedPlayer {
 
 const TEE_COLORS = [
   { name: 'Black', color: '#000000' },
-  { name: 'Gold', color: '#FFD700' },
-  { name: 'Blue', color: '#0066CC' },
+  { name: 'Blue', color: '#4169E1' },
   { name: 'White', color: '#FFFFFF' },
+  { name: 'Yellow', color: '#FFD700' },
   { name: 'Red', color: '#FF0000' },
-  { name: 'Green', color: '#00AA00' },
+  { name: 'Green', color: '#008000' },
 ];
 
 export default function ScanScorecardScreen() {
@@ -80,6 +87,13 @@ export default function ScanScorecardScreen() {
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
   const cameraRef = useRef(null);
+
+  // Enable LayoutAnimation for Android
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
   
   const toggleCameraFacing = () => {
     setFacing(current => (current === 'back' ? 'front' : 'back'));
@@ -226,7 +240,8 @@ export default function ScanScorecardScreen() {
     
     // Simulate processing delay
     setTimeout(() => {
-      setDetectedPlayers(exampleDetectedPlayers);
+      const linkedPlayers = autoLinkPlayers(exampleDetectedPlayers);
+      setDetectedPlayers(linkedPlayers);
       setProcessingComplete(true);
       setScanning(false);
     }, 2000);
@@ -260,11 +275,53 @@ export default function ScanScorecardScreen() {
     
     return matrix[str2.length][str1.length];
   };
+
+  // Auto-link players with exact name matches after scanning
+  const autoLinkPlayers = (detectedPlayers: DetectedPlayer[]): DetectedPlayer[] => {
+    return detectedPlayers.map(player => {
+      // Skip if already linked
+      if (player.linkedPlayerId) return player;
+      
+      // Look for exact match first
+      const exactMatch = players.find(p => p.name.toLowerCase() === player.name.toLowerCase());
+      if (exactMatch) {
+        const updatedPlayer = {
+          ...player,
+          linkedPlayerId: exactMatch.id,
+          handicap: exactMatch.handicap
+        };
+        
+        // If this exact match is the current user, mark as user
+        if (exactMatch.isUser) {
+          updatedPlayer.isUser = true;
+        }
+        
+        return updatedPlayer;
+      }
+      
+      return player;
+    });
+  };
   
   const handleEditPlayerName = (index: number, newName: string) => {
     setDetectedPlayers(prev => {
       const updated = [...prev];
       updated[index] = { ...updated[index], name: newName };
+      
+      // Auto-link if exact match found
+      const exactMatch = players.find(p => p.name.toLowerCase() === newName.toLowerCase());
+      if (exactMatch && !updated[index].linkedPlayerId) {
+        updated[index].linkedPlayerId = exactMatch.id;
+        updated[index].handicap = exactMatch.handicap;
+        
+        // If this exact match is the current user, mark as user
+        if (exactMatch.isUser) {
+          // First remove isUser from all other players
+          updated.forEach(p => p.isUser = false);
+          updated[index].isUser = true;
+        }
+      }
+      
       return updated;
     });
   };
@@ -376,6 +433,8 @@ export default function ScanScorecardScreen() {
   const handleReorderPlayers = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
     
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    
     setDetectedPlayers(prev => {
       const updated = [...prev];
       const [movedPlayer] = updated.splice(fromIndex, 1);
@@ -388,16 +447,36 @@ export default function ScanScorecardScreen() {
     setDraggingPlayerIndex(index);
   };
   
-  const endDragging = (toIndex: number) => {
-    if (draggingPlayerIndex !== null) {
-      handleReorderPlayers(draggingPlayerIndex, toIndex);
-      setDraggingPlayerIndex(null);
+  const endDragging = () => {
+    setDraggingPlayerIndex(null);
+  };
+
+  const handlePlayerDrop = (dropIndex: number) => {
+    if (draggingPlayerIndex !== null && draggingPlayerIndex !== dropIndex) {
+      handleReorderPlayers(draggingPlayerIndex, dropIndex);
     }
+    endDragging();
   };
   
   const handleSelectCourse = (course: any) => {
     setSelectedCourse(course.id);
     setShowCourseSearchModal(false);
+  };
+
+  const buildPrefillHoles = (): Hole[] => {
+    // For now, since we don't have actual par data from scorecard scanning yet,
+    // we'll default to par 4 for all holes. When scorecard scanning is implemented,
+    // this should extract the actual par data from the scanned scorecard.
+    return Array.from({ length: 18 }, (_, i) => ({ 
+      number: i + 1, 
+      par: 4, 
+      distance: 0 
+    }));
+  };
+
+  const handleAddCourseManually = () => {
+    const holesPrefill = buildPrefillHoles();
+    router.push({ pathname: '/manual-course-entry', params: { holes: JSON.stringify(holesPrefill) } });
   };
   
   const validateForm = () => {
@@ -624,7 +703,7 @@ export default function ScanScorecardScreen() {
             style={[styles.tab, activeTab === 'scores' && styles.activeTab]}
             onPress={() => setActiveTab('scores')}
           >
-            <Flag size={18} color={activeTab === 'scores' ? colors.primary : colors.text} />
+            <Users size={18} color={activeTab === 'scores' ? colors.primary : colors.text} />
             <Text style={[styles.tabText, activeTab === 'scores' && styles.activeTabText]}>Scores</Text>
           </TouchableOpacity>
           
@@ -632,7 +711,7 @@ export default function ScanScorecardScreen() {
             style={[styles.tab, activeTab === 'details' && styles.activeTab]}
             onPress={() => setActiveTab('details')}
           >
-            <Calendar size={18} color={activeTab === 'details' ? colors.primary : colors.text} />
+            <MapPin size={18} color={activeTab === 'details' ? colors.primary : colors.text} />
             <Text style={[styles.tabText, activeTab === 'details' && styles.activeTabText]}>Details</Text>
           </TouchableOpacity>
         </View>
@@ -656,21 +735,31 @@ export default function ScanScorecardScreen() {
               
               <View style={styles.playersContainer}>
                 {detectedPlayers.map((player, index) => (
-                  <View 
-                    key={player.id} 
-                    style={[
-                      styles.playerCard,
-                      draggingPlayerIndex === index && styles.draggingPlayerCard
-                    ]}
-                  >
-                    <View style={styles.playerHeader}>
+                  <View key={player.id}>
+                    {draggingPlayerIndex !== null && draggingPlayerIndex !== index && (
                       <TouchableOpacity 
-                        style={styles.dragHandle}
-                        onPressIn={() => startDragging(index)}
-                        onPressOut={() => endDragging(index)}
+                        style={styles.dropZone}
+                        onPress={() => handlePlayerDrop(index)}
                       >
-                        <GripVertical size={18} color={colors.text} />
+                        <Text style={styles.dropZoneText}>Drop here to reorder</Text>
                       </TouchableOpacity>
+                    )}
+                    
+                    <View 
+                      style={[
+                        styles.playerCard,
+                        draggingPlayerIndex === index && styles.draggingPlayerCard
+                      ]}
+                    >
+                      <View style={styles.playerHeader}>
+                        <TouchableOpacity 
+                          style={styles.dragHandle}
+                          onLongPress={() => startDragging(index)}
+                          onPressOut={() => endDragging()}
+                          delayLongPress={500}
+                        >
+                          <GripVertical size={18} color={draggingPlayerIndex === index ? colors.primary : colors.text} />
+                        </TouchableOpacity>
                       
                       <View style={styles.playerNameContainer}>
                         <TextInput
@@ -752,6 +841,7 @@ export default function ScanScorecardScreen() {
                         </TouchableOpacity>
                       </View>
                     </View>
+                  </View>
                   </View>
                 ))}
               </View>
@@ -922,6 +1012,7 @@ export default function ScanScorecardScreen() {
           visible={showCourseSearchModal}
           onClose={() => setShowCourseSearchModal(false)}
           onSelectCourse={handleSelectCourse}
+          onAddManualCourse={handleAddCourseManually}
         />
       </SafeAreaView>
     );
@@ -1642,5 +1733,25 @@ const styles = StyleSheet.create({
   },
   noPlayersButton: {
     minWidth: 200,
+  },
+  dropZone: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    zIndex: 1,
+  },
+  dropZoneText: {
+    fontSize: 16,
+    color: colors.primary,
+    fontWeight: '500',
+    textAlign: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 8,
   },
 });

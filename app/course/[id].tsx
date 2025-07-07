@@ -1,23 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   ScrollView, 
   Image,
-  TouchableOpacity
+  TouchableOpacity,
+  Modal
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
-import { MapPin, Camera } from 'lucide-react-native';
+import { RoundCard } from '@/components/RoundCard';
+import { MapPin, Camera, X, TrendingUp, TrendingDown } from 'lucide-react-native';
 
 export default function CourseDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { courses, rounds } = useGolfStore();
+  const [showRoundsModal, setShowRoundsModal] = useState(false);
   
   const course = courses.find(c => c.id === id);
   
@@ -36,6 +39,43 @@ export default function CourseDetailsScreen() {
   
   const courseRounds = rounds.filter(round => round.courseId === id);
   const totalPar = course.holes.reduce((sum, hole) => sum + hole.par, 0);
+  
+  // Calculate stats from user's rounds only
+  const userRounds = courseRounds.filter(round => 
+    round.players.some(player => player.playerId && player.playerId.length > 0)
+  );
+  
+  const calculateCourseStats = () => {
+    if (userRounds.length === 0) return null;
+    
+    let totalScoreSum = 0;
+    let roundCount = 0;
+    let bestScore = Infinity;
+    let worstScore = 0;
+    let parOrBetter = 0;
+    
+    userRounds.forEach(round => {
+      round.players.forEach(player => {
+        if (player.totalScore) {
+          totalScoreSum += player.totalScore;
+          roundCount++;
+          bestScore = Math.min(bestScore, player.totalScore);
+          worstScore = Math.max(worstScore, player.totalScore);
+          if (player.totalScore <= totalPar) parOrBetter++;
+        }
+      });
+    });
+    
+    return {
+      averageScore: roundCount > 0 ? totalScoreSum / roundCount : 0,
+      bestScore: bestScore === Infinity ? 0 : bestScore,
+      worstScore,
+      parOrBetterPercentage: roundCount > 0 ? (parOrBetter / roundCount) * 100 : 0,
+      totalRounds: roundCount
+    };
+  };
+  
+  const stats = calculateCourseStats();
   
   const navigateToScanScorecard = () => {
     router.push({
@@ -102,11 +142,63 @@ export default function CourseDetailsScreen() {
           
           <View style={styles.statDivider} />
           
-          <View style={styles.statItem}>
+          <TouchableOpacity style={styles.statItem} onPress={() => setShowRoundsModal(true)}>
             <Text style={styles.statValue}>{courseRounds.length}</Text>
             <Text style={styles.statLabel}>Rounds Played</Text>
-          </View>
+          </TouchableOpacity>
         </View>
+        
+        {stats && (
+          <View style={styles.statsSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Your Performance Stats</Text>
+            </View>
+            
+            <View style={styles.performanceGrid}>
+              <View style={styles.performanceCard}>
+                <Text style={styles.performanceValue}>{stats.averageScore.toFixed(1)}</Text>
+                <Text style={styles.performanceLabel}>Avg Score</Text>
+                <View style={styles.performanceIndicator}>
+                  {stats.averageScore < totalPar ? (
+                    <TrendingDown size={16} color={colors.success} />
+                  ) : (
+                    <TrendingUp size={16} color={colors.error} />
+                  )}
+                  <Text style={[
+                    styles.performanceChange,
+                    { color: stats.averageScore < totalPar ? colors.success : colors.error }
+                  ]}>
+                    {stats.averageScore < totalPar ? 'Under Par' : 'Over Par'}
+                  </Text>
+                </View>
+              </View>
+              
+              <View style={styles.performanceCard}>
+                <Text style={styles.performanceValue}>{stats.bestScore}</Text>
+                <Text style={styles.performanceLabel}>Best Score</Text>
+                <Text style={styles.performanceSubtext}>
+                  {stats.bestScore - totalPar > 0 ? '+' : ''}{stats.bestScore - totalPar}
+                </Text>
+              </View>
+              
+              <View style={styles.performanceCard}>
+                <Text style={styles.performanceValue}>{stats.parOrBetterPercentage.toFixed(0)}%</Text>
+                <Text style={styles.performanceLabel}>Par or Better</Text>
+                <Text style={styles.performanceSubtext}>
+                  {Math.round(stats.parOrBetterPercentage / 100 * stats.totalRounds)} rounds
+                </Text>
+              </View>
+              
+              <View style={styles.performanceCard}>
+                <Text style={styles.performanceValue}>{stats.worstScore}</Text>
+                <Text style={styles.performanceLabel}>Worst Score</Text>
+                <Text style={styles.performanceSubtext}>
+                  +{stats.worstScore - totalPar}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
         
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Course Details</Text>
@@ -139,7 +231,44 @@ export default function CourseDetailsScreen() {
           style={styles.startButton}
           icon={<Camera size={18} color={colors.background} style={{ marginRight: 8 }} />}
         />
+
+        <Button
+          title="View Rounds"
+          onPress={() => setShowRoundsModal(true)}
+          style={styles.startButton}
+          icon={<TrendingUp size={18} color={colors.background} style={{ marginRight: 8 }} />}
+        />
       </ScrollView>
+
+      <Modal
+        visible={showRoundsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowRoundsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Rounds Played at {course.name}</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {courseRounds.map((round, index) => (
+                <RoundCard 
+                  key={index} 
+                  round={round} 
+                  onPress={() => {
+                    setShowRoundsModal(false);
+                    router.push(`/round/${round.id}`);
+                  }}
+                />
+              ))}
+            </ScrollView>
+            <Button
+              title="Close"
+              onPress={() => setShowRoundsModal(false)}
+              style={styles.modalCloseButton}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -290,5 +419,70 @@ const styles = StyleSheet.create({
   },
   errorButton: {
     marginHorizontal: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 15,
+  },
+  modalCloseButton: {
+    marginTop: 15,
+  },
+  statsSection: {
+    marginHorizontal: 16,
+    marginBottom: 24,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+  },
+  performanceGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+  },
+  performanceCard: {
+    width: '45%', // Adjust as needed for 2 columns
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  performanceValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  performanceLabel: {
+    fontSize: 14,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  performanceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  performanceChange: {
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  performanceSubtext: {
+    fontSize: 12,
+    color: colors.text,
+    marginTop: 4,
   },
 });

@@ -1,9 +1,12 @@
 import { inferAsyncReturnType } from '@trpc/server';
-import { HonoRequest } from 'hono';
+import type { FetchCreateContextFnOptions } from '@trpc/server/adapters/fetch';
 
-export function createContext({ req }: { req: HonoRequest }) {
-  // You can add authentication or database connections here
-  return {};
+// You can extend this to include auth, DB connections, etc.
+export function createContext({ req }: FetchCreateContextFnOptions) {
+  return {
+    // example: add IP for rate-limiting later
+    ip: req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'unknown',
+  };
 }
 
 export type Context = inferAsyncReturnType<typeof createContext>; 
