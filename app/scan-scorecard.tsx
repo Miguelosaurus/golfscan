@@ -21,6 +21,7 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { 
   Camera, 
   Image as ImageIcon, 
@@ -43,11 +44,13 @@ import { useGolfStore } from '@/store/useGolfStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Button } from '@/components/Button';
-import { Hole } from '@/types';
+import { Hole, ScorecardScanResult } from '@/types';
+import { trpc } from '@/lib/trpc';
 
 interface DetectedPlayer {
   id: string;
   name: string;
+  nameConfidence?: number;
   linkedPlayerId?: string;
   isUser?: boolean;
   handicap?: number;
@@ -55,7 +58,14 @@ interface DetectedPlayer {
   scores: {
     holeNumber: number;
     strokes: number;
+    confidence?: number;
   }[];
+}
+
+interface ScanProgress {
+  stage: 'preparing' | 'uploading' | 'analyzing' | 'processing' | 'complete';
+  progress: number; // 0-100
+  message: string;
 }
 
 const TEE_COLORS = [
@@ -70,11 +80,23 @@ const TEE_COLORS = [
 export default function ScanScorecardScreen() {
   const { courseId } = useLocalSearchParams<{ courseId?: string }>();
   const router = useRouter();
-  const { players, courses, addRound } = useGolfStore();
+  const { 
+    players, 
+    courses, 
+    addRound, 
+    scannedData, 
+    isScanning: storeScanningState,
+    remainingScans,
+    setScannedData,
+    setIsScanning,
+    setRemainingScans,
+    clearScanData
+  } = useGolfStore();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
   const [photos, setPhotos] = useState<string[]>([]);
-  const [scanning, setScanning] = useState(false);
+  const [localScanning, setLocalScanning] = useState(false);
+  const scanning = localScanning || storeScanningState;
   const [processingComplete, setProcessingComplete] = useState(false);
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
   const [showPlayerLinking, setShowPlayerLinking] = useState(false);
@@ -86,7 +108,51 @@ export default function ScanScorecardScreen() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
-  const cameraRef = useRef(null);
+  const [scanProgress, setScanProgress] = useState<ScanProgress>({
+    stage: 'preparing',
+    progress: 0,
+    message: 'Preparing to scan...'
+  });
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const blockProgressAnim = useRef(new Animated.Value(0)).current;
+  const cameraRef = useRef<CameraView>(null);
+
+  // tRPC mutations
+  const scanMutation = trpc.scorecard.scanScorecard.useMutation();
+  const getRemainingScansQuery = trpc.scorecard.getRemainingScans.useQuery(
+    { userId: getCurrentUserId() },
+    { enabled: !!getCurrentUserId() }
+  );
+
+  // Helper function to get current user ID
+  function getCurrentUserId(): string {
+    const currentUser = players.find(p => p.isUser);
+    return currentUser?.id || generateUniqueId();
+  }
+
+  // Reset progress when scanning stops
+  useEffect(() => {
+    if (!scanning) {
+      setScanProgress({ stage: 'preparing', progress: 0, message: 'Preparing to scan...' });
+      progressAnim.setValue(0);
+      blockProgressAnim.setValue(0);
+      stopPulseAnimation();
+    }
+  }, [scanning]);
+
+  // Helper function to convert image URI to base64
+  const convertImageToBase64 = async (uri: string): Promise<string> => {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return `data:image/jpeg;base64,${base64}`;
+    } catch (error) {
+      console.error('Error converting image to base64:', error);
+      throw new Error('Failed to process image');
+    }
+  };
 
   // Enable LayoutAnimation for Android
   useEffect(() => {
@@ -94,6 +160,21 @@ export default function ScanScorecardScreen() {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
+
+  // Update remaining scans from query
+  useEffect(() => {
+    if (getRemainingScansQuery.data !== undefined) {
+      setRemainingScans(getRemainingScansQuery.data);
+    }
+  }, [getRemainingScansQuery.data]);
+
+  // Helper function for confidence-based styling
+  const getConfidenceStyle = (confidence?: number) => {
+    if (confidence !== undefined && confidence < 0.6) {
+      return { backgroundColor: '#FFF3CD', borderColor: '#FFEAA7' }; // Light yellow for low confidence
+    }
+    return {};
+  };
   
   const toggleCameraFacing = () => {
     setFacing(current => (current === 'back' ? 'front' : 'back'));
@@ -103,17 +184,17 @@ export default function ScanScorecardScreen() {
     if (!cameraRef.current) return;
     
     try {
-      setScanning(true);
+      // Actually take a photo using the camera
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: false,
+      });
       
-      // Simulate taking a picture
-      setTimeout(() => {
-        const newPhoto = 'https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80';
-        setPhotos(prev => [...prev, newPhoto]);
-        setScanning(false);
-      }, 1500);
+      if (photo?.uri) {
+        setPhotos(prev => [...prev, photo.uri]);
+      }
     } catch (error) {
       console.error('Error taking picture:', error);
-      setScanning(false);
       Alert.alert('Error', 'Failed to take picture. Please try again.');
     }
   };
@@ -152,99 +233,241 @@ export default function ScanScorecardScreen() {
     setProcessingComplete(false);
     setDetectedPlayers([]);
   };
+
+  // Progress animation functions
+  const updateProgress = (stage: ScanProgress['stage'], progress: number, message: string) => {
+    setScanProgress({ stage, progress, message });
+    
+    // Animate progress bar
+    Animated.timing(progressAnim, {
+      toValue: progress / 100,
+      duration: 500,
+      useNativeDriver: false,
+    }).start();
+
+    // Smooth block animation - moves independently but guided by progress
+    // This creates continuous movement even when percentage doesn't change
+    const targetBlockProgress = progress / 100;
+    Animated.timing(blockProgressAnim, {
+      toValue: targetBlockProgress,
+      duration: Math.random() * 3000 + 2000, // 2-5 seconds, varies for natural feel
+      useNativeDriver: false,
+    }).start();
+  };
+
+  const startPulseAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  const stopPulseAnimation = () => {
+    pulseAnim.stopAnimation();
+    Animated.timing(pulseAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  };
   
-  const processScorecard = () => {
+  const processScorecard = async () => {
     if (photos.length === 0) {
       Alert.alert('Error', 'Please take or select at least one photo first.');
       return;
     }
-    
-    setScanning(true);
-    
-    // Generate example data with detected players
+
+    const startTime = Date.now();
+    console.log('⏱️ TIMING: Process Scorecard started at', new Date().toLocaleTimeString());
+
+    setIsScanning(true);
+    clearScanData();
+    startPulseAnimation();
+
+    try {
+      // Stage 1: Preparing images (0-15%)
+      updateProgress('preparing', 5, 'Preparing images for analysis...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      updateProgress('uploading', 10, 'Processing image data...');
+      
+      // Convert images to base64 with progress updates
+      const base64Images: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const progress = 10 + (5 * (i + 1) / photos.length);
+        updateProgress('uploading', progress, `Processing image ${i + 1} of ${photos.length}...`);
+        
+        const base64Image = await convertImageToBase64(photos[i]);
+        base64Images.push(base64Image);
+        
+        // Small delay for visual feedback
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      // Stage 2: Sending to AI (15-25%)
+      updateProgress('analyzing', 20, 'Connecting to AI analysis...');
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      updateProgress('analyzing', 25, 'AI is reading your scorecard...');
+
+      // Stage 3: AI Processing simulation (25-90%) - Slower progression to 90%
+      const progressSteps = [
+        { progress: 30, message: 'Detecting players and scores...' },
+        { progress: 40, message: 'Analyzing handwriting patterns...' },
+        { progress: 50, message: 'Extracting hole information...' },
+        { progress: 60, message: 'Reading score values...' },
+        { progress: 70, message: 'Analyzing confidence levels...' },
+        { progress: 78, message: 'Cross-referencing data...' },
+        { progress: 85, message: 'Validating extracted data...' },
+        { progress: 90, message: 'Finalizing results...' }
+      ];
+
+      // Start the actual API call
+      const apiCallPromise = scanMutation.mutateAsync({
+        images: base64Images,
+        userId: getCurrentUserId()
+      });
+
+      // Simulate progress while waiting for API (faster since Files API is much quicker)
+      for (const step of progressSteps) {
+        updateProgress('analyzing', step.progress, step.message);
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 3000 + 2000)); // 2-5s per step (faster)
+      }
+
+      // Stage 4: Wait at 90% for API completion
+      console.log('⏱️ TIMING: Reached 90% at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+      updateProgress('processing', 90, 'Waiting for AI completion...');
+      
+      const response = await apiCallPromise;
+      
+      // Fill blocks completely when we get response, then go to 100%
+      updateProgress('processing', 100, 'Processing complete!');
+      
+      // Fill blocks to 100% immediately for visual cohesion
+      Animated.timing(blockProgressAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: false,
+      }).start();
+      
+      console.log('⏱️ TIMING: OpenAI response received at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s total)`);
+
+      updateProgress('complete', 100, 'Scan complete!');
+      console.log('⏱️ TIMING: Process completed at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s total)`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Update remaining scans count
+      setRemainingScans(response.remainingScans);
+      
+      // Store scanned data
+      setScannedData(response.data);
+
+      // Stop animations
+      stopPulseAnimation();
+
+      // Check overall confidence - if too low, offer to retake
+      if (response.data.overallConfidence < 0.6) {
+        Alert.alert(
+          'Low Confidence Detected',
+          `The scan confidence is ${Math.round(response.data.overallConfidence * 100)}%. The extracted data may not be accurate. Would you like to retake the photos or continue with manual editing?`,
+          [
+            {
+              text: 'Retake Photos',
+              onPress: () => {
+                setPhotos([]);
+                setProcessingComplete(false);
+                setDetectedPlayers([]);
+                clearScanData();
+                setScanProgress({ stage: 'preparing', progress: 0, message: 'Preparing to scan...' });
+                progressAnim.setValue(0);
+              }
+            },
+            {
+              text: 'Continue & Edit',
+              onPress: () => processAIResults(response.data)
+            }
+          ]
+        );
+      } else {
+        processAIResults(response.data);
+      }
+
+    } catch (error) {
+      console.error('Scan error:', error);
+      stopPulseAnimation();
+      
+      Alert.alert(
+        'Scan Failed', 
+        error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
+        [
+          {
+            text: 'Retry',
+            onPress: () => processScorecard()
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {
+              setScanProgress({ stage: 'preparing', progress: 0, message: 'Preparing to scan...' });
+              progressAnim.setValue(0);
+            }
+          }
+        ]
+      );
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const processAIResults = (scanResult: ScorecardScanResult) => {
     const currentUser = players.find(p => p.isUser);
     
-    // Create detected players with example data
-    const exampleDetectedPlayers: DetectedPlayer[] = [
-      {
-        id: generateUniqueId(),
-        name: currentUser ? currentUser.name : "John Smith",
-        linkedPlayerId: currentUser ? currentUser.id : undefined,
-        isUser: !!currentUser,
-        handicap: currentUser?.handicap,
-        teeColor: 'Blue',
-        scores: [
-          { holeNumber: 1, strokes: 4 },
-          { holeNumber: 2, strokes: 5 },
-          { holeNumber: 3, strokes: 3 },
-          { holeNumber: 4, strokes: 4 },
-          { holeNumber: 5, strokes: 5 },
-          { holeNumber: 6, strokes: 4 },
-          { holeNumber: 7, strokes: 3 },
-          { holeNumber: 8, strokes: 4 },
-          { holeNumber: 9, strokes: 5 },
-          { holeNumber: 10, strokes: 4 },
-          { holeNumber: 11, strokes: 5 },
-          { holeNumber: 12, strokes: 3 },
-          { holeNumber: 13, strokes: 4 },
-          { holeNumber: 14, strokes: 4 },
-          { holeNumber: 15, strokes: 5 },
-          { holeNumber: 16, strokes: 3 },
-          { holeNumber: 17, strokes: 4 },
-          { holeNumber: 18, strokes: 4 }
-        ]
-      },
-      {
-        id: generateUniqueId(),
-        name: "Jane Doe",
-        handicap: 12,
-        teeColor: 'Red',
-        scores: [
-          { holeNumber: 1, strokes: 5 },
-          { holeNumber: 2, strokes: 4 },
-          { holeNumber: 3, strokes: 4 },
-          { holeNumber: 4, strokes: 3 },
-          { holeNumber: 5, strokes: 5 },
-          { holeNumber: 6, strokes: 4 },
-          { holeNumber: 7, strokes: 4 },
-          { holeNumber: 8, strokes: 5 },
-          { holeNumber: 9, strokes: 4 },
-          { holeNumber: 10, strokes: 5 },
-          { holeNumber: 11, strokes: 4 },
-          { holeNumber: 12, strokes: 4 },
-          { holeNumber: 13, strokes: 3 },
-          { holeNumber: 14, strokes: 5 },
-          { holeNumber: 15, strokes: 4 },
-          { holeNumber: 16, strokes: 4 },
-          { holeNumber: 17, strokes: 5 },
-          { holeNumber: 18, strokes: 3 }
-        ]
-      }
-    ];
-    
-    // Auto-detect user by finding closest name match
-    if (currentUser && !exampleDetectedPlayers.some(p => p.isUser)) {
-      const closestMatch = exampleDetectedPlayers.reduce((closest, player) => {
-        const currentDistance = levenshteinDistance(player.name.toLowerCase(), currentUser.name.toLowerCase());
-        const closestDistance = levenshteinDistance(closest.name.toLowerCase(), currentUser.name.toLowerCase());
-        return currentDistance < closestDistance ? player : closest;
-      });
-      
-      // Mark closest match as user if similarity is reasonable
-      if (levenshteinDistance(closestMatch.name.toLowerCase(), currentUser.name.toLowerCase()) < 3) {
-        closestMatch.isUser = true;
-        closestMatch.linkedPlayerId = currentUser.id;
-        closestMatch.handicap = currentUser.handicap;
+    // Convert AI results to DetectedPlayer format
+    const aiDetectedPlayers: DetectedPlayer[] = scanResult.players.map(player => ({
+      id: generateUniqueId(),
+      name: player.name,
+      nameConfidence: player.nameConfidence,
+      teeColor: 'Blue', // Default tee color, user can change
+      scores: player.scores
+        .filter(score => score.score !== null) // Filter out null scores
+        .map(score => ({
+          holeNumber: score.hole,
+          strokes: score.score!,
+          confidence: score.confidence
+        }))
+    }));
+
+    // Auto-link players with existing players and mark user
+    const linkedPlayers = autoLinkPlayers(aiDetectedPlayers);
+
+    // If course name was detected and matched, set it
+    if (scanResult.courseName) {
+      const matchedCourse = courses.find(c => 
+        c.name.toLowerCase().includes(scanResult.courseName!.toLowerCase()) ||
+        scanResult.courseName!.toLowerCase().includes(c.name.toLowerCase())
+      );
+      if (matchedCourse) {
+        setSelectedCourse(matchedCourse.id);
       }
     }
-    
-    // Simulate processing delay
-    setTimeout(() => {
-      const linkedPlayers = autoLinkPlayers(exampleDetectedPlayers);
-      setDetectedPlayers(linkedPlayers);
-      setProcessingComplete(true);
-      setScanning(false);
-    }, 2000);
+
+    // If date was detected, set it
+    if (scanResult.date) {
+      setDate(scanResult.date);
+    }
+
+    setDetectedPlayers(linkedPlayers);
+    setProcessingComplete(true);
   };
   
   // Simple Levenshtein distance function for name matching
@@ -763,7 +986,10 @@ export default function ScanScorecardScreen() {
                       
                       <View style={styles.playerNameContainer}>
                         <TextInput
-                          style={styles.playerNameInput}
+                          style={[
+                            styles.playerNameInput,
+                            getConfidenceStyle(player.nameConfidence)
+                          ]}
                           value={player.name}
                           onChangeText={(text) => handleEditPlayerName(index, text)}
                           placeholder="Player Name"
@@ -929,7 +1155,8 @@ export default function ScanScorecardScreen() {
                               styles.scoresTableCell, 
                               styles.playerScoreCell, 
                               styles.scoreInput,
-                              { color: scoreColor }
+                              { color: scoreColor },
+                              getConfidenceStyle(playerScore?.confidence)
                             ]}
                             value={strokes > 0 ? strokes.toString() : ""}
                             onChangeText={(text) => {
@@ -1081,18 +1308,83 @@ export default function ScanScorecardScreen() {
             />
             
             <Button
-              title={scanning ? "Processing..." : "Process All"}
+              title={scanning ? "Processing..." : "Process Scorecard"}
               onPress={processScorecard}
               disabled={scanning}
-              loading={scanning}
+              loading={scanning}  
               style={styles.previewButton}
             />
           </View>
+
+          {remainingScans < 50 && (
+            <View style={styles.scanLimitContainer}>
+              <Text style={styles.scanLimitText}>
+                {remainingScans} scans remaining today
+              </Text>
+            </View>
+          )}
           
           {scanning && (
-            <View style={styles.scanningOverlay}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.scanningText}>Processing {photos.length} photo{photos.length > 1 ? 's' : ''}...</Text>
+            <View style={styles.progressOverlay}>
+              <Animated.View 
+                style={[
+                  styles.progressContainer,
+                  { transform: [{ scale: pulseAnim }] }
+                ]}
+              >
+                <View style={styles.progressHeader}>
+                  <Text style={styles.progressTitle}>Analyzing Scorecard</Text>
+                  <Text style={styles.progressSubtitle}>{scanProgress.message}</Text>
+                </View>
+                
+                <View style={styles.progressBarContainer}>
+                  <View style={styles.progressBarBackground}>
+                    <Animated.View 
+                      style={[
+                        styles.progressBarFill,
+                        { width: progressAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0%', '100%']
+                        })}
+                      ]} 
+                    />
+                  </View>
+                  <Text style={styles.progressText}>
+                    {Math.round(scanProgress.progress)}%
+                  </Text>
+                </View>
+                
+                <View style={styles.analysisIndicator}>
+                  <View style={styles.analysisGrid}>
+                    {Array.from({ length: 12 }, (_, i) => {
+                      return (
+                        <View key={i} style={styles.analysisCell}>
+                          <Animated.View
+                            style={[
+                              styles.analysisCellFill,
+                              {
+                                width: blockProgressAnim.interpolate({
+                                  inputRange: [i/12, (i+1)/12],
+                                  outputRange: ['0%', '100%'],
+                                  extrapolate: 'clamp'
+                                }),
+                                opacity: blockProgressAnim.interpolate({
+                                  inputRange: [i/12 - 0.05, i/12],
+                                  outputRange: [0.3, 1],
+                                  extrapolate: 'clamp'
+                                })
+                              }
+                            ]}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                  <Text style={styles.analysisText}>
+                    AI is processing your scorecard data...
+                  </Text>
+                </View>
+              </Animated.View>
             </View>
           )}
         </View>
@@ -1107,6 +1399,73 @@ export default function ScanScorecardScreen() {
               >
                 <View style={styles.overlay}>
                   <View style={styles.scanFrame} />
+                  
+
+
+                  {/* Progress Overlay */}
+                  {scanning && (
+                    <View style={styles.progressOverlay}>
+                      <Animated.View 
+                        style={[
+                          styles.progressContainer,
+                          { transform: [{ scale: pulseAnim }] }
+                        ]}
+                      >
+                        <View style={styles.progressHeader}>
+                          <Text style={styles.progressTitle}>Analyzing Scorecard</Text>
+                          <Text style={styles.progressSubtitle}>{scanProgress.message}</Text>
+                        </View>
+                        
+                        <View style={styles.progressBarContainer}>
+                          <View style={styles.progressBarBackground}>
+                            <Animated.View 
+                              style={[
+                                styles.progressBarFill,
+                                { width: progressAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: ['0%', '100%']
+                                })}
+                              ]} 
+                            />
+                          </View>
+                          <Text style={styles.progressText}>
+                            {Math.round(scanProgress.progress)}%
+                          </Text>
+                        </View>
+                        
+                        <View style={styles.analysisIndicator}>
+                          <View style={styles.analysisGrid}>
+                            {Array.from({ length: 12 }, (_, i) => {
+                              return (
+                                <View key={i} style={styles.analysisCell}>
+                                  <Animated.View
+                                    style={[
+                                      styles.analysisCellFill,
+                                      {
+                                        width: blockProgressAnim.interpolate({
+                                          inputRange: [i/12, (i+1)/12],
+                                          outputRange: ['0%', '100%'],
+                                          extrapolate: 'clamp'
+                                        }),
+                                        opacity: blockProgressAnim.interpolate({
+                                          inputRange: [i/12 - 0.05, i/12],
+                                          outputRange: [0.3, 1],
+                                          extrapolate: 'clamp'
+                                        })
+                                      }
+                                    ]}
+                                  />
+                                </View>
+                              );
+                            })}
+                          </View>
+                          <Text style={styles.analysisText}>
+                            AI is processing your scorecard data...
+                          </Text>
+                        </View>
+                      </Animated.View>
+                    </View>
+                  )}
                 </View>
               </CameraView>
             ) : (
@@ -1753,5 +2112,127 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: 'rgba(255,255,255,0.3)',
     borderRadius: 8,
+  },
+  scanLimitContainer: {
+    padding: 8,
+    backgroundColor: `${colors.primary}15`,
+    borderRadius: 8,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  scanLimitText: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  // Progress overlay styles
+  progressOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  progressContainer: {
+    backgroundColor: colors.background,
+    borderRadius: 20,
+    padding: 32,
+    margin: 24,
+    alignItems: 'center',
+    minWidth: 300,
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  progressHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  progressTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  progressSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  progressBarContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  progressBarBackground: {
+    width: '100%',
+    height: 8,
+    backgroundColor: colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  analysisIndicator: {
+    alignItems: 'center',
+  },
+  analysisGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    width: 180,
+    height: 36,
+    marginBottom: 16,
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    borderRadius: 8,
+    padding: 6,
+  },
+  analysisCell: {
+    width: 26,
+    height: 10,
+    marginHorizontal: 1,
+    marginVertical: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  analysisCellFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 2,
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+  },
+  analysisCellActive: {
+    backgroundColor: colors.primary,
+  },
+  analysisText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
 });

@@ -101,3 +101,31 @@ export interface Player {
     weather?: string;
     imageUrl?: string;
   }
+
+  // Scorecard Scanning Types
+  export interface ScorecardScanResult {
+    courseName: string | null;  // Null if confidence < 0.7 or no match after fuzzy lookup
+    courseNameConfidence: number;  // 0.0-1.0
+    date: string | null;  // YYYY-MM-DD
+    dateConfidence: number;
+    players: Array<{
+      name: string;
+      nameConfidence: number;
+      scores: Array<{
+        hole: number;
+        score: number;
+        confidence: number;
+      }>;
+    }>;
+    holes: Array<{
+      hole: number;
+      par: number | null;
+      parConfidence: number;
+    }>;
+    overallConfidence: number;  // Average of all confidences for UI decisions
+  }
+
+  export interface ScanResponse {
+    data: ScorecardScanResult;
+    remainingScans: number;
+  }

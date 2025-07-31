@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Course, Player, Round } from '@/types';
+import { Course, Player, Round, ScorecardScanResult } from '@/types';
 import { calculateHandicap } from '@/utils/helpers';
 
 interface CourseUsage {
@@ -17,6 +17,10 @@ interface GolfState {
   rounds: Round[];
   courseUsage: CourseUsage[];
   _hasHydrated: boolean;
+  // Scorecard scanning state
+  scannedData: ScorecardScanResult | null;
+  isScanning: boolean;
+  remainingScans: number;
   addCourse: (course: Course) => void;
   updateCourse: (course: Course) => void;
   deleteCourse: (courseId: string) => void;
@@ -33,6 +37,11 @@ interface GolfState {
   getCourseById: (courseId: string) => Course | undefined;
   getFrequentCourses: () => CourseUsage[];
   trackCourseUsage: (courseId: string, courseName: string) => void;
+  // Scorecard scanning actions
+  setScannedData: (data: ScorecardScanResult | null) => void;
+  setIsScanning: (scanning: boolean) => void;
+  setRemainingScans: (scans: number) => void;
+  clearScanData: () => void;
 }
 
 export const useGolfStore = create<GolfState>()(
@@ -43,6 +52,10 @@ export const useGolfStore = create<GolfState>()(
       rounds: [],
       courseUsage: [],
       _hasHydrated: false,
+      // Scorecard scanning state
+      scannedData: null,
+      isScanning: false,
+      remainingScans: 50,
       
       addCourse: (course) => set((state) => ({
         courses: [...state.courses, course]
@@ -275,13 +288,37 @@ export const useGolfStore = create<GolfState>()(
           };
         }
       }),
+      
+      // Scorecard scanning actions
+      setScannedData: (data) => set({ scannedData: data }),
+      setIsScanning: (scanning) => set({ isScanning: scanning }),
+      setRemainingScans: (scans) => set({ remainingScans: scans }),
+      clearScanData: () => set({ 
+        scannedData: null
+        // Don't reset isScanning here - it should be managed separately
+      }),
     }),
     {
       name: 'golf-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        courses: state.courses,
+        players: state.players,
+        rounds: state.rounds,
+        courseUsage: state.courseUsage,
+        _hasHydrated: state._hasHydrated,
+        // Exclude scanning states from persistence (they should be temporary)
+        // scannedData: excluded
+        // isScanning: excluded  
+        // remainingScans: excluded
+      }),
       onRehydrateStorage: () => (state) => {
         if (state) {
           state._hasHydrated = true;
+          // Reset scanning states on rehydration
+          state.isScanning = false;
+          state.scannedData = null;
+          state.remainingScans = 50;
         }
       },
     }

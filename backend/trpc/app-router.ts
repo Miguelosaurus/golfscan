@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { router, publicProcedure } from '../trpc/trpc';
 import { golfCourseRouter } from './routes/golfCourse.router';
+import { scorecardRouter } from './routes/scorecard.router';
 
 export const appRouter = router({
   hello: publicProcedure
@@ -10,6 +11,7 @@ export const appRouter = router({
       return `Hello, ${input.name}!`;
     }),
   golfCourse: golfCourseRouter,
+  scorecard: scorecardRouter,
 });
 
 export type AppRouter = typeof appRouter; 
