@@ -1,0 +1,16 @@
+{
+  "name": "scorecard-accuracy-test",
+  "version": "1.0.0",
+  "description": "GPT-4o-mini scorecard accuracy testing suite",
+  "main": "runner.ts",
+  "scripts": {
+    "test": "ts-node runner.ts",
+    "test:dev": "ts-node --transpile-only runner.ts"
+  },
+  "dependencies": {
+    "openai": "^4.28.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^18.0.0"
+  }
+}

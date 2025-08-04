@@ -1,0 +1,87 @@
+{
+  "scorecard_1": {
+    "difficulty": "easy",
+    "players": [
+      {
+        "name": "Nora",
+        "scores": {
+          "gross": [6, 5, 5, 7, 6, 4, 6, 6, 7],
+          "net": [4, 4, 4, 5, 5, 3, 4, 4, 6]
+        }
+      },
+      {
+        "name": "Jenny",
+        "scores": {
+          "net": [4, 3, 4, 4, 5, 4, 5, 5, 5]
+        }
+      }
+    ]
+  },
+  "scorecard_2": {
+    "difficulty": "kinda_hard",
+    "players": [
+      {
+        "name": "Ben",
+        "scores": [4, 5, 5, 4, 5, 7, 4, 4, 6, 7, 5, 4, 4, 6, 5, 7, 5, 6],
+        "notes": "hole 3 could be 5 or 6, both acceptable"
+      },
+      {
+        "name": "Luke",
+        "scores": [4, 7, 5, 5, 4, 5, 5, 4, 5, 5, 5, 4, 6, 5, 6, 5, 6, 5]
+      }
+    ]
+  },
+  "scorecard_3": {
+    "difficulty": "hard",
+    "players": [
+      {
+        "name": "Player A",
+        "scores": [4, 3, 5, 4, 4, 5, 3, 5, 5, 5, 5, 5, 5, 5, 5, 2, 4, 4]
+      }
+    ]
+  },
+  "scorecard_4": {
+    "difficulty": "medium",
+    "players": [
+      {
+        "name": "René Gibson",
+        "scores": [4, 3, 4, 2, 3, 5, 2, 3, 3, 4, 3, 2, 3, 3, 3, 3, 2, 3]
+      },
+      {
+        "name": "Ryan Munson",
+        "scores": [4, 3, 4, 3, 4, 4, 3, 4, 4, 4, 5, 3, 4, 4, 5, 5, 3, 3]
+      },
+      {
+        "name": "Eric Fox",
+        "scores": [4, 3, 4, 3, 5, 5, 4, 4, 4, 4, 5, 3, 5, 4, 5, 4, 3, 5]
+      }
+    ]
+  },
+  "scorecard_5": {
+    "difficulty": "easier",
+    "players": [
+      {
+        "name": "Sam",
+        "scores": [3, 6, 3, 4, 5, 4, 4, 5, 4, 4, 4, 4, 5, 4, 4, 4, 3, 5]
+      }
+    ]
+  },
+  "scorecard_6": {
+    "difficulty": "harder",
+    "players": [
+      {
+        "name": "Player A (D)",
+        "scores": [5, 5, 6, 4, 6, 3, 4, 5, 5, 3, 6, 4, 4, 5, 6, 7, 4, 6]
+      },
+      {
+        "name": "Player B (M)",
+        "scores": [5, 5, 8, 3, 5, 3, 5, 6, 5, 6, 7, 4, null, 5, 5, 6, 6, 4],
+        "notes": "hole 13 is unclear even to human reviewers"
+      },
+      {
+        "name": "Player C (F)",
+        "scores": [5, 5, 5, 3, 5, 4, 5, 6, 8, 4, 6, 6, 5, 4, 3, 3, 4, 3]
+      }
+    ]
+  }
+}

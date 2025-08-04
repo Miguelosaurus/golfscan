@@ -1,0 +1,5257 @@
+[
+  {
+    "scorecard": "scorecard_1",
+    "reasoningEffort": "low",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": null,
+      "dateConfidence": 0,
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ],
+      "players": [
+        {
+          "name": "Nora Gross",
+          "nameConfidence": 0.8,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 7,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Sean",
+          "nameConfidence": 0.8,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 6,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 469,
+      "outputTokens": 906,
+      "reasoningTokens": 448,
+      "totalTokens": 1375,
+      "latencyMs": 10606
+    },
+    "accuracy": {
+      "overallAccuracy": 0.8888888888888888,
+      "playerAccuracies": [
+        {
+          "name": "Nora",
+          "accuracy": 0.8888888888888888,
+          "correctScores": 8,
+          "totalScores": 9
+        },
+        {
+          "name": "Jenny",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 9
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "reasoningEffort": "medium",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": null,
+      "dateConfidence": 0,
+      "players": [
+        {
+          "name": "NORA - Gross",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 6,
+              "confidence": 0.8
+            },
+            {
+              "hole": 7,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 7,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Net",
+          "nameConfidence": 0.6,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "SEAN - Net",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 488,
+      "outputTokens": 5339,
+      "reasoningTokens": 4736,
+      "totalTokens": 5827,
+      "latencyMs": 60397
+    },
+    "accuracy": {
+      "overallAccuracy": 0.8888888888888888,
+      "playerAccuracies": [
+        {
+          "name": "Nora",
+          "accuracy": 0.8888888888888888,
+          "correctScores": 8,
+          "totalScores": 9
+        },
+        {
+          "name": "Jenny",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 9
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "reasoningEffort": "high",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": null,
+      "dateConfidence": 0,
+      "players": [
+        {
+          "name": "NORA - GROSS",
+          "nameConfidence": 0.95,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 6,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 7,
+              "confidence": 0.8
+            },
+            {
+              "hole": 5,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 1,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 7,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "NORA - NET",
+          "nameConfidence": 0.5,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 2,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.6
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 9,
+              "score": 6,
+              "confidence": 0.6
+            }
+          ]
+        },
+        {
+          "name": "SEAN - NET",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.95
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 5,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 543,
+      "outputTokens": 24543,
+      "reasoningTokens": 23936,
+      "totalTokens": 25086,
+      "latencyMs": 343252
+    },
+    "accuracy": {
+      "overallAccuracy": 0.7777777777777778,
+      "playerAccuracies": [
+        {
+          "name": "Nora",
+          "accuracy": 0.7777777777777778,
+          "correctScores": 7,
+          "totalScores": 9
+        },
+        {
+          "name": "Jenny",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 9
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "reasoningEffort": "low",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0.1,
+      "date": "2020-06-28",
+      "dateConfidence": 0.8,
+      "players": [
+        {
+          "name": "Ben",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 5,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 11,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 16,
+          "par": 5,
+          "parConfidence": 0.8
+        },
+        {
+          "hole": 17,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 18,
+          "par": 5,
+          "parConfidence": 0.9
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 988,
+      "outputTokens": 1477,
+      "reasoningTokens": 896,
+      "totalTokens": 2465,
+      "latencyMs": 20878
+    },
+    "accuracy": {
+      "overallAccuracy": 0.5,
+      "playerAccuracies": [
+        {
+          "name": "Ben",
+          "accuracy": 0.5,
+          "correctScores": 9,
+          "totalScores": 18
+        },
+        {
+          "name": "Luke",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "reasoningEffort": "medium",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": "2020-06-28",
+      "dateConfidence": 0.95,
+      "players": [
+        {
+          "name": "Ben",
+          "nameConfidence": 1,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 4,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Luke",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 2,
+              "confidence": 0.8
+            },
+            {
+              "hole": 7,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 8,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 9,
+              "score": 2,
+              "confidence": 0.85
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 1,
+              "confidence": 0.8
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 1,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 2,
+              "confidence": 0.8
+            },
+            {
+              "hole": 15,
+              "score": 2,
+              "confidence": 0.8
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 2,
+              "confidence": 0.8
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 5,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 1007,
+      "outputTokens": 5648,
+      "reasoningTokens": 4800,
+      "totalTokens": 6655,
+      "latencyMs": 63917
+    },
+    "accuracy": {
+      "overallAccuracy": 0.25,
+      "playerAccuracies": [
+        {
+          "name": "Ben",
+          "accuracy": 0.5,
+          "correctScores": 9,
+          "totalScores": 18
+        },
+        {
+          "name": "Luke",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "reasoningEffort": "high",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": "2020-06-23",
+      "dateConfidence": 1,
+      "players": [
+        {
+          "name": "Ben",
+          "nameConfidence": 1,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 8,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 5,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 1062,
+      "outputTokens": 8645,
+      "reasoningTokens": 8064,
+      "totalTokens": 9707,
+      "latencyMs": 89905
+    },
+    "accuracy": {
+      "overallAccuracy": 0.3888888888888889,
+      "playerAccuracies": [
+        {
+          "name": "Ben",
+          "accuracy": 0.3888888888888889,
+          "correctScores": 7,
+          "totalScores": 18
+        },
+        {
+          "name": "Luke",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "reasoningEffort": "low",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0.1,
+      "date": null,
+      "dateConfidence": 0.1,
+      "players": [
+        {
+          "name": "",
+          "nameConfidence": 0.1,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 7,
+              "score": 3,
+              "confidence": 0.8
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 10,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 12,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 13,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 15,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 18,
+              "score": 4,
+              "confidence": 0.8
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 3,
+          "par": 5,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 10,
+          "par": 5,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 11,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 12,
+          "par": 3,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 14,
+          "par": 3,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 16,
+          "par": 3,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 17,
+          "par": 5,
+          "parConfidence": 0.99
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 0.99
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 1227,
+      "outputTokens": 1022,
+      "reasoningTokens": 448,
+      "totalTokens": 2249,
+      "latencyMs": 11104
+    },
+    "accuracy": {
+      "overallAccuracy": 0.7777777777777778,
+      "playerAccuracies": [
+        {
+          "name": "Player A",
+          "accuracy": 0.7777777777777778,
+          "correctScores": 14,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "Cannot read properties of null (reading 'toLowerCase')",
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 23670
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "Cannot read properties of null (reading 'toLowerCase')",
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 88528
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "reasoningEffort": "low",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": "2012-05-12",
+      "dateConfidence": 0.9,
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ],
+      "players": [
+        {
+          "name": "Rick Gibson",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 11,
+              "score": 2,
+              "confidence": 0.7
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 13,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 14,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 16,
+              "score": 2,
+              "confidence": 0.7
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 18,
+              "score": 4,
+              "confidence": 0.7
+            }
+          ]
+        },
+        {
+          "name": "Ryan Munson",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 12,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 18,
+              "score": 3,
+              "confidence": 0.7
+            }
+          ]
+        },
+        {
+          "name": "Eric Fox",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 15,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.7
+            }
+          ]
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 661,
+      "outputTokens": 2424,
+      "reasoningTokens": 960,
+      "totalTokens": 3085,
+      "latencyMs": 23538
+    },
+    "accuracy": {
+      "overallAccuracy": 0.5277777777777778,
+      "playerAccuracies": [
+        {
+          "name": "René Gibson",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        },
+        {
+          "name": "Ryan Munson",
+          "accuracy": 0.5555555555555556,
+          "correctScores": 10,
+          "totalScores": 18
+        },
+        {
+          "name": "Eric Fox",
+          "accuracy": 0.5,
+          "correctScores": 9,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "reasoningEffort": "medium",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0.3,
+      "date": "2012-05-12",
+      "dateConfidence": 0.95,
+      "players": [
+        {
+          "name": "Robert Gibson",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 1
+            },
+            {
+              "hole": 3,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 2,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 2,
+              "confidence": 0.7
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.8
+            },
+            {
+              "hole": 18,
+              "score": 3,
+              "confidence": 0.7
+            }
+          ]
+        },
+        {
+          "name": "Ryan Munson",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 1
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 1
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 6,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 16,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Eric Fox",
+          "nameConfidence": 0.95,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 1
+            },
+            {
+              "hole": 3,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 1
+            },
+            {
+              "hole": 6,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 1
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 5,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 680,
+      "outputTokens": 6815,
+      "reasoningTokens": 5696,
+      "totalTokens": 7495,
+      "latencyMs": 97154
+    },
+    "accuracy": {
+      "overallAccuracy": 0.6111111111111112,
+      "playerAccuracies": [
+        {
+          "name": "René Gibson",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        },
+        {
+          "name": "Ryan Munson",
+          "accuracy": 0.5555555555555556,
+          "correctScores": 10,
+          "totalScores": 18
+        },
+        {
+          "name": "Eric Fox",
+          "accuracy": 0.6666666666666666,
+          "correctScores": 12,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "reasoningEffort": "high",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0.3,
+      "date": "2012-05-12",
+      "dateConfidence": 0.95,
+      "players": [
+        {
+          "name": "Rick Gibson",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 5,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 6,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 7,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 9,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 11,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 13,
+              "score": 3,
+              "confidence": 0.75
+            },
+            {
+              "hole": 14,
+              "score": 2,
+              "confidence": 0.75
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.75
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 18,
+              "score": null,
+              "confidence": 0
+            }
+          ]
+        },
+        {
+          "name": "Ryan Munson",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.75
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 11,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.8
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 18,
+              "score": null,
+              "confidence": 0
+            }
+          ]
+        },
+        {
+          "name": "Eric Fox",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 11,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.75
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.75
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.75
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0
+            },
+            {
+              "hole": 18,
+              "score": null,
+              "confidence": 0
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 3,
+          "par": 5,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 4,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 6,
+          "par": 5,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 7,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 11,
+          "par": 5,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 12,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 15,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 17,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 18,
+          "par": 5,
+          "parConfidence": 0.95
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 735,
+      "outputTokens": 30303,
+      "reasoningTokens": 29184,
+      "totalTokens": 31038,
+      "latencyMs": 472325
+    },
+    "accuracy": {
+      "overallAccuracy": 0.3611111111111111,
+      "playerAccuracies": [
+        {
+          "name": "René Gibson",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        },
+        {
+          "name": "Ryan Munson",
+          "accuracy": 0.4444444444444444,
+          "correctScores": 8,
+          "totalScores": 18
+        },
+        {
+          "name": "Eric Fox",
+          "accuracy": 0.2777777777777778,
+          "correctScores": 5,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "reasoningEffort": "low",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": null,
+      "dateConfidence": 0,
+      "holes": [
+        {
+          "hole": 1,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 3,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 4,
+          "par": 5,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 8,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 9,
+          "par": 5,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 11,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 13,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 16,
+          "par": 5,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 17,
+          "par": 3,
+          "parConfidence": 0.95
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 0.95
+        }
+      ],
+      "players": [
+        {
+          "name": "Sim",
+          "nameConfidence": 0.8,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 3,
+              "confidence": 0.7
+            },
+            {
+              "hole": 2,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.75
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.75
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.75
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.75
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.75
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.75
+            },
+            {
+              "hole": 11,
+              "score": 5,
+              "confidence": 0.75
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.75
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 14,
+              "score": 3,
+              "confidence": 0.6
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.6
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.6
+            }
+          ]
+        },
+        {
+          "name": "F.W",
+          "nameConfidence": 0.75,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 3,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 4,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 6,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 9,
+              "score": 6,
+              "confidence": 0.6
+            },
+            {
+              "hole": 10,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.7
+            },
+            {
+              "hole": 12,
+              "score": 5,
+              "confidence": 0.7
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.6
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.6
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.6
+            }
+          ]
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 766,
+      "outputTokens": 1740,
+      "reasoningTokens": 896,
+      "totalTokens": 2506,
+      "latencyMs": 18372
+    },
+    "accuracy": {
+      "overallAccuracy": 0,
+      "playerAccuracies": [
+        {
+          "name": "Sam",
+          "accuracy": 0,
+          "correctScores": 0,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "reasoningEffort": "medium",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0,
+      "date": null,
+      "dateConfidence": 0,
+      "players": [
+        {
+          "name": "Sam",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 2,
+              "confidence": 0.7
+            },
+            {
+              "hole": 3,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 3,
+              "confidence": 0.8
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 3,
+              "confidence": 0.6
+            }
+          ]
+        },
+        {
+          "name": "FW",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": null,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "WE/THEY",
+          "nameConfidence": 0.8,
+          "scores": [
+            {
+              "hole": 1,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": null,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Gil Putt",
+          "nameConfidence": 0.6,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 1,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 2,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 1,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 1,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 10,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 11,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 12,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 13,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 14,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 15,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 16,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 17,
+              "score": null,
+              "confidence": 0.5
+            },
+            {
+              "hole": 18,
+              "score": null,
+              "confidence": 0.5
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 2,
+          "par": 3,
+          "parConfidence": 0.6
+        },
+        {
+          "hole": 3,
+          "par": 5,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 8,
+          "par": 3,
+          "parConfidence": 0.6
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 11,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 12,
+          "par": 5,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 13,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 16,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 17,
+          "par": 4,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 18,
+          "par": 5,
+          "parConfidence": 0.9
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 785,
+      "outputTokens": 8294,
+      "reasoningTokens": 6912,
+      "totalTokens": 9079,
+      "latencyMs": 79951
+    },
+    "accuracy": {
+      "overallAccuracy": 0.5,
+      "playerAccuracies": [
+        {
+          "name": "Sam",
+          "accuracy": 0.5,
+          "correctScores": 9,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "reasoningEffort": "high",
+    "success": true,
+    "response": {
+      "courseName": null,
+      "courseNameConfidence": 0.9,
+      "date": null,
+      "dateConfidence": 0.9,
+      "players": [
+        {
+          "name": "Sam",
+          "nameConfidence": 0.8,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 4,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 3,
+              "confidence": 0.95
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 11,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 16,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 17,
+              "score": 3,
+              "confidence": 0.8
+            },
+            {
+              "hole": 18,
+              "score": 5,
+              "confidence": 0.7
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 5,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 3,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 5,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 3,
+          "parConfidence": 0.9
+        },
+        {
+          "hole": 17,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 840,
+      "outputTokens": 39040,
+      "reasoningTokens": 38464,
+      "totalTokens": 39880,
+      "latencyMs": 560269
+    },
+    "accuracy": {
+      "overallAccuracy": 0.6666666666666666,
+      "playerAccuracies": [
+        {
+          "name": "Sam",
+          "accuracy": 0.6666666666666666,
+          "correctScores": 12,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "reasoningEffort": "low",
+    "success": true,
+    "response": {
+      "courseName": "Clere Golf",
+      "courseNameConfidence": 0.8,
+      "date": null,
+      "dateConfidence": 0,
+      "players": [
+        {
+          "name": "Player A",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 6,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Player B",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 4,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Player C",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 8,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 3,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 2734,
+      "outputTokens": 1371,
+      "reasoningTokens": 256,
+      "totalTokens": 4105,
+      "latencyMs": 17567
+    },
+    "accuracy": {
+      "overallAccuracy": 0.9629629629629629,
+      "playerAccuracies": [
+        {
+          "name": "Player A (D)",
+          "accuracy": 1,
+          "correctScores": 18,
+          "totalScores": 18
+        },
+        {
+          "name": "Player B (M)",
+          "accuracy": 0.8888888888888888,
+          "correctScores": 16,
+          "totalScores": 18
+        },
+        {
+          "name": "Player C (F)",
+          "accuracy": 1,
+          "correctScores": 18,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "reasoningEffort": "medium",
+    "success": true,
+    "response": {
+      "courseName": "Clere Golf",
+      "courseNameConfidence": 0.9,
+      "date": null,
+      "dateConfidence": 0,
+      "players": [
+        {
+          "name": "Player A",
+          "nameConfidence": 1,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 7,
+              "confidence": 0.8
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 6,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Player B",
+          "nameConfidence": 1,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 4,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "Player C",
+          "nameConfidence": 1,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 8,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 3,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 2753,
+      "outputTokens": 2907,
+      "reasoningTokens": 1792,
+      "totalTokens": 5660,
+      "latencyMs": 30865
+    },
+    "accuracy": {
+      "overallAccuracy": 0.9629629629629629,
+      "playerAccuracies": [
+        {
+          "name": "Player A (D)",
+          "accuracy": 1,
+          "correctScores": 18,
+          "totalScores": 18
+        },
+        {
+          "name": "Player B (M)",
+          "accuracy": 0.8888888888888888,
+          "correctScores": 16,
+          "totalScores": 18
+        },
+        {
+          "name": "Player C (F)",
+          "accuracy": 1,
+          "correctScores": 18,
+          "totalScores": 18
+        }
+      ]
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "reasoningEffort": "high",
+    "success": true,
+    "response": {
+      "courseName": "Clere Golf Club",
+      "courseNameConfidence": 0.8,
+      "date": null,
+      "dateConfidence": 1,
+      "players": [
+        {
+          "name": "D",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 7,
+              "score": 4,
+              "confidence": 0.8
+            },
+            {
+              "hole": 8,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 10,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.7
+            },
+            {
+              "hole": 18,
+              "score": 6,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "M",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 6,
+              "confidence": 0.85
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 3,
+              "confidence": 0.85
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 10,
+              "score": 6,
+              "confidence": 0.85
+            },
+            {
+              "hole": 11,
+              "score": 7,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.8
+            },
+            {
+              "hole": 14,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 4,
+              "confidence": 0.9
+            }
+          ]
+        },
+        {
+          "name": "F",
+          "nameConfidence": 0.9,
+          "scores": [
+            {
+              "hole": 1,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 2,
+              "score": 5,
+              "confidence": 0.95
+            },
+            {
+              "hole": 3,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 4,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 5,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 6,
+              "score": 4,
+              "confidence": 0.85
+            },
+            {
+              "hole": 7,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 8,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 9,
+              "score": 8,
+              "confidence": 0.9
+            },
+            {
+              "hole": 10,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 11,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 12,
+              "score": 6,
+              "confidence": 0.9
+            },
+            {
+              "hole": 13,
+              "score": 5,
+              "confidence": 0.9
+            },
+            {
+              "hole": 14,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 15,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 16,
+              "score": 3,
+              "confidence": 0.9
+            },
+            {
+              "hole": 17,
+              "score": 4,
+              "confidence": 0.9
+            },
+            {
+              "hole": 18,
+              "score": 3,
+              "confidence": 0.9
+            }
+          ]
+        }
+      ],
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 2,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 3,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 4,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 5,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 6,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 7,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 8,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 9,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 10,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 11,
+          "par": 5,
+          "parConfidence": 1
+        },
+        {
+          "hole": 12,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 13,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 14,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 15,
+          "par": 3,
+          "parConfidence": 1
+        },
+        {
+          "hole": 16,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 17,
+          "par": 4,
+          "parConfidence": 1
+        },
+        {
+          "hole": 18,
+          "par": 4,
+          "parConfidence": 1
+        }
+      ]
+    },
+    "metrics": {
+      "inputTokens": 2808,
+      "outputTokens": 5913,
+      "reasoningTokens": 4800,
+      "totalTokens": 8721,
+      "latencyMs": 61562
+    },
+    "accuracy": {
+      "overallAccuracy": 0.9629629629629629,
+      "playerAccuracies": [
+        {
+          "name": "Player A (D)",
+          "accuracy": 1,
+          "correctScores": 18,
+          "totalScores": 18
+        },
+        {
+          "name": "Player B (M)",
+          "accuracy": 0.8888888888888888,
+          "correctScores": 16,
+          "totalScores": 18
+        },
+        {
+          "name": "Player C (F)",
+          "accuracy": 1,
+          "correctScores": 18,
+          "totalScores": 18
+        }
+      ]
+    }
+  }
+]
