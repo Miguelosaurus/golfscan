@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
@@ -9,8 +10,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY 
 });
 
+type ModelId = 'o4-mini' | 'gpt-5' | 'gpt-5-chat' | 'gpt-5-mini';
+
 interface TestResult {
   scorecard: string;
+  model: ModelId;
   reasoningEffort: keyof typeof REASONING_EFFORTS;
   success: boolean;
   error?: string;
@@ -139,13 +143,14 @@ function calculateAccuracy(
 }
 
 async function testScorecardWithEffort(
-  scorecardFile: string, 
+  scorecardFile: string,
+  model: ModelId,
   effort: keyof typeof REASONING_EFFORTS
 ): Promise<TestResult> {
   const scorecardPath = path.join(scorecardDir, scorecardFile);
   const scorecardKey = scorecardFile.replace('.png', '');
   
-  console.log(`\n🧪 Testing ${scorecardFile} with ${effort} reasoning effort...`);
+  console.log(`\n🧪 Testing ${scorecardFile} on ${model} with ${effort} reasoning effort...`);
   
   const startTime = Date.now();
   
@@ -160,22 +165,43 @@ async function testScorecardWithEffort(
       detail: 'high' as const,
     }];
 
-    // Call OpenAI API exactly like the app does
-    const response = await openai.responses.create({
-      model: 'o4-mini',
-      text: { format: { type: 'json_object' } },
-      reasoning: { effort: REASONING_EFFORTS[effort] },
-      input: [
-        {
-          role: 'user',
-          content: [
-            { type: 'input_text', text: PROMPTS[effort] },
-            ...imageContents,
-          ],
-        },
-      ],
-      // Removed token cap to ensure we always get responses
-    });
+    // Helper to invoke Responses API (optionally with reasoning)
+    const invoke = async (withReasoning: boolean) => {
+      const body: any = {
+        model,
+        text: { format: { type: 'json_object' } },
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: PROMPTS[effort] },
+              ...imageContents,
+            ],
+          },
+        ],
+      };
+      if (withReasoning) {
+        // Cast to any to avoid SDK enum type restrictions when new effort values are introduced
+        body.reasoning = { effort: REASONING_EFFORTS[effort] } as any;
+      }
+      return openai.responses.create(body);
+    };
+
+    // Try with reasoning (except for 'minimal'); if the model rejects the parameter, retry without it
+    let response;
+    const shouldUseReasoningParam = effort !== 'minimal';
+    try {
+      response = await invoke(shouldUseReasoningParam);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const unsupported = /reasoning|unsupported|unrecognized|invalid\s+argument/i.test(message);
+      if (unsupported) {
+        console.warn(`⚠️ Model ${model} may not support reasoning; retrying without reasoning parameter...`);
+        response = await invoke(false);
+      } else {
+        throw err;
+      }
+    }
 
     const endTime = Date.now();
     const latencyMs = endTime - startTime;
@@ -194,6 +220,7 @@ async function testScorecardWithEffort(
 
     return {
       scorecard: scorecardKey,
+      model,
       reasoningEffort: effort,
       success: true,
       response: parsedJson,
@@ -213,6 +240,7 @@ async function testScorecardWithEffort(
     
     return {
       scorecard: scorecardKey,
+      model,
       reasoningEffort: effort,
       success: false,
       error: error instanceof Error ? error.message : String(error),
@@ -227,22 +255,27 @@ async function testScorecardWithEffort(
   }
 }
 
+const MODELS_TO_TEST: ModelId[] = ['o4-mini', 'gpt-5', 'gpt-5-chat', 'gpt-5-mini'];
+
 async function runAllTests(): Promise<TestResult[]> {
   const results: TestResult[] = [];
   
-  console.log('🚀 Starting GPT-4o-mini scorecard accuracy testing...');
-  console.log(`📊 Testing ${scorecardFiles.length} scorecards with 3 reasoning efforts each`);
-  console.log(`📊 Total tests: ${scorecardFiles.length * 3}`);
+  console.log('🚀 Starting multi-model scorecard accuracy testing...');
+  console.log(`📊 Models: ${MODELS_TO_TEST.join(', ')}`);
+  console.log(`📊 Testing ${scorecardFiles.length} scorecards with 4 reasoning efforts each`);
+  console.log(`📊 Total tests: ${scorecardFiles.length * MODELS_TO_TEST.length * 4}`);
   
   for (const scorecardFile of scorecardFiles) {
-    for (const effort of Object.keys(REASONING_EFFORTS) as Array<keyof typeof REASONING_EFFORTS>) {
-      const result = await testScorecardWithEffort(scorecardFile, effort);
-      results.push(result);
-      
-      // Brief progress update
-      console.log(`${result.success ? '✅' : '❌'} ${scorecardFile} (${effort}): ${result.success ? 
-        `${(result.accuracy?.overallAccuracy || 0 * 100).toFixed(1)}% accuracy, ${result.metrics.latencyMs}ms, ${result.metrics.totalTokens} tokens` : 
-        result.error}`);
+    for (const model of MODELS_TO_TEST) {
+      for (const effort of Object.keys(REASONING_EFFORTS) as Array<keyof typeof REASONING_EFFORTS>) {
+        const result = await testScorecardWithEffort(scorecardFile, model, effort);
+        results.push(result);
+        
+        // Brief progress update
+        console.log(`${result.success ? '✅' : '❌'} ${scorecardFile} [${model}] (${effort}): ${result.success ? 
+          `${(result.accuracy?.overallAccuracy || 0 * 100).toFixed(1)}% accuracy, ${result.metrics.latencyMs}ms, ${result.metrics.totalTokens} tokens` : 
+          result.error}`);
+      }
     }
   }
   
@@ -258,6 +291,25 @@ async function main() {
     process.exit(1);
   }
 
+  // Optionally include baseline o4-mini results from previous run (if present)
+  let baselineResults: TestResult[] = [];
+  try {
+    const files = fs.readdirSync(__dirname)
+      .filter((f) => f.startsWith('results-') && f.endsWith('.json'))
+      .sort();
+    if (files.length > 0) {
+      const latest = files[files.length - 1];
+      const raw = JSON.parse(fs.readFileSync(path.join(__dirname, latest), 'utf8'));
+      if (Array.isArray(raw)) {
+        baselineResults = raw.map((r: any) => ({
+          ...r,
+          model: (r.model as ModelId) || 'o4-mini',
+        }));
+        console.log(`📎 Loaded baseline results from ${latest} (${baselineResults.length} entries)`);
+      }
+    }
+  } catch {}
+
   const results = await runAllTests();
   
   // Save raw results
@@ -267,34 +319,42 @@ async function main() {
   
   console.log(`\n📄 Results saved to: ${resultsPath}`);
   
-  // Generate analysis
-  generateAnalysis(results);
+  // Generate analysis comparing new results against any baseline loaded
+  generateAnalysis([...baselineResults, ...results]);
 }
 
 function generateAnalysis(results: TestResult[]) {
   console.log('\n' + '='.repeat(80));
-  console.log('📊 GPT-4o-mini SCORECARD ACCURACY ANALYSIS');
+  console.log('📊 MULTI-MODEL SCORECARD ACCURACY ANALYSIS');
   console.log('='.repeat(80));
   
-  // Group results by reasoning effort
-  const byEffort = results.reduce((acc, result) => {
-    if (!acc[result.reasoningEffort]) acc[result.reasoningEffort] = [];
-    acc[result.reasoningEffort].push(result);
+  // Group results by model and reasoning effort
+  const byModel: Record<string, TestResult[]> = results.reduce((acc, result) => {
+    if (!acc[result.model]) acc[result.model] = [];
+    acc[result.model].push(result);
     return acc;
   }, {} as Record<string, TestResult[]>);
   
   // Overall stats by reasoning effort
-  console.log('\n📈 ACCURACY BY REASONING EFFORT:');
-  Object.entries(byEffort).forEach(([effort, effortResults]) => {
-    const successfulResults = effortResults.filter(r => r.success && r.accuracy);
-    const avgAccuracy = successfulResults.length > 0 
-      ? successfulResults.reduce((sum, r) => sum + (r.accuracy?.overallAccuracy || 0), 0) / successfulResults.length
-      : 0;
-    const avgTokens = effortResults.reduce((sum, r) => sum + r.metrics.totalTokens, 0) / effortResults.length;
-    const avgLatency = effortResults.reduce((sum, r) => sum + r.metrics.latencyMs, 0) / effortResults.length;
-    const avgReasoningTokens = effortResults.reduce((sum, r) => sum + r.metrics.reasoningTokens, 0) / effortResults.length;
-    
-    console.log(`  ${effort.toUpperCase()}: ${(avgAccuracy * 100).toFixed(1)}% accuracy | Avg: ${avgTokens.toFixed(0)} tokens (${avgReasoningTokens.toFixed(0)} reasoning) | ${avgLatency.toFixed(0)}ms`);
+  Object.entries(byModel).forEach(([model, modelResults]) => {
+    console.log(`\n📈 ACCURACY BY REASONING EFFORT (${model}):`);
+    const byEffort = modelResults.reduce((acc, result) => {
+      if (!acc[result.reasoningEffort]) acc[result.reasoningEffort] = [];
+      acc[result.reasoningEffort].push(result);
+      return acc;
+    }, {} as Record<string, TestResult[]>);
+
+    Object.entries(byEffort).forEach(([effort, effortResults]) => {
+      const successfulResults = effortResults.filter(r => r.success && r.accuracy);
+      const avgAccuracy = successfulResults.length > 0 
+        ? successfulResults.reduce((sum, r) => sum + (r.accuracy?.overallAccuracy || 0), 0) / successfulResults.length
+        : 0;
+      const avgTokens = effortResults.reduce((sum, r) => sum + r.metrics.totalTokens, 0) / effortResults.length;
+      const avgLatency = effortResults.reduce((sum, r) => sum + r.metrics.latencyMs, 0) / effortResults.length;
+      const avgReasoningTokens = effortResults.reduce((sum, r) => sum + r.metrics.reasoningTokens, 0) / effortResults.length;
+      
+      console.log(`  ${effort.toUpperCase()}: ${(avgAccuracy * 100).toFixed(1)}% accuracy | Avg: ${avgTokens.toFixed(0)} tokens (${avgReasoningTokens.toFixed(0)} reasoning) | ${avgLatency.toFixed(0)}ms`);
+    });
   });
   
   // Accuracy by difficulty
@@ -331,41 +391,46 @@ function generateAnalysis(results: TestResult[]) {
     });
   });
   
-  // Token efficiency analysis
+  // Token efficiency analysis by model
   console.log('\n💰 TOKEN EFFICIENCY ANALYSIS:');
-  Object.entries(byEffort).forEach(([effort, effortResults]) => {
-    const successfulResults = effortResults.filter(r => r.success && r.accuracy);
+  Object.entries(byModel).forEach(([model, modelResults]) => {
+    const successfulResults = modelResults.filter(r => r.success && r.accuracy);
     if (successfulResults.length === 0) return;
-    
     const avgAccuracy = successfulResults.reduce((sum, r) => sum + (r.accuracy?.overallAccuracy || 0), 0) / successfulResults.length;
     const avgTotalTokens = successfulResults.reduce((sum, r) => sum + r.metrics.totalTokens, 0) / successfulResults.length;
     const avgReasoningTokens = successfulResults.reduce((sum, r) => sum + r.metrics.reasoningTokens, 0) / successfulResults.length;
-    const efficiencyScore = avgAccuracy / (avgTotalTokens / 1000); // accuracy per 1k tokens
-    
-    console.log(`  ${effort.toUpperCase()}: ${efficiencyScore.toFixed(3)} accuracy/1k tokens | ${(avgReasoningTokens / avgTotalTokens * 100).toFixed(1)}% reasoning tokens`);
+    const efficiencyScore = avgAccuracy / (avgTotalTokens / 1000);
+    console.log(`  ${model}: ${efficiencyScore.toFixed(3)} accuracy/1k tokens | ${(avgReasoningTokens / avgTotalTokens * 100).toFixed(1)}% reasoning tokens`);
   });
   
   // Confidence calibration
   console.log('\n🎯 CONFIDENCE CALIBRATION ANALYSIS:');
-  Object.entries(byEffort).forEach(([effort, effortResults]) => {
-    const successfulResults = effortResults.filter(r => r.success && r.accuracy && r.response);
-    if (successfulResults.length === 0) return;
-    
-    // Analyze how well reported confidence correlates with actual accuracy
-    let totalConfidenceAccuracyDiff = 0;
-    let validComparisons = 0;
-    
-    successfulResults.forEach(result => {
-      if (result.response && result.accuracy) {
-        const reportedConfidence = result.response.overallConfidence || 0;
-        const actualAccuracy = result.accuracy.overallAccuracy;
-        totalConfidenceAccuracyDiff += Math.abs(reportedConfidence - actualAccuracy);
-        validComparisons++;
-      }
+  Object.entries(byModel).forEach(([model, modelResults]) => {
+    console.log(`  Model: ${model}`);
+    const byEffort = modelResults.reduce((acc, result) => {
+      if (!acc[result.reasoningEffort]) acc[result.reasoningEffort] = [] as TestResult[];
+      (acc[result.reasoningEffort] as TestResult[]).push(result);
+      return acc;
+    }, {} as Record<string, TestResult[]>);
+
+    Object.entries(byEffort).forEach(([effort, effortResults]) => {
+      const successfulResults = (effortResults as TestResult[]).filter(r => r.success && r.accuracy && r.response);
+      if (successfulResults.length === 0) return;
+
+      let totalConfidenceAccuracyDiff = 0;
+      let validComparisons = 0;
+      successfulResults.forEach((result: TestResult) => {
+        if (result.response && result.accuracy) {
+          const reportedConfidence = result.response.overallConfidence || 0;
+          const actualAccuracy = result.accuracy.overallAccuracy;
+          totalConfidenceAccuracyDiff += Math.abs(reportedConfidence - actualAccuracy);
+          validComparisons++;
+        }
+      });
+
+      const avgConfidenceError = validComparisons > 0 ? totalConfidenceAccuracyDiff / validComparisons : 0;
+      console.log(`    ${effort.toUpperCase()}: Avg confidence error: ${(avgConfidenceError * 100).toFixed(1)}% (lower is better)`);
     });
-    
-    const avgConfidenceError = validComparisons > 0 ? totalConfidenceAccuracyDiff / validComparisons : 0;
-    console.log(`  ${effort.toUpperCase()}: Avg confidence error: ${(avgConfidenceError * 100).toFixed(1)}% (lower is better)`);
   });
   
   console.log('\n' + '='.repeat(80));
