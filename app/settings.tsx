@@ -30,7 +30,7 @@ export default function SettingsScreen() {
   const handleHelp = () => {
     Alert.alert(
       'Help & Support',
-      'Need help with GolfScan AI? Contact our support team.',
+      'Need help with ScanCaddie? Contact our support team.',
       [
         { text: 'Email Support', onPress: () => Linking.openURL('mailto:support@golfscan.ai') },
         { text: 'FAQ', onPress: () => console.log('Open FAQ') },
@@ -102,12 +102,12 @@ export default function SettingsScreen() {
   
   const handleAbout = () => {
     Alert.alert(
-      'About GolfScan AI',
+      'About ScanCaddie',
       `Version 1.0.0
 
-GolfScan AI uses advanced machine learning to scan and analyze your golf scorecards, providing detailed insights into your game.
+ScanCaddie uses advanced machine learning to scan and analyze your golf scorecards, providing detailed insights into your game.
 
-© 2025 GolfScan AI. All rights reserved.`,
+© 2025 ScanCaddie. All rights reserved.`,
       [{ text: 'OK' }]
     );
   };
@@ -216,7 +216,7 @@ GolfScan AI uses advanced machine learning to scan and analyze your golf scoreca
         />
         
         <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>GolfScan AI v1.0.0</Text>
+          <Text style={styles.versionText}>ScanCaddie v1.0.0</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

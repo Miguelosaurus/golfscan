@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "backend": "npx tsx --watch backend/trpc/hono.ts"
   },
@@ -19,7 +19,7 @@
     "@trpc/client": "^11.4.0",
     "@trpc/react-query": "^11.4.0",
     "@trpc/server": "^11.4.0",
-    "dotenv": "^17.0.1",
+    "dotenv": "^17.2.1",
     "expo": "^53.0.4",
     "expo-blur": "~14.1.4",
     "expo-camera": "~16.1.7",

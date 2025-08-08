@@ -100,6 +100,7 @@ export interface Player {
     notes?: string;
     weather?: string;
     imageUrl?: string;
+    holeCount?: number; // 9 or 18, determined from scores
   }
 
   // Scorecard Scanning Types

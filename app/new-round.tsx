@@ -16,7 +16,7 @@ import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Course, Player, Score, PlayerRound } from '@/types';
-import { generateUniqueId, calculateTotalScore, formatDate } from '@/utils/helpers';
+import { generateUniqueId, calculateTotalScore, formatDate, ensureValidDate } from '@/utils/helpers';
 import { Calendar, ChevronDown, ChevronUp } from 'lucide-react-native';
 
 interface PrefilledPlayer {
@@ -43,7 +43,7 @@ export default function NewRoundScreen() {
   const [selectedPlayers, setSelectedPlayers] = useState<Player[]>([]);
   const [showCourseSelector, setShowCourseSelector] = useState(!courseId);
   const [showCourseSearchModal, setShowCourseSearchModal] = useState(false);
-  const [date, setDate] = useState(formatDate(new Date()));
+  const [date, setDate] = useState(() => formatDate(new Date()));
   const [notes, setNotes] = useState('');
   const [playerScores, setPlayerScores] = useState<{[playerId: string]: Score[]}>({});
   
@@ -53,8 +53,8 @@ export default function NewRoundScreen() {
       try {
         const data: PrefilledData = JSON.parse(prefilled);
         
-        // Set date and notes
-        if (data.date) setDate(data.date);
+        // Set date - ensure it's always valid, default to today if null/invalid
+        setDate(ensureValidDate(data.date));
         if (data.notes) setNotes(data.notes);
         
         // Set course if provided
@@ -206,11 +206,12 @@ export default function NewRoundScreen() {
       courseId: selectedCourse!.id,
       courseName: selectedCourse!.name,
       players: playerRounds,
-      notes: notes.trim()
+      notes: notes.trim(),
+      holeCount: selectedCourse!.holes.length
     };
     
     addRound(newRound);
-    router.replace(`/round/${newRound.id}`);
+    router.replace('/');
   };
   
   const renderCourseItem = ({ item }: { item: Course }) => (
@@ -323,8 +324,8 @@ export default function NewRoundScreen() {
             <Calendar size={20} color={colors.textSecondary} style={styles.dateIcon} />
             <TextInput
               style={styles.dateInput}
-              value={date}
-              onChangeText={setDate}
+              value={date || formatDate(new Date())}
+              onChangeText={(value) => setDate(value || formatDate(new Date()))}
               placeholder="YYYY-MM-DD"
             />
           </View>

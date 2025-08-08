@@ -8,14 +8,16 @@ import {
   TouchableOpacity,
   FlatList,
   ActivityIndicator,
-  Alert
+  Alert,
+  Image
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { trpcClient } from '@/lib/trpc';
 import { convertApiCourseToLocal, getCourseDisplayName, formatCourseLocation, getTeeBoxOptions } from '@/utils/course-helpers';
 import { Course } from '@/types';
 import { useGolfStore } from '@/store/useGolfStore';
-import { Search, X, MapPin, ChevronDown, Clock, Star, PlusCircle } from 'lucide-react-native';
+import { CourseCard } from '@/components/CourseCard';
+import { Search, X, MapPin, ChevronDown, Clock, Star, PlusCircle, Flag } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { getDistanceInKm } from '@/utils/helpers';
@@ -32,20 +34,39 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   onSelectCourse,
   onAddManualCourse,
 }) => {
-  const { getFrequentCourses, getCourseById, addCourse } = useGolfStore();
+  const { getFrequentCourses, getCourseById, addCourse, courses, rounds } = useGolfStore();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]); // Changed from ApiCourse[] to any[]
   const [loading, setLoading] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any | null>(null); // Changed from ApiCourse to any
   const [showTeeSelection, setShowTeeSelection] = useState(false);
-  const [showFrequent, setShowFrequent] = useState(true);
+  const [activeTab, setActiveTab] = useState<'search' | 'my-courses'>('search');
 
   // User location & nearby courses
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [nearbyCourses, setNearbyCourses] = useState<any[]>([]);
 
   const frequentCourses = getFrequentCourses();
+  
+  // Get local courses sorted by frequency
+  const getLocalCoursesByFrequency = () => {
+    const usage = rounds.reduce((acc, round) => {
+      const courseId = round.courseId;
+      acc[courseId] = (acc[courseId] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    return courses
+      .slice()
+      .sort((a, b) => {
+        const aCount = usage[a.id] || 0;
+        const bCount = usage[b.id] || 0;
+        return bCount - aCount; // Sort by frequency (descending)
+      });
+  };
+
+  const localCoursesByFrequency = getLocalCoursesByFrequency();
 
   // Acquire user location when modal becomes visible
   useEffect(() => {
@@ -96,17 +117,15 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   }, [visible]);
 
   useEffect(() => {
-    if (searchQuery.length >= 3) {
-      setShowFrequent(false);
+    if (activeTab === 'search' && searchQuery.length >= 3) {
       const timeoutId = setTimeout(() => {
         handleSearch();
       }, 500);
       return () => clearTimeout(timeoutId);
     } else {
       setSearchResults([]);
-      setShowFrequent(true);
     }
-  }, [searchQuery]);
+  }, [searchQuery, activeTab]);
 
   const handleSearch = async () => {
     if (searchQuery.length < 3) return;
@@ -176,7 +195,6 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     setSearchResults([]);
     setSelectedCourse(null);
     setShowTeeSelection(false);
-    setShowFrequent(true);
     onClose();
   };
 
@@ -216,6 +234,20 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
       <ChevronDown size={16} color={colors.textSecondary} />
     </TouchableOpacity>
   );
+
+  const renderLocalCourse = ({ item }: { item: Course }) => {
+    return (
+      <View style={styles.courseCardContainer}>
+        <CourseCard 
+          course={item} 
+          onPress={(course) => {
+            onSelectCourse(course);
+            handleClose();
+          }} 
+        />
+      </View>
+    );
+  };
 
   const renderNearbySection = () => (
     nearbyCourses.length > 0 && (
@@ -260,80 +292,105 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
         {!showTeeSelection ? (
           <>
-            <View style={styles.searchContainer}>
-              <Search size={20} color={colors.textSecondary} style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search for golf courses..."
-                placeholderTextColor={colors.textSecondary}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-              />
+            {/* Tab Header */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity 
+                style={[styles.tab, activeTab === 'search' && styles.activeTab]}
+                onPress={() => setActiveTab('search')}
+              >
+                <Search size={18} color={activeTab === 'search' ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
+                  Search
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.tab, activeTab === 'my-courses' && styles.activeTab]}
+                onPress={() => setActiveTab('my-courses')}
+              >
+                <Flag size={18} color={activeTab === 'my-courses' ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.tabText, activeTab === 'my-courses' && styles.activeTabText]}>
+                  My Courses
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            {loading && (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={styles.loadingText}>Searching courses...</Text>
-              </View>
-            )}
-
-            {showFrequent && frequentCourses.length > 0 && (
-              <View style={styles.frequentSection}>
-                <Text style={styles.sectionTitle}>Frequent Courses</Text>
-                <FlatList
-                  data={frequentCourses.slice(0, 2)}
-                  renderItem={renderFrequentCourse}
-                  keyExtractor={(item) => item.courseId}
-                  showsVerticalScrollIndicator={false}
+            {/* Search Tab Content */}
+            {activeTab === 'search' && (
+              <View style={styles.searchContainer}>
+                <Search size={20} color={colors.textSecondary} style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search for golf courses..."
+                  placeholderTextColor={colors.textSecondary}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoFocus={activeTab === 'search'}
                 />
               </View>
             )}
 
-            {showFrequent && renderNearbySection()}
+            {/* Search Tab Content */}
+            {activeTab === 'search' && (
+              <>
+                {loading && (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.loadingText}>Searching courses...</Text>
+                  </View>
+                )}
 
-            {!showFrequent && (
+                {/* Show nearby courses when not searching */}
+                {searchQuery.length === 0 && renderNearbySection()}
+
+                {/* Search results */}
+                {searchQuery.length >= 3 && (
+                  <FlatList
+                    data={searchResults}
+                    renderItem={renderCourseItem}
+                    keyExtractor={(item) => item.id.toString()}
+                    style={styles.resultsList}
+                    showsVerticalScrollIndicator={false}
+                    ListEmptyComponent={
+                      !loading ? (
+                        <View style={styles.emptyContainer}>
+                          <Text style={styles.emptyText}>Can't find your course?</Text>
+                          <Text style={styles.emptySubtext}>Add it manually below.</Text>
+
+                          <TouchableOpacity
+                            style={styles.manualEntryButton}
+                            onPress={() => {
+                              handleClose();
+                              if (onAddManualCourse) onAddManualCourse();
+                              else router.push('/manual-course-entry');
+                            }}
+                          >
+                            <PlusCircle size={20} color={colors.primary} style={{ marginRight: 6 }} />
+                            <Text style={styles.manualEntryText}>Add Course Manually</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : null
+                    }
+                  />
+                )}
+
+              </>
+            )}
+
+            {/* My Courses Tab Content */}
+            {activeTab === 'my-courses' && (
               <FlatList
-                data={searchResults}
-                renderItem={renderCourseItem}
-                keyExtractor={(item) => item.id.toString()}
+                data={localCoursesByFrequency}
+                renderItem={renderLocalCourse}
+                keyExtractor={(item) => item.id}
                 style={styles.resultsList}
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={
-                  searchQuery.length >= 3 && !loading ? (
-                    <View style={styles.emptyContainer}>
-                      <Text style={styles.emptyText}>Can't find your course?</Text>
-                      <Text style={styles.emptySubtext}>Add it manually below.</Text>
-
-                      <TouchableOpacity
-                        style={styles.manualEntryButton}
-                        onPress={() => {
-                          handleClose();
-                          if (onAddManualCourse) onAddManualCourse();
-                          else router.push('/manual-course-entry');
-                        }}
-                      >
-                        <PlusCircle size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                        <Text style={styles.manualEntryText}>Add Course Manually</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : searchQuery.length > 0 && searchQuery.length < 3 ? (
-                    <View style={styles.emptyContainer}>
-                      <Text style={styles.emptySubtext}>Type at least 3 characters to search</Text>
-                    </View>
-                  ) : null
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No courses saved yet</Text>
+                    <Text style={styles.emptySubtext}>Save courses by playing rounds to see them here</Text>
+                  </View>
                 }
               />
-            )}
-
-            {showFrequent && frequentCourses.length === 0 && searchQuery.length === 0 && (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>No frequent courses yet</Text>
-                <Text style={styles.emptySubtext}>
-                  Start typing to search for golf courses
-                </Text>
-              </View>
             )}
           </>
         ) : (
@@ -540,5 +597,42 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.text,
     textAlign: 'center',
+  },
+  
+  // Tab styles
+  tabContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 8,
+    backgroundColor: colors.card,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 6,
+  },
+  activeTab: {
+    backgroundColor: `${colors.primary}15`,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    marginLeft: 6,
+  },
+  activeTabText: {
+    color: colors.primary,
+  },
+  
+  // Course card container style
+  courseCardContainer: {
+    marginHorizontal: 16,
+    marginBottom: 8,
   },
 });

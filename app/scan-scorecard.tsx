@@ -39,13 +39,16 @@ import {
   RotateCcw
 } from 'lucide-react-native';
 import { colors } from '@/constants/colors';
-import { generateUniqueId } from '@/utils/helpers';
+import { generateUniqueId, ensureValidDate } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Button } from '@/components/Button';
 import { Hole, ScorecardScanResult } from '@/types';
 import { trpc } from '@/lib/trpc';
+import { searchCourses } from '@/lib/golf-course-api';
+import { convertApiCourseToLocal } from '@/utils/course-helpers';
+import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
 
 interface DetectedPlayer {
   id: string;
@@ -84,6 +87,7 @@ export default function ScanScorecardScreen() {
     players, 
     courses, 
     addRound, 
+    addCourse,
     scannedData, 
     isScanning: storeScanningState,
     remainingScans,
@@ -105,7 +109,7 @@ export default function ScanScorecardScreen() {
   const [showCourseSelector, setShowCourseSelector] = useState(false);
   const [showCourseSearchModal, setShowCourseSearchModal] = useState(false);
   const [notes, setNotes] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
   const [scanProgress, setScanProgress] = useState<ScanProgress>({
@@ -113,6 +117,9 @@ export default function ScanScorecardScreen() {
     progress: 0,
     message: 'Preparing to scan...'
   });
+  const [selectedApiCourse, setSelectedApiCourse] = useState<any | null>(null);
+  const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
+  const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const blockProgressAnim = useRef(new Animated.Value(0)).current;
@@ -167,6 +174,20 @@ export default function ScanScorecardScreen() {
       setRemainingScans(getRemainingScansQuery.data);
     }
   }, [getRemainingScansQuery.data]);
+
+  // Get user location for course matching bias
+  useEffect(() => {
+    const getUserLocation = async () => {
+      try {
+        const location = await extractUserLocation();
+        setUserLocation(location);
+      } catch (error) {
+        console.log('Could not get user location for course matching, continuing without location bias');
+      }
+    };
+    
+    getUserLocation();
+  }, []);
 
   // Helper function for confidence-based styling
   const getConfidenceStyle = (confidence?: number) => {
@@ -225,6 +246,8 @@ export default function ScanScorecardScreen() {
     if (photos.length === 1) {
       setProcessingComplete(false);
       setDetectedPlayers([]);
+      setSelectedApiCourse(null);
+      setIsLocalCourseSelected(false);
     }
   };
   
@@ -232,6 +255,8 @@ export default function ScanScorecardScreen() {
     setPhotos([]);
     setProcessingComplete(false);
     setDetectedPlayers([]);
+    setSelectedApiCourse(null);
+    setIsLocalCourseSelected(false);
   };
 
   // Progress animation functions
@@ -429,6 +454,70 @@ export default function ScanScorecardScreen() {
     }
   };
 
+  // Context 1: Smart course pre-selection from AI detection
+  const searchAndSelectCourse = async (courseName: string) => {
+    try {
+      console.log(`🔍 COURSE MATCHING: Searching for "${courseName}"`);
+      
+      // Step 1: Search local courses first (always prefer existing) - LENIENT matching
+      const localMatchResult = matchCourseToLocal(courseName, courses, userLocation, true);
+      
+      if (localMatchResult.match) {
+        console.log(`✅ LOCAL MATCH: Found "${localMatchResult.match.name}" (${localMatchResult.confidence}% confidence) - ${localMatchResult.reason}`);
+        setSelectedCourse(localMatchResult.match.id);
+        setIsLocalCourseSelected(true);
+        setSelectedApiCourse(null);
+        return;
+      }
+      
+      console.log(`🌐 API SEARCH: No local match, searching API for "${courseName}"`);
+      
+      // Step 2: Search API if no local match
+      const apiResults = await searchCourses(courseName);
+      
+      if (apiResults.length === 0) {
+        console.log(`❌ NO MATCH: No courses found for "${courseName}"`);
+        return;
+      }
+      
+      // Find best API match using our robust matching
+      let bestApiMatch = null;
+      let bestScore = 0;
+      
+      for (const apiCourse of apiResults) {
+        const fullApiName = `${apiCourse.club_name} - ${apiCourse.course_name}`;
+        const matchResult = matchCourseToLocal(courseName, [{ 
+          id: 'temp', 
+          name: fullApiName, 
+          location: `${apiCourse.location.city}, ${apiCourse.location.state}`,
+          holes: [],
+          slope: 0,
+          rating: 0
+        }], userLocation, false); // STRICT matching for API search results
+        
+        if (matchResult.confidence > bestScore) {
+          bestScore = matchResult.confidence;
+          bestApiMatch = apiCourse;
+        }
+      }
+      
+      // Only pre-select if we have high confidence (75%+)
+      if (bestApiMatch && bestScore >= 75) {
+        const fullName = `${bestApiMatch.club_name} - ${bestApiMatch.course_name}`;
+        console.log(`✅ API MATCH: Found "${fullName}" (${bestScore}% confidence)`);
+        
+        setSelectedApiCourse(bestApiMatch);
+        setSelectedCourse(`api_temp_${bestApiMatch.id}`);
+        setIsLocalCourseSelected(false);
+      } else {
+        console.log(`❌ LOW CONFIDENCE: Best API match was ${bestScore}%, not pre-selecting`);
+      }
+      
+    } catch (error) {
+      console.error('Error in course search and selection:', error);
+    }
+  };
+
   const processAIResults = (scanResult: ScorecardScanResult) => {
     const currentUser = players.find(p => p.isUser);
     
@@ -450,21 +539,13 @@ export default function ScanScorecardScreen() {
     // Auto-link players with existing players and mark user
     const linkedPlayers = autoLinkPlayers(aiDetectedPlayers);
 
-    // If course name was detected and matched, set it
-    if (scanResult.courseName) {
-      const matchedCourse = courses.find(c => 
-        c.name.toLowerCase().includes(scanResult.courseName!.toLowerCase()) ||
-        scanResult.courseName!.toLowerCase().includes(c.name.toLowerCase())
-      );
-      if (matchedCourse) {
-        setSelectedCourse(matchedCourse.id);
-      }
+    // Context 1: AI course name detection with high confidence
+    if (scanResult.courseName && scanResult.courseNameConfidence >= 0.7) {
+      searchAndSelectCourse(scanResult.courseName);
     }
 
-    // If date was detected, set it
-    if (scanResult.date) {
-      setDate(scanResult.date);
-    }
+    // Set date - use detected date if valid, otherwise default to today's date
+    setDate(ensureValidDate(scanResult.date));
 
     setDetectedPlayers(linkedPlayers);
     setProcessingComplete(true);
@@ -681,9 +762,28 @@ export default function ScanScorecardScreen() {
     endDragging();
   };
   
+  // Helper function to get the display name of the selected course
+  const getSelectedCourseName = (): string => {
+    if (selectedApiCourse) {
+      return `${selectedApiCourse.club_name} - ${selectedApiCourse.course_name}`;
+    }
+    
+    const localCourse = courses.find(c => c.id === selectedCourse);
+    return localCourse?.name || "Select Course";
+  };
+
   const handleSelectCourse = (course: any) => {
     setSelectedCourse(course.id);
     setShowCourseSearchModal(false);
+    
+    // Determine if this is a local course selection
+    const isLocal = courses.some(c => c.id === course.id);
+    setIsLocalCourseSelected(isLocal);
+    
+    // Clear API course if local course selected
+    if (isLocal) {
+      setSelectedApiCourse(null);
+    }
   };
 
   const buildPrefillHoles = (): Hole[] => {
@@ -745,13 +845,59 @@ export default function ScanScorecardScreen() {
       };
     });
     
+    // Context 2: Course matching at save point for duplicate prevention
+    let finalCourseId = selectedCourse as string;
+    let finalCourseName = "Unknown Course";
+    
+    if (!isLocalCourseSelected) {
+      // Course was not selected from "My Courses" tab - need to check for matches/duplicates
+      console.log(`🔄 SAVE MATCHING: Course not from local selection, checking for duplicates...`);
+      
+      if (selectedCourse?.startsWith('api_temp_') && selectedApiCourse) {
+        // Course was pre-selected from API via AI detection or manual search
+        const apiCourseName = `${selectedApiCourse.club_name} - ${selectedApiCourse.course_name}`;
+        console.log(`🔍 SAVE MATCHING: Checking API course "${apiCourseName}" against local courses`);
+        
+        const localMatchResult = matchCourseToLocal(apiCourseName, courses, userLocation, true); // LENIENT matching against existing local courses
+        
+        if (localMatchResult.match) {
+          // Found existing local course - use it instead
+          console.log(`✅ SAVE MATCH: Using existing local course "${localMatchResult.match.name}" (${localMatchResult.confidence}% confidence)`);
+          finalCourseId = localMatchResult.match.id;
+          finalCourseName = localMatchResult.match.name;
+        } else {
+          // No match - add API course to local store
+          console.log(`➕ SAVE MATCH: Adding new course "${apiCourseName}" to local store`);
+          const newLocalCourse = convertApiCourseToLocal(selectedApiCourse);
+          addCourse(newLocalCourse);
+          finalCourseId = newLocalCourse.id;
+          finalCourseName = newLocalCourse.name;
+        }
+      } else {
+        // Should not happen in normal flow, but handle gracefully
+        console.log(`⚠️ SAVE MATCHING: Unexpected course selection state`);
+        const localCourse = courses.find(c => c.id === selectedCourse);
+        finalCourseName = localCourse?.name || "Unknown Course";
+      }
+    } else {
+      // Course was selected from "My Courses" tab - use directly
+      const localCourse = courses.find(c => c.id === selectedCourse);
+      finalCourseName = localCourse?.name || "Unknown Course";
+      console.log(`✅ SAVE DIRECT: Using local course "${finalCourseName}" directly`);
+    }
+
     // Create the round object
     const roundId = generateUniqueId();
+    
+    // Determine hole count from detected players' scores
+    const holeCount = detectedPlayers.length > 0 ? 
+      Math.max(...detectedPlayers[0].scores.map(score => score.holeNumber)) : 18;
+    
     const newRound = {
       id: roundId,
       date,
-      courseId: selectedCourse as string,
-      courseName: courses.find(c => c.id === selectedCourse)?.name || "Unknown Course",
+      courseId: finalCourseId,
+      courseName: finalCourseName,
       players: playersWithTotalScores.map(player => ({
         playerId: player.linkedPlayerId || player.id,
         playerName: player.name,
@@ -759,12 +905,13 @@ export default function ScanScorecardScreen() {
         totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
         handicapUsed: player.handicap
       })),
-      notes
+      notes,
+      holeCount: holeCount <= 9 ? 9 : 18
     };
     
-    // Add the round to the store and navigate to the round details
+    // Add the round to the store and navigate to the home page
     addRound(newRound);
-    router.replace(`/round/${roundId}`);
+    router.replace('/');
   };
   
   if (!permission) {
@@ -1191,7 +1338,7 @@ export default function ScanScorecardScreen() {
                 >
                   <Text style={selectedCourse ? styles.selectedCourseText : styles.placeholderText}>
                     {selectedCourse 
-                      ? courses.find(c => c.id === selectedCourse)?.name || "Selected Course" 
+                      ? getSelectedCourseName() 
                       : "Search for a course"}
                   </Text>
                   <ChevronDown size={20} color={colors.text} />
@@ -1204,8 +1351,8 @@ export default function ScanScorecardScreen() {
                   <Calendar size={20} color={colors.text} style={styles.dateIcon} />
                   <TextInput
                     style={styles.dateInput}
-                    value={date}
-                    onChangeText={setDate}
+                    value={date || new Date().toISOString().split('T')[0]}
+                    onChangeText={(value) => setDate(value || new Date().toISOString().split('T')[0])}
                     placeholder="YYYY-MM-DD"
                   />
                 </View>

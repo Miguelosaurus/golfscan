@@ -14,6 +14,7 @@ import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
 import { RoundCard } from '@/components/RoundCard';
+import { getEighteenHoleEquivalentScore, getRoundHoleCount } from '@/utils/helpers';
 import { MapPin, Camera, X, TrendingUp, TrendingDown } from 'lucide-react-native';
 
 export default function CourseDetailsScreen() {
@@ -48,28 +49,39 @@ export default function CourseDetailsScreen() {
   const calculateCourseStats = () => {
     if (userRounds.length === 0) return null;
     
-    let totalScoreSum = 0;
+    let totalEighteenHoleEquivalentScore = 0;
     let roundCount = 0;
-    let bestScore = Infinity;
-    let worstScore = 0;
+    let bestEighteenHoleScore = Infinity;
+    let worstEighteenHoleScore = 0;
     let parOrBetter = 0;
     
     userRounds.forEach(round => {
       round.players.forEach(player => {
         if (player.totalScore) {
-          totalScoreSum += player.totalScore;
+          // Get 18-hole equivalent score for proper comparison
+          const eighteenHoleScore = getEighteenHoleEquivalentScore(player, round, course);
+          const holeCount = getRoundHoleCount(round);
+          
+          // Calculate 18-hole equivalent par
+          let eighteenHolePar = totalPar;
+          if (holeCount === 9) {
+            const nineHolePar = course.holes.slice(0, 9).reduce((sum, hole) => sum + hole.par, 0);
+            eighteenHolePar = nineHolePar + 36; // Add standard 9-hole par
+          }
+          
+          totalEighteenHoleEquivalentScore += eighteenHoleScore;
           roundCount++;
-          bestScore = Math.min(bestScore, player.totalScore);
-          worstScore = Math.max(worstScore, player.totalScore);
-          if (player.totalScore <= totalPar) parOrBetter++;
+          bestEighteenHoleScore = Math.min(bestEighteenHoleScore, eighteenHoleScore);
+          worstEighteenHoleScore = Math.max(worstEighteenHoleScore, eighteenHoleScore);
+          if (eighteenHoleScore <= eighteenHolePar) parOrBetter++;
         }
       });
     });
     
     return {
-      averageScore: roundCount > 0 ? totalScoreSum / roundCount : 0,
-      bestScore: bestScore === Infinity ? 0 : bestScore,
-      worstScore,
+      averageScore: roundCount > 0 ? totalEighteenHoleEquivalentScore / roundCount : 0,
+      bestScore: bestEighteenHoleScore === Infinity ? 0 : bestEighteenHoleScore,
+      worstScore: worstEighteenHoleScore,
       parOrBetterPercentage: roundCount > 0 ? (parOrBetter / roundCount) * 100 : 0,
       totalRounds: roundCount
     };

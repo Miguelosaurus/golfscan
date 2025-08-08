@@ -13,7 +13,8 @@ import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
 import { RoundCard } from '@/components/RoundCard';
-import { Round } from '@/types';
+import { Round, Course } from '@/types';
+import { getWinner, calculateAverageScoreWithHoleAdjustment, getEighteenHoleEquivalentScore, getRoundHoleCount } from '@/utils/helpers';
 import { User, Award, TrendingUp, Calendar, Flag } from 'lucide-react-native';
 
 interface CourseCount {
@@ -79,8 +80,8 @@ export default function PlayerProfileScreen() {
   
   // Calculate player statistics
   const calculatePlayerStats = (): PlayerStats => {
-    let totalScore = 0;
-    let totalPar = 0;
+    let totalEighteenHoleEquivalentScore = 0;
+    let totalEighteenHoleEquivalentPar = 0;
     let roundsPlayed = playerRounds.length;
     let birdies = 0;
     let eagles = 0;
@@ -99,7 +100,12 @@ export default function PlayerProfileScreen() {
       const playerData = round.players.find(player => player.playerId === id);
       if (!playerData) return;
       
-      totalScore += playerData.totalScore;
+      const course = courses.find(c => c.id === round.courseId);
+      const holeCount = getRoundHoleCount(round);
+      
+      // Get 18-hole equivalent score for averaging
+      const eighteenHoleEquivalentScore = getEighteenHoleEquivalentScore(playerData, round, course);
+      totalEighteenHoleEquivalentScore += eighteenHoleEquivalentScore;
       
       // Count course plays
       if (courseCounts[round.courseId]) {
@@ -111,17 +117,24 @@ export default function PlayerProfileScreen() {
         };
       }
       
-      // Get course par for handicap calculation
-      const course = courses.find(c => c.id === round.courseId);
+      // Get course par for handicap calculation (adjusted for hole count)
       if (course) {
-        const coursePar = course.holes.reduce((sum, hole) => sum + hole.par, 0);
-        totalPar += coursePar;
+        const fullCoursePar = course.holes.reduce((sum, hole) => sum + hole.par, 0);
+        let adjustedCoursePar = fullCoursePar;
         
-        // Calculate handicap differential for this round
-        const differential = (playerData.totalScore - coursePar) * 113 / 72; // Using standard slope of 113 and rating of par
+        if (holeCount === 9) {
+          // For 9-hole rounds, use 9-hole par + expected 9-hole par
+          const nineHolePar = course.holes.slice(0, 9).reduce((sum, hole) => sum + hole.par, 0);
+          adjustedCoursePar = nineHolePar + 36; // Add standard 9-hole par
+        }
+        
+        totalEighteenHoleEquivalentPar += adjustedCoursePar;
+        
+        // Calculate handicap differential for this round (using 18-hole equivalent)
+        const differential = (eighteenHoleEquivalentScore - adjustedCoursePar) * 113 / 72;
         handicapDifferentials.push(differential);
         
-        // Count score types
+        // Count score types (only count actual holes played)
         playerData.scores.forEach(score => {
           const hole = course.holes.find(h => h.number === score.holeNumber);
           if (!hole) return;
@@ -158,8 +171,9 @@ export default function PlayerProfileScreen() {
     
     return {
       roundsPlayed,
-      averageScore: roundsPlayed > 0 ? (totalScore / roundsPlayed).toFixed(1) : "0",
-      averageVsPar: roundsPlayed > 0 && totalPar > 0 ? ((totalScore - totalPar) / roundsPlayed).toFixed(1) : "0",
+      averageScore: roundsPlayed > 0 ? (totalEighteenHoleEquivalentScore / roundsPlayed).toFixed(1) : "0",
+      averageVsPar: roundsPlayed > 0 && totalEighteenHoleEquivalentPar > 0 ? 
+        ((totalEighteenHoleEquivalentScore - totalEighteenHoleEquivalentPar) / roundsPlayed).toFixed(1) : "0",
       handicap,
       birdies,
       eagles,

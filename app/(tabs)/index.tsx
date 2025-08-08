@@ -18,6 +18,7 @@ import { RoundCard } from '@/components/RoundCard';
 import { mockCourses } from '@/mocks/courses';
 import { Settings, User, Edit3, Crown, ArrowDown } from 'lucide-react-native';
 import { Round } from '@/types';
+import { calculateAverageScoreWithHoleAdjustment } from '@/utils/helpers';
 import Svg, { Path } from 'react-native-svg';
 
 export default function HomeScreen() {
@@ -44,13 +45,21 @@ export default function HomeScreen() {
     round.players.some(player => player.playerId === currentUser?.id)
   );
   
-  const totalRounds = userRounds.length;
-  const averageScore = totalRounds > 0 
-    ? Math.round(userRounds.reduce((sum, round) => {
+    const totalRounds = userRounds.length;
+  
+  // Calculate average score with proper 9-hole vs 18-hole adjustment
+  const averageScore = totalRounds > 0 ? 
+    calculateAverageScoreWithHoleAdjustment(
+      userRounds.map(round => {
         const userPlayer = round.players.find(p => p.playerId === currentUser?.id);
-        return sum + (userPlayer?.totalScore || 0);
-      }, 0) / totalRounds)
-    : 0;
+        const course = courses.find(c => c.id === round.courseId);
+        return {
+          round,
+          playerData: userPlayer!,
+          course
+        };
+      }).filter(item => item.playerData) // Filter out any rounds without user data
+    ) : 0;
   
   const userHandicap = currentUser?.handicap || 0;
   
@@ -68,7 +77,10 @@ export default function HomeScreen() {
     return { ...round, userWon };
   };
   
-  const recentRounds = userRounds.slice(0, 3).map(getRoundWithWinStatus);
+  const recentRounds = userRounds
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 3)
+    .map(getRoundWithWinStatus);
   
   const navigateToScanScorecard = () => {
     router.push('/scan-scorecard');
@@ -188,7 +200,7 @@ export default function HomeScreen() {
           <User size={24} color={colors.text} />
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>GolfScan AI</Text>
+        <Text style={styles.headerTitle}>ScanCaddie</Text>
         
         <TouchableOpacity 
           style={styles.headerButton}
