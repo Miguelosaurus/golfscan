@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import OpenAI from 'openai';
 import { PROMPTS, REASONING_EFFORTS } from './prompts';
@@ -11,6 +12,7 @@ const openai = new OpenAI({
 });
 
 type ModelId = 'o4-mini' | 'gpt-5' | 'gpt-5-chat' | 'gpt-5-mini';
+const USE_CODE_INTERPRETER = true; // enable code interpreter tool for this run
 
 interface TestResult {
   scorecard: string;
@@ -19,6 +21,7 @@ interface TestResult {
   success: boolean;
   error?: string;
   response?: ScorecardScanResult;
+  usedCodeInterpreter: boolean;
   metrics: {
     inputTokens: number;
     outputTokens: number;
@@ -166,7 +169,28 @@ async function testScorecardWithEffort(
     }];
 
     // Helper to invoke Responses API (optionally with reasoning)
-    const invoke = async (withReasoning: boolean) => {
+    const invoke = async (withReasoning: boolean, useTools: boolean) => {
+      if (!useTools) {
+        const body: any = {
+          model,
+          text: { format: { type: 'json_object' } },
+          input: [
+            {
+              role: 'user',
+              content: [
+                { type: 'input_text', text: PROMPTS[effort] },
+                ...imageContents,
+              ],
+            },
+          ],
+        };
+        if (withReasoning) {
+          body.reasoning = { effort: REASONING_EFFORTS[effort] } as any;
+        }
+        return openai.responses.create(body);
+      }
+
+      // Responses API with Code Interpreter tool
       const body: any = {
         model,
         text: { format: { type: 'json_object' } },
@@ -179,9 +203,15 @@ async function testScorecardWithEffort(
             ],
           },
         ],
+        tools: [
+          {
+            type: 'code_interpreter',
+            container: { type: 'auto' },
+          },
+        ],
+        tool_choice: 'auto',
       };
       if (withReasoning) {
-        // Cast to any to avoid SDK enum type restrictions when new effort values are introduced
         body.reasoning = { effort: REASONING_EFFORTS[effort] } as any;
       }
       return openai.responses.create(body);
@@ -189,15 +219,23 @@ async function testScorecardWithEffort(
 
     // Try with reasoning (except for 'minimal'); if the model rejects the parameter, retry without it
     let response;
+    let usedCI = USE_CODE_INTERPRETER;
     const shouldUseReasoningParam = effort !== 'minimal';
     try {
-      response = await invoke(shouldUseReasoningParam);
+      response = await invoke(shouldUseReasoningParam, USE_CODE_INTERPRETER);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const unsupported = /reasoning|unsupported|unrecognized|invalid\s+argument/i.test(message);
-      if (unsupported) {
-        console.warn(`⚠️ Model ${model} may not support reasoning; retrying without reasoning parameter...`);
-        response = await invoke(false);
+      const unsupportedReasoning = /reasoning|unsupported|unrecognized|invalid\s+argument/i.test(message);
+      const toolsNotSupported = /tools\[0\]\.container|cannot be used with the Assistants API|tools? not supported/i.test(message);
+      if (unsupportedReasoning || toolsNotSupported) {
+        if (unsupportedReasoning) {
+          console.warn(`⚠️ Model ${model} may not support reasoning; retrying without reasoning parameter...`);
+        }
+        if (toolsNotSupported && USE_CODE_INTERPRETER) {
+          console.warn(`⚠️ Model ${model} cannot use Code Interpreter via Responses; retrying without tools...`);
+          usedCI = false;
+        }
+        response = await invoke(false, false);
       } else {
         throw err;
       }
@@ -223,6 +261,7 @@ async function testScorecardWithEffort(
       model,
       reasoningEffort: effort,
       success: true,
+      usedCodeInterpreter: USE_CODE_INTERPRETER,
       response: parsedJson,
       metrics: {
         inputTokens: response.usage?.input_tokens || 0,
@@ -244,6 +283,7 @@ async function testScorecardWithEffort(
       reasoningEffort: effort,
       success: false,
       error: error instanceof Error ? error.message : String(error),
+      usedCodeInterpreter: USE_CODE_INTERPRETER,
       metrics: {
         inputTokens: 0,
         outputTokens: 0,
@@ -255,7 +295,7 @@ async function testScorecardWithEffort(
   }
 }
 
-const MODELS_TO_TEST: ModelId[] = ['o4-mini', 'gpt-5', 'gpt-5-chat', 'gpt-5-mini'];
+const MODELS_TO_TEST: ModelId[] = ['o4-mini', 'gpt-5', 'gpt-5-mini'];
 
 async function runAllTests(): Promise<TestResult[]> {
   const results: TestResult[] = [];

@@ -1,0 +1,1082 @@
+[
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 2077
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 409
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 260
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 229
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 742
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1407
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 324
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1433
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 372
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 288
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1110
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 286
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 230
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 328
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 296
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 243
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 306
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 252
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 274
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 575
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 264
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 289
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1349
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 271
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 283
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 263
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 376
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 252
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 392
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1305
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 263
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 817
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 281
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 381
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 411
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 221
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 269
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 259
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 270
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 286
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 263
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 278
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 273
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 315
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 230
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 297
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 301
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1380
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 276
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 264
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 289
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 231
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 287
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 304
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 339
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 278
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 336
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 481
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 239
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 268
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 258
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 285
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 339
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'o4-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 281
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 224
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 279
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 318
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 229
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 286
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 396
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 585
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 The requested model 'gpt-5-mini' cannot be used with the Assistants API.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 310
+    }
+  }
+]

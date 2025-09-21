@@ -1,0 +1,1082 @@
+[
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 629
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 329
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 436
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 967
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 277
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 728
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 283
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 265
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 246
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 221
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 262
+    }
+  },
+  {
+    "scorecard": "scorecard_1",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 411
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 488
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 483
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 269
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 231
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1046
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 650
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 2749
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 869
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 527
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 351
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 724
+    }
+  },
+  {
+    "scorecard": "scorecard_2",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 829
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1312
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 326
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 522
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 536
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 707
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 855
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 464
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 520
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 259
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 380
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 246
+    }
+  },
+  {
+    "scorecard": "scorecard_3",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 378
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 293
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 352
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 318
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 3107
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 1276
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 658
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 227
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 211
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 209
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 372
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 341
+    }
+  },
+  {
+    "scorecard": "scorecard_4",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 216
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 200
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 456
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 267
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 272
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 246
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 264
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 190
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 174
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 241
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 265
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 247
+    }
+  },
+  {
+    "scorecard": "scorecard_5",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 184
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 516
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 381
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 411
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "o4-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 451
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 346
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 336
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 784
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 407
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "minimal",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 284
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "low",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 342
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "medium",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 389
+    }
+  },
+  {
+    "scorecard": "scorecard_6",
+    "model": "gpt-5-mini",
+    "reasoningEffort": "high",
+    "success": false,
+    "error": "400 Missing required parameter: 'tools[0].container'.",
+    "usedCodeInterpreter": true,
+    "metrics": {
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "reasoningTokens": 0,
+      "totalTokens": 0,
+      "latencyMs": 382
+    }
+  }
+]
