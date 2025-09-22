@@ -1,9 +1,9 @@
-Golfscan AI - Optimized Scorecard Scanning Integration Plan (Gemini 2.5 Pro)
+Golfscan AI - Gemini 2.5 Pro Migration Report (replacing OpenAI)
 
 Overview
 
 
-This plan guides the integration of Google's Gemini 2.5 Pro model for extracting scorecard data from images in your React Native/Expo app with tRPC/Hono backend. Key focuses include:
+This document records the migration from OpenAI to Google's Gemini 2.5 Pro for scorecard scanning across React Native/Expo (frontend) and tRPC/Hono (backend). Key changes include:
 
 
 - Structured JSON extraction (course name/date/players/scores/pars with confidence scores).
@@ -14,7 +14,7 @@ This plan guides the integration of Google's Gemini 2.5 Pro model for extracting
 - Seamless integration with existing screens (e.g., scan-scorecard.tsx for scanning, new-round.tsx or similar for review/editing).
 - Rate limiting (50 scans/day per user, database-backed for persistence).
 - Backend-only AI calls for security.
-- App-specific context: The round details screen displays calculated stats (e.g., eagles, birdies, pars, bogeys, totals, handicaps, best/worst holes, hole-by-hole breakdowns). OpenAI extracts only raw data (e.g., per-hole scores and pars); all calculations (totals, stats, handicaps) are handled in the app code.
+- App-specific context: The round details screen displays calculated stats (e.g., eagles, birdies, pars, bogeys, totals, handicaps, best/worst holes, hole-by-hole breakdowns). Gemini extracts only raw data (e.g., per-hole scores and pars); all calculations (totals, stats, handicaps) are handled in the app code.
 Timeline Guidance: Aim for 1-2 days. Phase 1: Backend (4-6 hours). Phase 2: Frontend (4-6 hours). Phase 3: Testing (2 hours). Agent: Adapt timelines based on codebase complexity.
 
 General Agent Instructions:
@@ -1232,8 +1232,9 @@ This fix enables the Files API optimization to work properly, unlocking the 40-6
 
 ## Agent Report: Gemini LAN Connectivity + Invalid Hook Fix (2025-09-22)
 
-Summary of this session
+Summary of this session (OpenAI → Gemini 2.5 Pro migration)
 
+- Migrated scorecard scanning from OpenAI to Gemini 2.5 Pro end-to-end.
 - Repaired backend build error in `scorecard.router.ts` by extracting a proper `scanScorecardImpl()` and wiring both `scanScorecard` and `startScanScorecard` to it. File now compiles and lints cleanly.
 - Restored missing `GOOGLE_API_KEY` usage and validated key presence. Reminder to enable Generative Language API in the GCP project.
 - Fixed device connectivity by reverting to LAN. Updated `.env` base URL to current LAN IP and removed tunnel headers/processes.
@@ -1244,7 +1245,9 @@ Files modified
 
 - `backend/trpc/routes/scorecard.router.ts`:
   - Added `scanScorecardImpl` function; both `scanScorecard` and `startScanScorecard` call it
-  - Kept Gemini 2.5 Pro flow, Files API uploads, JSON parsing, confidence calc, and cleanup
+  - Replaced OpenAI calls with Gemini 2.5 Pro client
+  - Implemented Google Files API uploads (temp files, cleanup)
+  - JSON parsing with fenced block fallback; confidence calc; rate-limit; course match
   - Lint now passes
 - `backend/trpc/hono.ts`:
   - Confirmed host binding `0.0.0.0`, health endpoint at `/`
@@ -1256,6 +1259,7 @@ Files modified
   - Wired job polling result directly; removed non-existent `apiCallPromise`
 - `.env`:
   - Set `EXPO_PUBLIC_API_BASE_URL` to current LAN IP (example: `http://192.168.xx.xx:3001`)
+  - Require `GOOGLE_API_KEY` (Gemini)
 
 Operational notes
 
@@ -1272,7 +1276,7 @@ Testing steps
 
 Outcome
 
-- Scanning works on LAN with job-based polling and no hook violations. Console noise reduced. Ready for continued testing.
+- Scanning works on LAN using Gemini 2.5 Pro with job-based polling and no hook violations. Console noise reduced. Ready for continued testing.
 
 ---
 
