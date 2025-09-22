@@ -102,7 +102,7 @@ export default function ManualCourseEntryScreen() {
     };
     
     addCourse(newCourse);
-    router.replace('/');
+    router.replace(`/course/${newCourse.id}`);
   };
   
   return (

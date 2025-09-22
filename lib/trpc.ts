@@ -20,6 +20,31 @@ export const trpcClient = trpc.createClient({
     httpLink({
       url: `${getBaseUrl()}/api/trpc`,
       transformer: superjson,
+      fetch: (input, init) => {
+        const controller = new AbortController();
+        const timeoutMs = 300_000; // 300s to avoid aborts on full-quality images
+        const startedAt = Date.now();
+        // Lightweight request logging
+        try {
+          console.log(
+            `tRPC HTTP start ${new Date(startedAt).toLocaleTimeString()} | timeout=${timeoutMs}ms | url=${typeof input === 'string' ? input : (input as Request).url}`
+          );
+        } catch {}
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        return fetch(input, { ...init, signal: controller.signal })
+          .then((res) => {
+            const elapsed = Date.now() - startedAt;
+            try { console.log(`tRPC HTTP end ${new Date().toLocaleTimeString()} | ${res.status} | ${elapsed}ms`); } catch {}
+            return res;
+          })
+          .catch((err) => {
+            const elapsed = Date.now() - startedAt;
+            const aborted = (controller.signal as any)?.aborted;
+            try { console.error(`tRPC HTTP error | aborted=${aborted} | ${elapsed}ms |`, err?.message || err); } catch {}
+            throw err;
+          })
+          .finally(() => clearTimeout(id));
+      },
     }),
   ],
 });

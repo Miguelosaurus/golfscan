@@ -1,9 +1,9 @@
-Golfscan AI - Optimized OpenAI o4-mini Integration Plan (Final)
+Golfscan AI - Optimized Scorecard Scanning Integration Plan (Gemini 2.5 Pro)
 
 Overview
 
 
-This plan guides the integration of OpenAI's o4-mini model for extracting scorecard data from images in your React Native/Expo app with tRPC/Hono backend. Key focuses include:
+This plan guides the integration of Google's Gemini 2.5 Pro model for extracting scorecard data from images in your React Native/Expo app with tRPC/Hono backend. Key focuses include:
 
 
 - Structured JSON extraction (course name/date/players/scores/pars with confidence scores).
@@ -13,7 +13,7 @@ This plan guides the integration of OpenAI's o4-mini model for extracting scorec
 - Course matching: Fuzzy match detected course names to your golf course API and local courses; don't prefill if no match.
 - Seamless integration with existing screens (e.g., scan-scorecard.tsx for scanning, new-round.tsx or similar for review/editing).
 - Rate limiting (50 scans/day per user, database-backed for persistence).
-- Backend-only OpenAI calls for security.
+- Backend-only AI calls for security.
 - App-specific context: The round details screen displays calculated stats (e.g., eagles, birdies, pars, bogeys, totals, handicaps, best/worst holes, hole-by-hole breakdowns). OpenAI extracts only raw data (e.g., per-hole scores and pars); all calculations (totals, stats, handicaps) are handled in the app code.
 Timeline Guidance: Aim for 1-2 days. Phase 1: Backend (4-6 hours). Phase 2: Frontend (4-6 hours). Phase 3: Testing (2 hours). Agent: Adapt timelines based on codebase complexity.
 
@@ -23,15 +23,15 @@ General Agent Instructions:
 - Use your full access to the codebase to verify and adapt all suggestions (e.g., exact file paths, existing types/schemas, navigation, auth/userId handling).
 - If something conflicts with existing logic (e.g., database models, store structure, or API endpoints), prioritize the existing setup and adjust accordingly—log any changes for review.
 - Test incrementally as you implement; reference OpenAI docs for o4-mini vision capabilities (e.g., multi-image handling via base64 URLs).
-- Environment: Load OPENAI_API_KEY from root .env (not backend-specific).
+- Environment: Load GOOGLE_API_KEY from root .env (not backend-specific).
 
 Phase 1: Backend Integration
 
 1.1 Install Dependencies (If Needed)
 
-- Check if openai@^4.0.0 is installed; if not, run npm install --save openai@^4.0.0 in the root or backend directory (adapt based on your setup).
+- Ensure `@google/generative-ai` is installed (already present in package.json). If missing: `npm i @google/generative-ai`.
 
-**Agent Report:** ✅ Section complete. Installed openai@^4.0.0 using --legacy-peer-deps flag to resolve React version conflicts with lucide-react-native. OpenAI SDK is now available for backend integration.
+**Agent Report:** ✅ Section complete. Confirmed `@google/generative-ai` is installed. No dependency changes needed.
 
 1.2 Update/Add Types
 
@@ -55,9 +55,9 @@ Phase 1: Backend Integration
 
 **Agent Report:** ✅ Section complete. Added `ScorecardScanResult` and `ScanResponse` interfaces to types/index.ts. The interfaces include all required fields with confidence scores, and I added the `overallConfidence` field for UI decision-making. The types are compatible with existing schemas and follow the project's TypeScript patterns.
 
-1.3 Set Up OpenAI Client and Prompt
+1.3 Set Up AI Prompt
 
-- Guidance: Create or modify a simple file (e.g., backend/lib/openai.ts or integrate into an existing utils file) for the OpenAI client and prompt. Keep it lightweight—no heavy abstractions. Load API key from root .env.
+- Guidance: Keep the prompt in `backend/lib/openai.ts` and export only `SCORECARD_PROMPT`. The router will own the Gemini client. Load GOOGLE_API_KEY from root .env.
 - Suggested Pattern (Adapt to Existing Structure):
 
 	import OpenAI from 'openai';
@@ -99,7 +99,7 @@ Phase 1: Backend Integration
 
 - Agent: Refine the prompt based on real scorecard examples in your codebase/tests. Ensure it handles variable player counts and sequential holes.
 
-**Agent Report:** ✅ Section complete. Created backend/lib/openai.ts with OpenAI client configuration and comprehensive SCORECARD_PROMPT. The prompt includes detailed instructions for multi-image processing, confidence scoring, and extracting raw data only. The client expects OPENAI_API_KEY from the root .env file.
+**Agent Report:** ✅ Section complete. Refactored `backend/lib/openai.ts` to export only `SCORECARD_PROMPT`. Gemini client is instantiated in the route using `GOOGLE_API_KEY`.
 
 1.4 Implement tRPC Route with Rate Limiting and Course Matching
 
@@ -136,13 +136,13 @@ Phase 1: Backend Integration
 
 - Agent: Integrate with your exact golf course API endpoint (e.g., search by name with fuzzy params). If auth or caching exists, use it. For rate limiting, adapt to any existing user models—don't overcomplicate if a simple counter works.
 
-**Agent Report:** ✅ Section complete. Created backend/trpc/routes/scorecard.router.ts with:
+**Agent Report:** ✅ Section complete. Updated `backend/trpc/routes/scorecard.router.ts` to use Gemini 2.5 Pro with:
 - `scanScorecard` mutation with 1-5 image support and userId rate limiting  
 - In-memory rate limiting (50 scans/day per user) using Map storage
 - Fuzzy course matching against golf course API with 70% similarity threshold
 - Overall confidence calculation for UI decisions
 - `getRemainingScans` query for checking daily limits
-- Proper error handling and JSON parsing
+- Proper error handling and JSON parsing (JSON or fenced JSON fallback)
 - Added scorecard router to main app-router.ts
 
 Phase 2: Frontend Integration
@@ -1230,6 +1230,52 @@ This fix enables the Files API optimization to work properly, unlocking the 40-6
 
 ---
 
+## Agent Report: Gemini LAN Connectivity + Invalid Hook Fix (2025-09-22)
+
+Summary of this session
+
+- Repaired backend build error in `scorecard.router.ts` by extracting a proper `scanScorecardImpl()` and wiring both `scanScorecard` and `startScanScorecard` to it. File now compiles and lints cleanly.
+- Restored missing `GOOGLE_API_KEY` usage and validated key presence. Reminder to enable Generative Language API in the GCP project.
+- Fixed device connectivity by reverting to LAN. Updated `.env` base URL to current LAN IP and removed tunnel headers/processes.
+- Resolved frontend “Invalid hook call” by removing dynamic hook usage and switching to imperative polling with the tRPC client during scan job status checks.
+- Tamed excessive `getRemainingScans` refetch spam via a stable `userId` state and query options (`refetchOnMount: false`, `refetchOnWindowFocus: false`, `staleTime` set).
+
+Files modified
+
+- `backend/trpc/routes/scorecard.router.ts`:
+  - Added `scanScorecardImpl` function; both `scanScorecard` and `startScanScorecard` call it
+  - Kept Gemini 2.5 Pro flow, Files API uploads, JSON parsing, confidence calc, and cleanup
+  - Lint now passes
+- `backend/trpc/hono.ts`:
+  - Confirmed host binding `0.0.0.0`, health endpoint at `/`
+- `lib/trpc.ts`:
+  - Custom fetch with 300s timeout retained; no tunnel header
+- `app/scan-scorecard.tsx`:
+  - Replaced dynamic `getScanStatus.useQuery` with `trpcClient.scorecard.getScanStatus.query()` inside `processScorecard()`
+  - Introduced stable `userId` state; adjusted `getRemainingScans` query options to avoid aggressive refetch
+  - Wired job polling result directly; removed non-existent `apiCallPromise`
+- `.env`:
+  - Set `EXPO_PUBLIC_API_BASE_URL` to current LAN IP (example: `http://192.168.xx.xx:3001`)
+
+Operational notes
+
+- Verified backend listening on 3001 and health JSON reachable over LAN.
+- Killed lingering tunnel procs to avoid redirects/interstitials.
+- If Safari on device cannot open `http://<LAN-IP>:3001/`, issue is network (Wi‑Fi/VPN/router isolation), not app.
+
+Testing steps
+
+1) Ensure `GOOGLE_API_KEY` is set and Generative Language API is enabled in GCP.
+2) Start backend: `npm run backend`
+3) Update `.env` `EXPO_PUBLIC_API_BASE_URL` to current LAN IP; restart Expo: `expo start -c`
+4) In Expo Go, verify health at `http://<LAN-IP>:3001/` from the device, then run a scan.
+
+Outcome
+
+- Scanning works on LAN with job-based polling and no hook violations. Console noise reduced. Ready for continued testing.
+
+---
+
 ## Agent Report: Responses API Reinstated, text.format Removed, Public Image URLs Required
 
 **Summary:**
@@ -1251,6 +1297,39 @@ This fix enables the Files API optimization to work properly, unlocking the 40-6
 
 **Next Steps:**
 - Use this flow for all scorecard scans until OpenAI expands file support in the Responses API or enables o4-mini in Assistants.
+
+---
+
+## Agent Report: Expo SDK 54 Upgrade Complete
+
+- Followed official upgrade walkthrough: [Expo SDK upgrade guide](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/).
+
+### Dependency updates
+- expo: ^54.0.9
+- react: 19.1.0, react-dom: 19.1.0
+- react-native: 0.81.4
+- Expo modules bumped to SDK 54-compatible versions (camera, image, etc.)
+- Installed peer: @expo/metro-runtime
+- Removed redundant: @types/react-native (types included in RN)
+
+### Commands executed
+```bash
+npm install expo@^54.0.0 --legacy-peer-deps
+npx expo install --fix
+npm install --legacy-peer-deps
+npm remove @types/react-native --legacy-peer-deps
+npm install @expo/metro-runtime --legacy-peer-deps
+npx expo-doctor
+npx expo prebuild --platform ios --clean
+```
+
+### Notes
+- Addressed lucide-react-native peer constraint by using legacy-peer-deps during install.
+- iOS native project re-generated; CocoaPods installed successfully.
+- Doctor issues resolved: removed @types/react-native, added @expo/metro-runtime, ensured prebuild sync.
+
+### Next
+- Run the app: `npm run ios` or `npm start` then choose iOS/Android/Web.
 
 ---
 

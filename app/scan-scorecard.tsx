@@ -45,7 +45,7 @@ import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Button } from '@/components/Button';
 import { Hole, ScorecardScanResult } from '@/types';
-import { trpc } from '@/lib/trpc';
+import { trpc, trpcClient } from '@/lib/trpc';
 import { searchCourses } from '@/lib/golf-course-api';
 import { convertApiCourseToLocal } from '@/utils/course-helpers';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
@@ -98,7 +98,7 @@ export default function ScanScorecardScreen() {
   } = useGolfStore();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<string[]>([]); // store data URLs or file URIs
   const [localScanning, setLocalScanning] = useState(false);
   const scanning = localScanning || storeScanningState;
   const [processingComplete, setProcessingComplete] = useState(false);
@@ -125,18 +125,22 @@ export default function ScanScorecardScreen() {
   const blockProgressAnim = useRef(new Animated.Value(0)).current;
   const cameraRef = useRef<CameraView>(null);
 
-  // tRPC mutations
+  // Stable user id to avoid re-renders and repeated network calls
+  const [userId] = useState<string>(() => {
+    const currentUser = players.find(p => p.isUser);
+    return currentUser?.id || generateUniqueId();
+  });
+
+  // tRPC mutations/queries
   const scanMutation = trpc.scorecard.scanScorecard.useMutation();
+  const startScanMutation = trpc.scorecard.startScanScorecard.useMutation();
   const getRemainingScansQuery = trpc.scorecard.getRemainingScans.useQuery(
-    { userId: getCurrentUserId() },
-    { enabled: !!getCurrentUserId() }
+    { userId },
+    { enabled: !!userId, refetchOnMount: false, refetchOnWindowFocus: false, staleTime: 60_000 }
   );
 
   // Helper function to get current user ID
-  function getCurrentUserId(): string {
-    const currentUser = players.find(p => p.isUser);
-    return currentUser?.id || generateUniqueId();
-  }
+  function getCurrentUserId(): string { return userId; }
 
   // Reset progress when scanning stops
   useEffect(() => {
@@ -148,15 +152,16 @@ export default function ScanScorecardScreen() {
     }
   }, [scanning]);
 
-  // Helper function to convert image URI to base64
+  // Helper: to base64 (full quality)
   const convertImageToBase64 = async (uri: string): Promise<string> => {
     try {
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      return `data:image/jpeg;base64,${base64}`;
-    } catch (error) {
-      console.error('Error converting image to base64:', error);
+      if (uri.startsWith('data:')) return uri;
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any } as any);
+      // Best guess MIME
+      const mime = uri.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      return `data:${mime};base64,${base64}`;
+    } catch (e) {
+      console.error('Error converting image to base64:', e);
       throw new Error('Failed to process image');
     }
   };
@@ -206,12 +211,11 @@ export default function ScanScorecardScreen() {
     
     try {
       // Actually take a photo using the camera
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        base64: false,
-      });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: true });
       
-      if (photo?.uri) {
+      if (photo?.base64) {
+        setPhotos(prev => [...prev, `data:image/jpeg;base64,${photo.base64}`]);
+      } else if (photo?.uri) {
         setPhotos(prev => [...prev, photo.uri]);
       }
     } catch (error) {
@@ -227,10 +231,13 @@ export default function ScanScorecardScreen() {
         allowsEditing: true,
         quality: 1,
         allowsMultipleSelection: true,
+        base64: true,
       });
       
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newPhotos = result.assets.map(asset => asset.uri);
+        const newPhotos = result.assets.map(asset =>
+          asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri
+        );
         setPhotos(prev => [...prev, ...newPhotos]);
       }
     } catch (error) {
@@ -326,14 +333,14 @@ export default function ScanScorecardScreen() {
 
       updateProgress('uploading', 10, 'Processing image data...');
       
-      // Convert images to base64 with progress updates
-      const base64Images: string[] = [];
+      // Convert images to base64 (used only to kick off job; server uploads to Gemini Files API)
+      const images: string[] = [];
       for (let i = 0; i < photos.length; i++) {
         const progress = 10 + (5 * (i + 1) / photos.length);
         updateProgress('uploading', progress, `Processing image ${i + 1} of ${photos.length}...`);
         
-        const base64Image = await convertImageToBase64(photos[i]);
-        base64Images.push(base64Image);
+        const b64 = await convertImageToBase64(photos[i]);
+        images.push(b64);
         
         // Small delay for visual feedback
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -357,11 +364,19 @@ export default function ScanScorecardScreen() {
         { progress: 90, message: 'Finalizing results...' }
       ];
 
-      // Start the actual API call
-      const apiCallPromise = scanMutation.mutateAsync({
-        images: base64Images,
-        userId: getCurrentUserId()
-      });
+      // Start the actual API call as a background job
+      const startJob = await startScanMutation.mutateAsync({ images, userId: getCurrentUserId() });
+      const jobId = startJob.jobId as string;
+      // Poll for completion
+      const pollStart = Date.now();
+      let result: any = null;
+      for (let attempt = 0; attempt < 240; attempt++) { // ~8 minutes @2s
+        await new Promise(r => setTimeout(r, 2000));
+        const status = await trpcClient.scorecard.getScanStatus.query({ jobId });
+        if (status.status === 'complete') { result = status.result; break; }
+        if (status.status === 'error') { throw new Error(status.error || 'Scan failed'); }
+      }
+      if (!result) throw new Error('Scan timed out waiting for completion');
 
       // Simulate progress while waiting for API (faster since Files API is much quicker)
       for (const step of progressSteps) {
@@ -373,7 +388,7 @@ export default function ScanScorecardScreen() {
       console.log('⏱️ TIMING: Reached 90% at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
       updateProgress('processing', 90, 'Waiting for AI completion...');
       
-      const response = await apiCallPromise;
+      const response = result;
       
       // Fill blocks completely when we get response, then go to 100%
       updateProgress('processing', 100, 'Processing complete!');
