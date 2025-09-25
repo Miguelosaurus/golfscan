@@ -17,6 +17,8 @@ import {
   UIManager
 } from 'react-native';
 import { PanGestureHandler, State, FlatList } from 'react-native-gesture-handler';
+// @ts-ignore - local ambient types provided via declarations
+import DraggableFlatList from 'react-native-draggable-flatlist';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
@@ -81,12 +83,14 @@ const TEE_COLORS = [
 ];
 
 export default function ScanScorecardScreen() {
-  const { courseId } = useLocalSearchParams<{ courseId?: string }>();
+  const { courseId, editRoundId, prefilled } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string }>();
   const router = useRouter();
   const { 
     players, 
     courses, 
     addRound, 
+    updateRound,
+    addPlayer,
     addCourse,
     scannedData, 
     isScanning: storeScanningState,
@@ -120,10 +124,13 @@ export default function ScanScorecardScreen() {
   const [selectedApiCourse, setSelectedApiCourse] = useState<any | null>(null);
   const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const blockProgressAnim = useRef(new Animated.Value(0)).current;
   const cameraRef = useRef<CameraView>(null);
+  const isEditMode = !!editRoundId;
+  const preDragPlayersRef = useRef<DetectedPlayer[] | null>(null);
 
   // Stable user id to avoid re-renders and repeated network calls
   const [userId] = useState<string>(() => {
@@ -151,6 +158,39 @@ export default function ScanScorecardScreen() {
       stopPulseAnimation();
     }
   }, [scanning]);
+
+  // Initialize state from prefilled edit data
+  useEffect(() => {
+    if (isEditMode && prefilled) {
+      try {
+        const data = JSON.parse(prefilled) as { courseId: string | null, players: { id: string, name: string, scores: { holeNumber: number, strokes: number }[]; teeColor?: string }[], date: string, notes: string, scorecardPhotos?: string[] };
+        if (data.courseId) {
+          setSelectedCourse(data.courseId);
+          const isLocal = courses.some(c => c.id === data.courseId);
+          setIsLocalCourseSelected(isLocal);
+        }
+        setDate(ensureValidDate(data.date));
+        setNotes(data.notes || '');
+        const linkedPlayers: DetectedPlayer[] = (data.players || []).map(p => ({
+          id: generateUniqueId(),
+          name: p.name,
+          linkedPlayerId: p.id,
+          teeColor: p.teeColor || 'Blue',
+          scores: p.scores.map(s => ({ holeNumber: s.holeNumber, strokes: s.strokes }))
+        }));
+        setDetectedPlayers(linkedPlayers);
+        // Preserve previously saved photos when editing
+        const anyData: any = data as any;
+        if (Array.isArray(anyData.scorecardPhotos) && anyData.scorecardPhotos.length > 0) {
+          setPhotos(anyData.scorecardPhotos);
+        }
+        setProcessingComplete(true);
+        setActiveTab('players');
+      } catch (e) {
+        console.error('Failed to parse prefilled edit data', e);
+      }
+    }
+  }, [isEditMode, prefilled, courses]);
 
   // Helper: to base64 (full quality)
   const convertImageToBase64 = async (uri: string): Promise<string> => {
@@ -744,7 +784,9 @@ export default function ScanScorecardScreen() {
       // First, remove isUser flag from all players
       const updated = prev.map(p => ({ ...p, isUser: false }));
       // Then set it for the selected player
-      updated[index].isUser = true;
+      if (index >= 0 && index < updated.length) {
+        updated[index].isUser = true;
+      }
       return updated;
     });
   };
@@ -902,7 +944,7 @@ export default function ScanScorecardScreen() {
     }
 
     // Create the round object
-    const roundId = generateUniqueId();
+    const roundId = isEditMode && editRoundId ? editRoundId : generateUniqueId();
     
     // Determine hole count from detected players' scores
     const holeCount = detectedPlayers.length > 0 ? 
@@ -921,15 +963,28 @@ export default function ScanScorecardScreen() {
         handicapUsed: player.handicap
       })),
       notes,
-      holeCount: holeCount <= 9 ? 9 : 18
+      holeCount: holeCount <= 9 ? 9 : 18,
+      scorecardPhotos: photos
     };
     
-    // Add the round to the store and navigate to the home page
-    addRound(newRound);
-    router.replace('/');
+    if (isEditMode) {
+      // Ensure any new players are added to the store
+      newRound.players.forEach(p => {
+        if (!players.some(existing => existing.id === p.playerId)) {
+          addPlayer({ id: p.playerId, name: p.playerName, handicap: p.handicapUsed });
+        }
+      });
+      updateRound(newRound as any);
+      // Replace the summary screen with the updated details to prevent stacking
+      router.replace(`/round/${roundId}`);
+    } else {
+      // Add the round to the store and navigate to the home page
+      addRound(newRound as any);
+      router.replace('/');
+    }
   };
   
-  if (!permission) {
+  if (!permission && !isEditMode) {
     // Camera permissions are still loading
     return (
       <SafeAreaView style={styles.container}>
@@ -940,7 +995,7 @@ export default function ScanScorecardScreen() {
     );
   }
   
-  if (!permission.granted) {
+  if (!isEditMode && permission && !permission.granted) {
     // Camera permissions are not granted yet
     return (
       <SafeAreaView style={styles.container}>
@@ -1007,12 +1062,14 @@ export default function ScanScorecardScreen() {
           <Text style={styles.linkingTitle}>
             Select an existing player to link with{" "}
             <Text style={styles.highlightText}>
-              {selectedPlayerIndex !== null ? detectedPlayers[selectedPlayerIndex].name : ""}
+              {selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex] ? detectedPlayers[selectedPlayerIndex].name : ""}
             </Text>
           </Text>
           
           {players.length > 0 ? (
-            players.map(player => (
+            players
+              .filter(p => !p.isUser) // hide the current user from merge targets
+              .map(player => (
               <TouchableOpacity
                 key={player.id}
                 style={styles.playerLinkItem}
@@ -1051,12 +1108,12 @@ export default function ScanScorecardScreen() {
     );
   }
   
-  if (photos.length > 0 && processingComplete) {
+  if ((photos.length > 0 || isEditMode) && processingComplete) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
         <Stack.Screen 
           options={{ 
-            title: "Scorecard Results",
+            title: isEditMode ? "Edit Round" : "Scorecard Results",
             headerStyle: {
               backgroundColor: colors.background,
             },
@@ -1064,6 +1121,8 @@ export default function ScanScorecardScreen() {
               color: colors.text,
             },
             headerTintColor: colors.text,
+            // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
+            gestureEnabled: activeTab !== 'players',
             headerRight: () => (
               <TouchableOpacity 
                 onPress={handleSaveRound}
@@ -1101,170 +1160,144 @@ export default function ScanScorecardScreen() {
           </TouchableOpacity>
         </View>
         
-        <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.contentContainer}
-        >
-          {activeTab === 'players' && (
-            <View style={styles.tabContent}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Detected Players</Text>
-                <TouchableOpacity 
-                  style={styles.addPlayerButton}
-                  onPress={handleAddPlayer}
+        {activeTab === 'players' ? (
+          <View pointerEvents="box-none">
+            <DraggableFlatList
+              data={detectedPlayers}
+              keyExtractor={(item: DetectedPlayer) => item.id}
+              activationDistance={6}
+              contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+              autoscrollThreshold={40}
+              autoscrollSpeed={280}
+              bounces={false}
+              scrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              simultaneousHandlers={[]}
+              dragItemOverflow
+              onDragBegin={() => {
+                preDragPlayersRef.current = detectedPlayers.map(p => ({ ...p }));
+                setIsDragging(true);
+              }}
+              onDragEnd={({ data }: { data: DetectedPlayer[] }) => {
+                const anchored = data.map((player, index) => {
+                  const original = preDragPlayersRef.current ? preDragPlayersRef.current[index] : detectedPlayers[index];
+                  return {
+                    ...player,
+                    scores: original ? original.scores : player.scores,
+                  };
+                });
+                setDetectedPlayers(anchored);
+                setIsDragging(false);
+              }}
+              ListHeaderComponent={
+                <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }] }>
+                  <Text style={styles.sectionTitle}>Detected Players</Text>
+                  <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
+                    <Plus size={16} color={colors.primary} />
+                    <Text style={styles.addPlayerText}>Add Player</Text>
+                  </TouchableOpacity>
+                </View>
+              }
+              ListFooterComponent={
+                <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
+                  <Text style={styles.infoTitle}>Player Management</Text>
+                  <Text style={styles.infoText}>• Drag to reorder players if they were detected incorrectly</Text>
+                  <Text style={styles.infoText}>• Edit names by clicking on them and changing the text</Text>
+                  <Text style={styles.infoText}>• Link players to existing profiles using the link icon</Text>
+                  <Text style={styles.infoText}>• Mark yourself using the user icon</Text>
+                  <Text style={styles.infoText}>• Set handicaps and tee colors for accurate scoring</Text>
+                  <Text style={styles.infoText}>• Tap tee color to cycle through available options</Text>
+                </View>
+              }
+              renderItem={({ item: player, index, drag, isActive }: any) => (
+                <TouchableOpacity
+                  key={player.id}
+                  activeOpacity={1}
+                  onLongPress={drag}
+                  delayLongPress={120}
+                  style={[styles.playerCard, isActive && styles.draggingPlayerCard]}
                 >
-                  <Plus size={16} color={colors.primary} />
-                  <Text style={styles.addPlayerText}>Add Player</Text>
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.playersContainer}>
-                {detectedPlayers.map((player, index) => (
-                  <View key={player.id}>
-                    {draggingPlayerIndex !== null && draggingPlayerIndex !== index && (
-                      <TouchableOpacity 
-                        style={styles.dropZone}
-                        onPress={() => handlePlayerDrop(index)}
-                      >
-                        <Text style={styles.dropZoneText}>Drop here to reorder</Text>
+                  <View style={styles.playerHeaderRow}>
+                    <TouchableOpacity style={styles.dragHandle} onLongPress={drag} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
+                      <GripVertical size={18} color={isActive ? colors.primary : colors.text} />
+                    </TouchableOpacity>
+                    <TextInput
+                      style={[styles.playerNameInline, getConfidenceStyle(player.nameConfidence)]}
+                      value={player.name}
+                      onChangeText={(text) => handleEditPlayerName(index, text)}
+                      placeholder="Player Name"
+                    />
+                    <View style={styles.headerRightRow}>
+                      {player.isUser && (
+                        <View style={styles.userBadge}><Text style={styles.userBadgeText}>You</Text></View>
+                      )}
+                      {player.linkedPlayerId && !player.isUser && (
+                        <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>Linked</Text></View>
+                      )}
+                      <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayer(index)}>
+                        <LinkIcon size={18} color={player.linkedPlayerId ? colors.success : colors.primary} />
                       </TouchableOpacity>
-                    )}
-                    
-                    <View 
-                      style={[
-                        styles.playerCard,
-                        draggingPlayerIndex === index && styles.draggingPlayerCard
-                      ]}
-                    >
-                      <View style={styles.playerHeader}>
-                        <TouchableOpacity 
-                          style={styles.dragHandle}
-                          onLongPress={() => startDragging(index)}
-                          onPressOut={() => endDragging()}
-                          delayLongPress={500}
-                        >
-                          <GripVertical size={18} color={draggingPlayerIndex === index ? colors.primary : colors.text} />
-                        </TouchableOpacity>
-                      
-                      <View style={styles.playerNameContainer}>
-                        <TextInput
-                          style={[
-                            styles.playerNameInput,
-                            getConfidenceStyle(player.nameConfidence)
-                          ]}
-                          value={player.name}
-                          onChangeText={(text) => handleEditPlayerName(index, text)}
-                          placeholder="Player Name"
-                        />
-                        {player.isUser && (
-                          <View style={styles.userBadge}>
-                            <Text style={styles.userBadgeText}>You</Text>
-                          </View>
-                        )}
-                        {player.linkedPlayerId && !player.isUser && (
-                          <View style={styles.linkedBadge}>
-                            <Text style={styles.linkedBadgeText}>Linked</Text>
-                          </View>
-                        )}
-                      </View>
-                      
-                      <View style={styles.playerActions}>
-                        <TouchableOpacity 
-                          style={styles.playerAction}
-                          onPress={() => handleLinkPlayer(index)}
-                        >
-                          <LinkIcon size={18} color={player.linkedPlayerId ? colors.success : colors.primary} />
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
-                          style={styles.playerAction}
-                          onPress={() => handleMarkAsUser(index)}
-                          disabled={player.isUser}
-                        >
-                          <User size={18} color={player.isUser ? colors.success : colors.primary} />
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
-                          style={styles.playerAction}
-                          onPress={() => handleRemovePlayer(index)}
-                        >
-                          <X size={18} color={colors.error} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                    
-                    <View style={styles.playerDetailsRow}>
-                      <View style={styles.handicapContainer}>
-                        <Text style={styles.handicapLabel}>Handicap:</Text>
-                        <TextInput
-                          style={styles.handicapInput}
-                          value={player.handicap !== undefined ? player.handicap.toString() : ''}
-                          onChangeText={(text) => handleEditPlayerHandicap(index, text)}
-                          placeholder="Not set"
-                          placeholderTextColor={colors.text}
-                          keyboardType="numeric"
-                        />
-                      </View>
-                      
-                      <View style={styles.teeColorContainer}>
-                        <Text style={styles.teeColorLabel}>Tee:</Text>
-                        <TouchableOpacity 
-                          style={[
-                            styles.teeColorSelector,
-                            { backgroundColor: TEE_COLORS.find(t => t.name === player.teeColor)?.color || '#FFFFFF' }
-                          ]}
-                          onPress={() => {
-                            // Cycle through tee colors
-                            const currentIndex = TEE_COLORS.findIndex(t => t.name === player.teeColor);
-                            const nextIndex = (currentIndex + 1) % TEE_COLORS.length;
-                            handleEditTeeColor(index, TEE_COLORS[nextIndex].name);
-                          }}
-                        >
-                          <Text style={[
-                            styles.teeColorText,
-                            { color: player.teeColor === 'White' ? '#000000' : '#FFFFFF' }
-                          ]}>
-                            {player.teeColor || 'White'}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUser(index)} disabled={player.isUser}>
+                        <User size={18} color={player.isUser ? colors.success : colors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.playerAction} onPress={() => handleRemovePlayer(index)}>
+                        <X size={18} color={colors.error} />
+                      </TouchableOpacity>
                     </View>
                   </View>
+                  <View style={styles.playerDetailsRow}>
+                    <View style={styles.handicapContainer}>
+                      <Text style={styles.handicapLabel}>Handicap:</Text>
+                      <TextInput
+                        style={styles.handicapInput}
+                        value={player.handicap !== undefined ? String(player.handicap) : ''}
+                        onChangeText={(text) => handleEditPlayerHandicap(index, text)}
+                        placeholder="Not set"
+                        placeholderTextColor={colors.text}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={styles.teeColorContainer}>
+                      <Text style={styles.teeColorLabel}>Tee:</Text>
+                      <TouchableOpacity
+                        style={[styles.teeColorSelector, { backgroundColor: TEE_COLORS.find(t => t.name === player.teeColor)?.color || '#FFFFFF' } ]}
+                        onPress={() => {
+                          const currentIndex = TEE_COLORS.findIndex(t => t.name === player.teeColor);
+                          const nextIndex = (currentIndex + 1) % TEE_COLORS.length;
+                          handleEditTeeColor(index, TEE_COLORS[nextIndex].name);
+                        }}
+                      >
+                        <Text style={[styles.teeColorText, { color: player.teeColor === 'White' ? '#000000' : '#FFFFFF' }]}> 
+                          {player.teeColor || 'Blue'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                ))}
-              </View>
-              
-              <View style={styles.infoBox}>
-                <Text style={styles.infoTitle}>Player Management</Text>
-                <Text style={styles.infoText}>
-                  • Drag to reorder players if they were detected incorrectly
-                </Text>
-                <Text style={styles.infoText}>
-                  • Edit names by clicking on them and changing the text
-                </Text>
-                <Text style={styles.infoText}>
-                  • Link players to existing profiles using the link icon
-                </Text>
-                <Text style={styles.infoText}>
-                  • Mark yourself using the user icon
-                </Text>
-                <Text style={styles.infoText}>
-                  • Set handicaps and tee colors for accurate scoring
-                </Text>
-                <Text style={styles.infoText}>
-                  • Tap tee color to cycle through available options
-                </Text>
-              </View>
-            </View>
-          )}
-          
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        ) : (
+          <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
           {activeTab === 'scores' && (
             <View style={styles.tabContent}>
-              <View style={styles.sectionHeader}>
+              <View style={styles.sectionHeaderColumn}>
                 <Text style={styles.sectionTitle}>Scores</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Review and edit scores for each hole
-                </Text>
+                <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
+                <View style={styles.retakeBox}>
+                  <Text style={styles.retakeText}>If these scores aren't accurate, retake the photo for better clarity.</Text>
+                  <View style={styles.retakeActions}>
+                    <Button
+                      title="Retake Photos"
+                      variant="outline"
+                      onPress={() => {
+                        resetPhotos();
+                        setActiveTab('players');
+                      }}
+                      style={{ marginTop: 8 }}
+                    />
+                  </View>
+                </View>
               </View>
               
               <View style={styles.scoresTable}>
@@ -1387,7 +1420,8 @@ export default function ScanScorecardScreen() {
               </View>
             </View>
           )}
-        </ScrollView>
+          </ScrollView>
+        )}
         
         <View style={styles.bottomBar}>
           <Button
@@ -1918,6 +1952,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  sectionHeaderColumn: {
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
@@ -1989,8 +2026,27 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   dragHandle: {
-    padding: 8,
-    marginRight: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginRight: 6,
+  },
+  playerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  playerNameInline: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: colors.text,
+    marginLeft: 8,
+    marginRight: 8,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   playerNameContainer: {
     flexDirection: 'row',
@@ -2173,6 +2229,22 @@ const styles = StyleSheet.create({
     color: colors.text,
     height: 100,
     backgroundColor: colors.background,
+  },
+  retakeBox: {
+    backgroundColor: `${colors.primary}10`,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  retakeText: {
+    fontSize: 12,
+    color: colors.text,
+  },
+  retakeActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
   },
   bottomBar: {
     position: 'absolute',

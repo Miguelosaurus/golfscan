@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
@@ -6,7 +6,8 @@ import {
   ScrollView, 
   TouchableOpacity,
   Alert,
-  Image
+  Image,
+  Modal
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,7 +15,7 @@ import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
 import { getScoreDifferential, getScoreLabel, calculateNetScore } from '@/utils/helpers';
-import { Calendar, MapPin, Award, Trash2, Target, Zap, TrendingDown, User } from 'lucide-react-native';
+import { Calendar, MapPin, Award, Trash2, Target, Zap, TrendingDown, User, Pencil } from 'lucide-react-native';
 
 export default function RoundDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -221,6 +222,23 @@ export default function RoundDetailsScreen() {
   };
   
   const displayName = course ? course.name : round.courseName;
+  const [photoModalVisible, setPhotoModalVisible] = useState(false);
+  const [activePhoto, setActivePhoto] = useState<string | null>(null);
+  const handleEditRound = () => {
+    // Navigate to scan-scorecard in edit mode with prefilled data
+    const prefilled = {
+      courseId: round.courseId,
+      players: round.players.map(p => ({
+        id: p.playerId,
+        name: p.playerName,
+        scores: p.scores
+      })),
+      date: round.date,
+      notes: round.notes || ''
+    };
+    // Replace current details screen with edit summary to avoid stacking multiple details screens after save
+    router.replace({ pathname: '/scan-scorecard', params: { editRoundId: round.id, prefilled: JSON.stringify(prefilled) } });
+  };
   
   // Helper to get player name and photo
   const getPlayerInfo = (playerId: string, fallbackName: string) => {
@@ -244,12 +262,20 @@ export default function RoundDetailsScreen() {
           },
           headerTintColor: colors.text,
           headerRight: () => (
-            <TouchableOpacity 
-              onPress={handleDeleteRound}
-              style={styles.deleteButton}
-            >
-              <Trash2 size={20} color={colors.error} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row' }}>
+              <TouchableOpacity 
+                onPress={handleEditRound}
+                style={styles.iconButton}
+              >
+                <Pencil size={20} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={handleDeleteRound}
+                style={styles.iconButton}
+              >
+                <Trash2 size={20} color={colors.error} />
+              </TouchableOpacity>
+            </View>
           )
         }} 
       />
@@ -508,7 +534,35 @@ export default function RoundDetailsScreen() {
             <Text style={styles.notesText}>{round.notes}</Text>
           </View>
         )}
+
+        {Array.isArray((round as any).scorecardPhotos) && (round as any).scorecardPhotos.length > 0 && (
+          <View style={[styles.notesContainer, { marginTop: 16 }]}> 
+            <Text style={styles.notesTitle}>Scorecard Photos</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {(round as any).scorecardPhotos.map((uri: string, idx: number) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.photoThumb}
+                  onPress={() => { setActivePhoto(uri); setPhotoModalVisible(true); }}
+                >
+                  <Image source={{ uri }} style={styles.photoThumbImage} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
       </ScrollView>
+
+      <Modal visible={photoModalVisible} transparent animationType="fade" onRequestClose={() => setPhotoModalVisible(false)}>
+        <View style={styles.photoModalBackdrop}>
+          {activePhoto && (
+            <Image source={{ uri: activePhoto }} style={styles.photoModalImage} resizeMode="contain" />
+          )}
+          <TouchableOpacity style={styles.photoCloseButton} onPress={() => setPhotoModalVisible(false)}>
+            <Text style={styles.photoCloseText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -793,7 +847,46 @@ const styles = StyleSheet.create({
   errorButton: {
     marginHorizontal: 16,
   },
-  deleteButton: {
+  iconButton: {
     padding: 8,
+  },
+  photoThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  photoThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoModalImage: {
+    width: '90%',
+    height: '80%',
+  },
+  photoCloseButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)'
+  },
+  photoCloseText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

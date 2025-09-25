@@ -7,7 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
-  Alert
+  Alert,
+  Modal
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +18,7 @@ import { RoundCard } from '@/components/RoundCard';
 import { CourseCard } from '@/components/CourseCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Round, Player, PlayerSummary, Course } from '@/types';
-import { History, Camera, Search, Users, Flag, Check, X, Link, Edit } from 'lucide-react-native';
+import { History, Camera, Search, Users, Flag, Check, X, Link, Edit, Calendar as CalendarIcon } from 'lucide-react-native';
 
 export default function HistoryScreen() {
   const router = useRouter();
@@ -26,7 +27,38 @@ export default function HistoryScreen() {
   const [activeTab, setActiveTab] = useState<'rounds' | 'players' | 'courses'>('rounds');
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [datePreset, setDatePreset] = useState<'all' | 'week' | 'month' | 'year' | 'last30' | 'custom'>('all');
+  const [customStart, setCustomStart] = useState<string | null>(null); // YYYY-MM-DD
+  const [customEnd, setCustomEnd] = useState<string | null>(null);
   
+  const withinRange = (dateStr: string): boolean => {
+    if (datePreset === 'all') return true;
+    const d = new Date(dateStr);
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const last30 = new Date(now);
+    last30.setDate(now.getDate() - 30);
+    switch (datePreset) {
+      case 'week':
+        return d >= startOfWeek && d <= now;
+      case 'month':
+        return d >= startOfMonth && d <= now;
+      case 'year':
+        return d >= startOfYear && d <= now;
+      case 'last30':
+        return d >= last30 && d <= now;
+      case 'custom':
+        if (!customStart || !customEnd) return true;
+        return d >= new Date(customStart) && d <= new Date(customEnd);
+      default:
+        return true;
+    }
+  };
+
   const filteredRounds = rounds
     .filter(round => 
       round.courseName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -34,6 +66,7 @@ export default function HistoryScreen() {
         player.playerName.toLowerCase().includes(searchQuery.toLowerCase())
       )
     )
+    .filter(round => withinRange(round.date))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const filteredCourses = courses.filter(course => 
@@ -321,6 +354,44 @@ export default function HistoryScreen() {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        {activeTab === 'rounds' && (
+          <TouchableOpacity 
+            style={styles.manageInlineButton}
+            onPress={() => setShowDateFilter(true)}
+          >
+            <CalendarIcon size={16} color={colors.primary} />
+            <Text style={styles.manageInlineButtonText}>
+              {datePreset === 'all' ? 'Dates' :
+               datePreset === 'week' ? 'This week' :
+               datePreset === 'month' ? 'This month' :
+               datePreset === 'year' ? 'This year' :
+               datePreset === 'last30' ? 'Last 30d' : 'Custom'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {activeTab === 'players' && getUniquePlayers().length > 1 && (
+          <TouchableOpacity 
+            style={[styles.manageInlineButton, isSelectMode && styles.manageInlineButtonActive]}
+            onPress={toggleSelectMode}
+          >
+            <Edit size={16} color={isSelectMode ? colors.background : colors.primary} />
+            <Text style={[styles.manageInlineButtonText, isSelectMode && styles.manageInlineButtonTextActive]}>
+              {isSelectMode ? 'Cancel' : 'Manage'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {activeTab === 'players' && isSelectMode && (
+          <TouchableOpacity 
+            style={[styles.manageInlineButton, styles.mergeInlineButton, selectedPlayerIds.length < 2 && styles.disabledButton]}
+            onPress={handleMergePlayers}
+            disabled={selectedPlayerIds.length < 2}
+          >
+            <Link size={16} color={selectedPlayerIds.length >= 2 ? colors.background : colors.textSecondary} />
+            <Text style={[styles.manageInlineButtonText, styles.mergeButtonText, selectedPlayerIds.length < 2 && styles.disabledButtonText]}>
+              {`Merge ${selectedPlayerIds.length > 0 ? selectedPlayerIds.length : ''}`.trim()}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
       
       <FlatList
@@ -330,43 +401,54 @@ export default function HistoryScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={getEmptyState()}
-        ListHeaderComponent={
-          activeTab === 'players' && getUniquePlayers().length > 1 ? (
-            <View style={styles.playerManagement}>
-              <TouchableOpacity 
-                style={[styles.managementButton, isSelectMode && styles.activeManagementButton]}
-                onPress={toggleSelectMode}
-              >
-                <Edit size={16} color={isSelectMode ? colors.background : colors.primary} />
-                <Text style={[styles.managementButtonText, isSelectMode && styles.activeManagementButtonText]}>
-                  {isSelectMode ? 'Cancel' : 'Manage'}
-                </Text>
-              </TouchableOpacity>
-              
-              {isSelectMode && (
-                <TouchableOpacity 
-                  style={[
-                    styles.managementButton, 
-                    styles.mergeButton,
-                    selectedPlayerIds.length !== 2 && styles.disabledButton
-                  ]}
-                  onPress={handleMergePlayers}
-                  disabled={selectedPlayerIds.length !== 2}
+        ListHeaderComponent={null}
+      />
+      <Modal visible={showDateFilter} transparent animationType="fade" onRequestClose={() => setShowDateFilter(false)}>
+        <View style={styles.dateModalBackdrop}>
+          <View style={styles.dateModal}>
+            <Text style={styles.dateModalTitle}>Filter by date</Text>
+            <View style={styles.datePresetRow}>
+              {['all','week','month','year','last30','custom'].map(p => (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.presetChip, datePreset === p && styles.presetChipActive]}
+                  onPress={() => setDatePreset(p as any)}
                 >
-                  <Link size={16} color={selectedPlayerIds.length === 2 ? colors.background : colors.textSecondary} />
-                  <Text style={[
-                    styles.managementButtonText, 
-                    styles.mergeButtonText,
-                    selectedPlayerIds.length !== 2 && styles.disabledButtonText
-                  ]}>
-                    Merge ({selectedPlayerIds.length}/2)
+                  <Text style={[styles.presetChipText, datePreset === p && styles.presetChipTextActive]}>
+                    {p === 'all' ? 'All' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : p === 'year' ? 'This Year' : p === 'last30' ? 'Last 30 Days' : 'Custom'}
                   </Text>
                 </TouchableOpacity>
-              )}
+              ))}
             </View>
-          ) : null
-        }
-      />
+            {datePreset === 'custom' && (
+              <View style={styles.customRow}>
+                <TextInput
+                  style={styles.dateInputBox}
+                  placeholder="Start YYYY-MM-DD"
+                  placeholderTextColor={colors.textSecondary}
+                  value={customStart || ''}
+                  onChangeText={setCustomStart}
+                />
+                <TextInput
+                  style={styles.dateInputBox}
+                  placeholder="End YYYY-MM-DD"
+                  placeholderTextColor={colors.textSecondary}
+                  value={customEnd || ''}
+                  onChangeText={setCustomEnd}
+                />
+              </View>
+            )}
+            <View style={styles.dateModalActions}>
+              <TouchableOpacity style={[styles.manageInlineButton, styles.mergeInlineButton]} onPress={() => setShowDateFilter(false)}>
+                <Text style={[styles.manageInlineButtonText, styles.mergeButtonText]}>Apply</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.manageInlineButton} onPress={() => { setDatePreset('all'); setCustomStart(null); setCustomEnd(null); }}>
+                <Text style={styles.manageInlineButtonText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -517,10 +599,7 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   playerManagement: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    display: 'none',
   },
   managementButton: {
     flexDirection: 'row',
@@ -553,5 +632,99 @@ const styles = StyleSheet.create({
   },
   disabledButtonText: {
     color: colors.textSecondary,
+  },
+  manageInlineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${colors.primary}15`,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  manageInlineButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  manageInlineButtonText: {
+    marginLeft: 6,
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  manageInlineButtonTextActive: {
+    color: colors.background,
+  },
+  mergeInlineButton: {
+    backgroundColor: colors.primary,
+    marginLeft: 8,
+  },
+  dateModalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dateModal: {
+    width: '90%',
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  dateModalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  datePresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  presetChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  presetChipActive: {
+    backgroundColor: `${colors.primary}15`,
+    borderColor: colors.primary,
+  },
+  presetChipText: {
+    color: colors.text,
+    fontSize: 12,
+  },
+  presetChipTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  customRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  dateInputBox: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    color: colors.text,
+    marginRight: 8,
+  },
+  dateModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
 });

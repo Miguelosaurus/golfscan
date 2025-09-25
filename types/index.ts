@@ -101,6 +101,7 @@ export interface Player {
     weather?: string;
     imageUrl?: string;
     holeCount?: number; // 9 or 18, determined from scores
+    scorecardPhotos?: string[]; // URIs or base64 strings of scanned scorecard images
   }
 
   // Scorecard Scanning Types
@@ -130,3 +131,9 @@ export interface Player {
     data: ScorecardScanResult;
     remainingScans: number;
   }
+
+// Allow import of react-native-draggable-flatlist without types available
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DraggableFlatListAny = any;
+
+// Ambient declaration to satisfy TS for draggable list without external types

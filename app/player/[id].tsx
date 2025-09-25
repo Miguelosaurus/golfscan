@@ -47,7 +47,7 @@ interface CoursePlayCount {
 export default function PlayerProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { rounds, courses, players } = useGolfStore();
+  const { rounds, courses, players, deletePlayer } = useGolfStore();
   
   // Find all rounds this player participated in
   const playerRounds = rounds.filter(round => 
@@ -203,6 +203,14 @@ export default function PlayerProfileScreen() {
             color: colors.text,
           },
           headerTintColor: colors.text,
+          headerRight: () => (!isCurrentUser ? (
+            <TouchableOpacity onPress={() => {
+              deletePlayer(id as string);
+              router.back();
+            }} style={{ paddingHorizontal: 12 }}>
+              <Text style={{ color: colors.error, fontWeight: '600' }}>Delete</Text>
+            </TouchableOpacity>
+          ) : null)
         }} 
       />
       

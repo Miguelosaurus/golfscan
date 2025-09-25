@@ -1,3 +1,75 @@
+## Agent Report: Rounds Date Filter (Calendar Button in Search Row)
+
+**What changed**
+- Added a calendar filter button to the Rounds tab search bar (similar inline style as Manage on Players).
+- Implemented presets: All, This Week, This Month, This Year, Last 30 Days, and Custom range (YYYY-MM-DD inputs).
+- Wired filter into rounds list; results update immediately.
+
+**Files modified**
+- `app/(tabs)/history.tsx`
+
+**Notes**
+- Modal-based UI for now to avoid extra dependencies; can swap to a date-picker library if desired.
+
+**Agent Report:** ✅ Section complete. Users can filter rounds by date quickly from the list.
+## Agent Report: Scorecard Photos + Retake Flow
+
+**What changed**
+- Persist scanned scorecard photos with rounds via new `Round.scorecardPhotos?: string[]` in `types/index.ts`.
+- Included `scorecardPhotos` when saving a round in `app/scan-scorecard.tsx`.
+- Display a “Scorecard Photos” section in `app/round/[id].tsx` with clickable thumbnails that open a full-screen preview modal.
+- Added a gentle hint and a `Retake Photos` button in the Scores tab of the review screen. It clears current results and returns to the capture UI for re-scanning.
+
+**Files modified**
+- `types/index.ts`
+- `app/scan-scorecard.tsx`
+- `app/round/[id].tsx`
+
+**Testing**
+- Scan → Review → Save: Round details shows a thumbnail strip; tapping opens preview modal.
+- From Scores tab: Tap Retake Photos → returns to camera/upload view; can rescan and proceed again.
+
+**Agent Report:** ✅ Section complete. Photos are saved and viewable; retake UX added.
+## Agent Report: Players Tab UX - Manage inline + Flexible Merge Label
+
+**What changed**
+- Moved the `Manage/Cancel` control from a dedicated row into the right side of the search bar on the Players tab in `app/(tabs)/history.tsx`.
+- When selection mode is active, added an inline `Merge` action next to `Manage`, showing `Merge N` where N is the number of selected players (no fixed 0/2 display).
+- Updated merge logic to allow merging 2 or more players: merges all selected players into the first selected target, prompting for a final name once.
+
+**Files modified**
+- `app/(tabs)/history.tsx`
+
+**Testing**
+- Toggle Manage: control appears inline in the search row; Cancel restores normal state.
+- Select ≥2 players: `Merge N` is enabled and merges into one with final name prompt; UI exits selection mode on success.
+
+**Agent Report:** ✅ Section complete. UX streamlined and merge labeling/behavior updated per request.
+## Agent Report: Round Editing Flow from Details → Summary (Overwrite Save)
+
+**What changed**
+- Added an Edit button in `app/round/[id].tsx` header next to Delete. Tapping Edit opens the scorecard summary in edit mode, prefilled with the original round data.
+- Enabled edit mode in `app/scan-scorecard.tsx` to accept `editRoundId` and `prefilled` params. In edit mode, the screen bypasses camera permission steps, shows the summary UI directly, and sets the title to "Edit Round".
+- Updated save logic: when `editRoundId` is present, the flow calls `updateRound` instead of `addRound`, preserving the original `id` so it overwrites the existing round rather than creating a new one. It then navigates to `round/[id]`.
+
+**Files modified**
+- `app/round/[id].tsx`: add `Pencil` icon button, `handleEditRound`, headerRight layout.
+- `app/scan-scorecard.tsx`: add `editRoundId` and `prefilled` params; import `updateRound`, `addPlayer`; add `isEditMode` flag and prefill `useEffect`; bypass permission screens in edit mode; adjust summary render condition and title; update `handleSaveRound` to overwrite via `updateRound` and navigate to the edited round.
+
+**Debugging & Testing**
+- Verified lints pass on both edited files.
+- Manual test plan:
+  1) Open a round in `round/[id]` and tap Edit → lands on summary with data populated.
+  2) Change a score and Save → returns to round details and reflects changes; history list shows no duplicate entry.
+  3) Edit notes/date; Save → updates existing round.
+  4) Add a new player during edit; Save → player is added to store if missing, round updated.
+  5) Edit mode works without camera permission.
+
+**Notes**
+- Prefill payload uses `players: [{ id, name, scores[] }]` with existing player ids to preserve identity. Save maps `linkedPlayerId || id` to keep correct associations.
+
+**Agent Report:** ✅ Section complete. Round editing via summary implemented with overwrite semantics and navigation polish.
+
 Golfscan AI - Gemini 2.5 Pro Migration Report (replacing OpenAI)
 
 Overview
@@ -1238,7 +1310,7 @@ Summary of this session (OpenAI → Gemini 2.5 Pro migration)
 - Repaired backend build error in `scorecard.router.ts` by extracting a proper `scanScorecardImpl()` and wiring both `scanScorecard` and `startScanScorecard` to it. File now compiles and lints cleanly.
 - Restored missing `GOOGLE_API_KEY` usage and validated key presence. Reminder to enable Generative Language API in the GCP project.
 - Fixed device connectivity by reverting to LAN. Updated `.env` base URL to current LAN IP and removed tunnel headers/processes.
-- Resolved frontend “Invalid hook call” by removing dynamic hook usage and switching to imperative polling with the tRPC client during scan job status checks.
+- Resolved frontend "Invalid hook call" by removing dynamic hook usage and switching to imperative polling with the tRPC client during scan job status checks.
 - Tamed excessive `getRemainingScans` refetch spam via a stable `userId` state and query options (`refetchOnMount: false`, `refetchOnWindowFocus: false`, `staleTime` set).
 
 Files modified
@@ -2048,7 +2120,7 @@ The app is now fully rebranded to ScanCaddie with consistent naming throughout t
 ### Files Modified:
 1. **`app.json`** - Reverted bundle identifiers to original
 2. **`ios/GolfScoreTracker/Info.plist`** - Reverted bundle identifier
-3. **`ios/GolfScoreTracker.xcodeproj/project.pbxproj`** - Reverted bundle identifier
+3. **`ios/GolfScoreTracker.xcodeproj/project.pbxproj** - Reverted bundle identifier
 4. **`utils/data-migration.ts`** - NEW: Data backup/restore utilities
 5. **`store/useGolfStore.ts`** - Cleaned up migration attempt code
 
@@ -2121,3 +2193,11 @@ The app is now fully rebranded to ScanCaddie with consistent naming throughout t
 **Your data should now be fully accessible while enjoying the new ScanCaddie visual branding!**
 
 ---
+
+## Agent Report: Navigation Replace to Prevent Stacked Round Details
+
+- Updated `app/round/[id].tsx` to use `router.replace` when entering edit mode so the edit summary replaces the details screen.
+- Updated `app/scan-scorecard.tsx` to `router.replace` back to `round/[id]` after saving in edit mode.
+- Result: Back navigation behaves correctly; repeated edits no longer stack multiple Round Details screens.
+
+**Agent Report:** ✅ Fix applied. Back once returns to the previous screen as expected.
