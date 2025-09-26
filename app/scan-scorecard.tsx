@@ -40,6 +40,7 @@ import {
   Flag,
   RotateCcw
 } from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
 import { colors } from '@/constants/colors';
 import { generateUniqueId, ensureValidDate } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
@@ -59,6 +60,10 @@ interface DetectedPlayer {
   linkedPlayerId?: string;
   isUser?: boolean;
   handicap?: number;
+  // Preserve previous linkage/handicap to support undoing "Select as me"
+  prevLinkedPlayerId?: string;
+  prevHandicap?: number;
+  prevName?: string;
   teeColor?: string;
   scores: {
     holeNumber: number;
@@ -109,6 +114,8 @@ export default function ScanScorecardScreen() {
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
   const [showPlayerLinking, setShowPlayerLinking] = useState(false);
   const [selectedPlayerIndex, setSelectedPlayerIndex] = useState<number | null>(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [linkingWasRemoved, setLinkingWasRemoved] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<string | null>(courseId || null);
   const [showCourseSelector, setShowCourseSelector] = useState(false);
   const [showCourseSearchModal, setShowCourseSearchModal] = useState(false);
@@ -125,6 +132,7 @@ export default function ScanScorecardScreen() {
   const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [listVersion, setListVersion] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const blockProgressAnim = useRef(new Animated.Value(0)).current;
@@ -663,24 +671,30 @@ export default function ScanScorecardScreen() {
   };
   
   const handleEditPlayerName = (index: number, newName: string) => {
+    // legacy index-based handler retained for safety; forwards to id-based when possible
+    const player = detectedPlayers[index];
+    if (player) {
+      handleEditPlayerNameById(player.id, newName);
+    }
+  };
+
+  const handleEditPlayerNameById = (playerId: string, newName: string) => {
     setDetectedPlayers(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], name: newName };
+      const updated = prev.map(p => ({ ...p }));
+      const idx = updated.findIndex(p => p.id === playerId);
+      if (idx < 0) return prev;
+      updated[idx].name = newName;
       
       // Auto-link if exact match found
       const exactMatch = players.find(p => p.name.toLowerCase() === newName.toLowerCase());
-      if (exactMatch && !updated[index].linkedPlayerId) {
-        updated[index].linkedPlayerId = exactMatch.id;
-        updated[index].handicap = exactMatch.handicap;
-        
-        // If this exact match is the current user, mark as user
+      if (exactMatch && !updated[idx].linkedPlayerId) {
+        updated[idx].linkedPlayerId = exactMatch.id;
+        updated[idx].handicap = exactMatch.handicap;
         if (exactMatch.isUser) {
-          // First remove isUser from all other players
           updated.forEach(p => p.isUser = false);
-          updated[index].isUser = true;
+          updated[idx].isUser = true;
         }
       }
-      
       return updated;
     });
   };
@@ -730,6 +744,25 @@ export default function ScanScorecardScreen() {
           style: "destructive",
           onPress: () => {
             setDetectedPlayers(prev => prev.filter((_, i) => i !== index));
+            setListVersion(v => v + 1);
+          }
+        }
+      ]
+    );
+  };
+
+  const handleRemovePlayerById = (playerId: string) => {
+    Alert.alert(
+      "Remove Player",
+      "Are you sure you want to remove this player?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          style: "destructive",
+          onPress: () => {
+            setDetectedPlayers(prev => prev.filter(p => p.id !== playerId));
+            setListVersion(v => v + 1);
           }
         }
       ]
@@ -758,37 +791,102 @@ export default function ScanScorecardScreen() {
   
   const handleLinkPlayer = (index: number) => {
     setSelectedPlayerIndex(index);
+    const player = detectedPlayers[index];
+    setSelectedPlayerId(player?.id || null);
+    setLinkingWasRemoved(false);
+    setShowPlayerLinking(true);
+  };
+
+  const handleLinkPlayerById = (playerId: string) => {
+    setSelectedPlayerId(playerId);
+    const idx = detectedPlayers.findIndex(p => p.id === playerId);
+    setSelectedPlayerIndex(idx >= 0 ? idx : null);
+    setLinkingWasRemoved(false);
     setShowPlayerLinking(true);
   };
   
   const handleSelectExistingPlayer = (existingPlayerId: string, playerName: string, handicap?: number) => {
-    if (selectedPlayerIndex === null) return;
-    
+    const idx = selectedPlayerId ? detectedPlayers.findIndex(p => p.id === selectedPlayerId) : selectedPlayerIndex ?? -1;
+    if (idx === null || idx < 0) return;
     setDetectedPlayers(prev => {
       const updated = [...prev];
-      updated[selectedPlayerIndex] = {
-        ...updated[selectedPlayerIndex],
-        linkedPlayerId: existingPlayerId,
-        name: playerName,
-        handicap
-      };
+      const current = { ...updated[idx] };
+      // Preserve original values for later restore if not already preserved
+      if (current.prevName === undefined) current.prevName = current.name;
+      if (current.prevLinkedPlayerId === undefined && current.linkedPlayerId !== undefined) current.prevLinkedPlayerId = current.linkedPlayerId;
+      if (current.prevHandicap === undefined && current.handicap !== undefined) current.prevHandicap = current.handicap;
+      // Apply link and overwrite visible name/handicap to the selected profile
+      current.linkedPlayerId = existingPlayerId;
+      current.name = playerName;
+      current.handicap = handicap;
+      updated[idx] = current;
       return updated;
     });
+    setListVersion(v => v + 1);
     
     setShowPlayerLinking(false);
     setSelectedPlayerIndex(null);
+    setSelectedPlayerId(null);
   };
   
   const handleMarkAsUser = (index: number) => {
     setDetectedPlayers(prev => {
-      // First, remove isUser flag from all players
       const updated = prev.map(p => ({ ...p, isUser: false }));
-      // Then set it for the selected player
       if (index >= 0 && index < updated.length) {
         updated[index].isUser = true;
       }
       return updated;
     });
+  };
+
+  // Mark/unmark as current user by player id (works after reordering and when already linked)
+  const handleMarkAsUserById = (playerId: string) => {
+    const currentUser = players.find(p => p.isUser);
+    setDetectedPlayers(prev => {
+      const updated = prev.map(p => ({ ...p }));
+      const idx = updated.findIndex(p => p.id === playerId);
+      if (idx >= 0) {
+        const selected = { ...updated[idx] };
+        const togglingOff = !!selected.isUser; // currently marked as user -> unmark
+
+        if (togglingOff) {
+          // Restore previous state
+          selected.isUser = false;
+          if (selected.prevLinkedPlayerId !== undefined) {
+            selected.linkedPlayerId = selected.prevLinkedPlayerId;
+          } else {
+            delete selected.linkedPlayerId;
+          }
+          if (selected.prevHandicap !== undefined) {
+            selected.handicap = selected.prevHandicap;
+          } else {
+            delete (selected as any).handicap;
+          }
+          if (selected.prevName !== undefined) {
+            selected.name = selected.prevName;
+          }
+          delete selected.prevLinkedPlayerId;
+          delete selected.prevHandicap;
+          delete selected.prevName;
+        } else {
+          // Turning on: clear isUser on others and link this to current user
+          updated.forEach(p => { p.isUser = false; });
+          selected.isUser = true;
+          if (currentUser) {
+            // Save previous linkage/handicap for undo; DO NOT change the name
+            selected.prevLinkedPlayerId = selected.linkedPlayerId;
+            if (selected.handicap !== undefined) selected.prevHandicap = selected.handicap;
+            if (selected.prevName === undefined) selected.prevName = selected.name;
+            selected.linkedPlayerId = currentUser.id;
+            selected.handicap = currentUser.handicap;
+            selected.name = currentUser.name;
+          }
+        }
+        updated[idx] = selected;
+      }
+      return updated;
+    });
+    setListVersion(v => v + 1);
   };
   
   const handleReorderPlayers = (fromIndex: number, toIndex: number) => {
@@ -1029,6 +1127,41 @@ export default function ScanScorecardScreen() {
   }
   
   if (showPlayerLinking) {
+    const selectedLinkedId = (() => {
+      if (selectedPlayerId) {
+        const p = detectedPlayers.find(dp => dp.id === selectedPlayerId);
+        return p?.linkedPlayerId;
+      }
+      if (selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex]) {
+        return detectedPlayers[selectedPlayerIndex].linkedPlayerId;
+      }
+      return undefined;
+    })();
+
+    const handleUnlinkSelectedPlayer = () => {
+      if (selectedPlayerIndex === null) return;
+      setDetectedPlayers(prev => {
+        const updated = [...prev];
+        const current = { ...updated[selectedPlayerIndex] };
+        current.linkedPlayerId = undefined;
+        if (current.prevName !== undefined) {
+          current.name = current.prevName;
+          delete current.prevName;
+        }
+        if (current.prevLinkedPlayerId !== undefined) {
+          current.linkedPlayerId = current.prevLinkedPlayerId;
+          delete current.prevLinkedPlayerId;
+        }
+        if (current.prevHandicap !== undefined) {
+          current.handicap = current.prevHandicap;
+          delete current.prevHandicap;
+        }
+        updated[selectedPlayerIndex] = current;
+        return updated;
+      });
+      setLinkingWasRemoved(true);
+    };
+
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
         <Stack.Screen 
@@ -1046,11 +1179,25 @@ export default function ScanScorecardScreen() {
                 onPress={() => {
                   setShowPlayerLinking(false);
                   setSelectedPlayerIndex(null);
+                  setSelectedPlayerId(null);
+                  setLinkingWasRemoved(false);
                 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 style={styles.headerButton}
               >
-                <Text style={styles.headerButtonText}>Cancel</Text>
+                <Text style={styles.headerButtonText}>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
               </TouchableOpacity>
+            ),
+            headerRight: () => (
+              selectedLinkedId ? (
+                <TouchableOpacity 
+                  onPress={handleUnlinkSelectedPlayer}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={styles.headerButton}
+                >
+                  <Text style={styles.headerButtonText}>Remove Link</Text>
+                </TouchableOpacity>
+              ) : null
             )
           }} 
         />
@@ -1062,31 +1209,41 @@ export default function ScanScorecardScreen() {
           <Text style={styles.linkingTitle}>
             Select an existing player to link with{" "}
             <Text style={styles.highlightText}>
-              {selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex] ? detectedPlayers[selectedPlayerIndex].name : ""}
+              {(() => {
+                const p = selectedPlayerId ? detectedPlayers.find(dp => dp.id === selectedPlayerId) : (selectedPlayerIndex !== null ? detectedPlayers[selectedPlayerIndex] : null);
+                return p ? p.name : "";
+              })()}
             </Text>
           </Text>
           
           {players.length > 0 ? (
             players
               .filter(p => !p.isUser) // hide the current user from merge targets
-              .map(player => (
-              <TouchableOpacity
-                key={player.id}
-                style={styles.playerLinkItem}
-                onPress={() => handleSelectExistingPlayer(player.id, player.name, player.handicap)}
-              >
-                <View style={styles.playerLinkAvatar}>
-                  <Text style={styles.playerLinkInitial}>{player.name.charAt(0)}</Text>
-                </View>
-                <View style={styles.playerLinkInfo}>
-                  <Text style={styles.playerLinkName}>{player.name}</Text>
-                  {player.handicap !== undefined && (
-                    <Text style={styles.playerLinkHandicap}>Handicap: {player.handicap}</Text>
-                  )}
-                </View>
-                <LinkIcon size={20} color={colors.primary} />
-              </TouchableOpacity>
-            ))
+              .map(player => {
+                const isSelected = selectedLinkedId === player.id;
+                return (
+                  <TouchableOpacity
+                    key={player.id}
+                    style={[styles.playerLinkItem, isSelected && styles.playerLinkItemSelected]}
+                    onPress={() => handleSelectExistingPlayer(player.id, player.name, player.handicap)}
+                  >
+                    <View style={styles.playerLinkAvatar}>
+                      <Text style={styles.playerLinkInitial}>{player.name.charAt(0)}</Text>
+                    </View>
+                    <View style={styles.playerLinkInfo}>
+                      <Text style={styles.playerLinkName}>{player.name}</Text>
+                      {player.handicap !== undefined && (
+                        <Text style={styles.playerLinkHandicap}>Handicap: {player.handicap}</Text>
+                      )}
+                    </View>
+                    {isSelected ? (
+                      <Check size={20} color={colors.primary} />
+                    ) : (
+                      <LinkIcon size={20} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })
           ) : (
             <View style={styles.noPlayersContainer}>
               <Text style={styles.noPlayersText}>No existing players found.</Text>
@@ -1123,6 +1280,15 @@ export default function ScanScorecardScreen() {
             headerTintColor: colors.text,
             // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
             gestureEnabled: activeTab !== 'players',
+            headerLeft: isEditMode ? () => (
+              <TouchableOpacity 
+                onPress={() => router.replace('/')}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={styles.headerButton}
+              >
+                <Text style={styles.headerButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            ) : undefined,
             headerRight: () => (
               <TouchableOpacity 
                 onPress={handleSaveRound}
@@ -1164,6 +1330,7 @@ export default function ScanScorecardScreen() {
           <View pointerEvents="box-none">
             <DraggableFlatList
               data={detectedPlayers}
+              extraData={listVersion}
               keyExtractor={(item: DetectedPlayer) => item.id}
               activationDistance={6}
               contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
@@ -1209,7 +1376,7 @@ export default function ScanScorecardScreen() {
                   <Text style={styles.infoText}>• Tap tee color to cycle through available options</Text>
                 </View>
               }
-              renderItem={({ item: player, index, drag, isActive }: any) => (
+              renderItem={({ item: player, index, drag, isActive, getIndex }: any) => (
                 <TouchableOpacity
                   key={player.id}
                   activeOpacity={1}
@@ -1224,7 +1391,8 @@ export default function ScanScorecardScreen() {
                     <TextInput
                       style={[styles.playerNameInline, getConfidenceStyle(player.nameConfidence)]}
                       value={player.name}
-                      onChangeText={(text) => handleEditPlayerName(index, text)}
+                      onChangeText={(text) => handleEditPlayerNameById(player.id, text)}
+                      editable={!player.linkedPlayerId}
                       placeholder="Player Name"
                     />
                     <View style={styles.headerRightRow}>
@@ -1234,13 +1402,13 @@ export default function ScanScorecardScreen() {
                       {player.linkedPlayerId && !player.isUser && (
                         <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>Linked</Text></View>
                       )}
-                      <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayer(index)}>
+                      <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayerById(player.id)}>
                         <LinkIcon size={18} color={player.linkedPlayerId ? colors.success : colors.primary} />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUser(index)} disabled={player.isUser}>
+                      <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUserById(player.id)}>
                         <User size={18} color={player.isUser ? colors.success : colors.primary} />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.playerAction} onPress={() => handleRemovePlayer(index)}>
+                      <TouchableOpacity style={styles.playerAction} onPress={() => handleRemovePlayerById(player.id)}>
                         <X size={18} color={colors.error} />
                       </TouchableOpacity>
                     </View>
@@ -2282,6 +2450,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  playerLinkItemSelected: {
+    backgroundColor: `${colors.primary}10`,
   },
   playerLinkAvatar: {
     width: 40,

@@ -1,3 +1,235 @@
+## Agent Report: Scorecard Review and Linking UX Overhaul (2025-09-26)
+
+Scope
+- Screens: `app/scan-scorecard.tsx` (Scorecard Review/Edit, Link to Existing Player)
+
+Fixes and Enhancements
+- Select-as-me
+  - Converted to id-based handler `handleMarkAsUserById(playerId)` to avoid draggable-index drift.
+  - Selecting “me” links to current user, adopts user name and handicap; deselecting restores prior name/link/handicap.
+  - Added toggle behavior and proper state restoration via `prevName`, `prevLinkedPlayerId`, `prevHandicap`.
+- Linking to existing profiles
+  - Opening linking now stores `selectedPlayerId` (stable id) rather than relying on index.
+  - Tapping a profile in the linking list applies link immediately and re-renders main list.
+  - The linking list highlights the currently linked profile with a checkmark; non-selected rows show the link icon.
+  - Added header-right “Remove Link” which unlinks and restores previous name/link/handicap.
+  - After unlink, header-left label changes from “Cancel” to “Back” to acknowledge the change.
+- Players list rendering
+  - Introduced `listVersion` render key and passed as `extraData` to `DraggableFlatList` to force immediate UI updates on link/unlink/remove.
+  - All user actions (link, unlink, select-as-me, remove) now update state by `player.id`.
+- Name editing
+  - Fixed glitch where unlinked names reverted immediately by switching to id-based `handleEditPlayerNameById`.
+  - Names are editable only when `!linkedPlayerId`; linked names are read-only.
+- Remove player
+  - Confirm and remove by id (and by index path retained); list re-renders immediately after deletion.
+- Cancel buttons
+  - Edit Round header Cancel now reliably closes (uses `router.replace('/')`).
+  - Link Player header Cancel resets selection; when link removed, shows “Back”.
+
+Important Code References
+```780:832:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+const handleSelectExistingPlayer = (...) => {
+  const idx = selectedPlayerId ? detectedPlayers.findIndex(p => p.id === selectedPlayerId) : selectedPlayerIndex ?? -1;
+  ...
+  current.linkedPlayerId = existingPlayerId;
+  current.name = playerName;
+  current.handicap = handicap;
+  updated[idx] = current;
+}
+```
+```842:890:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+const handleMarkAsUserById = (playerId: string) => {
+  ...
+  if (togglingOff) { restore prevName/prevLinkedPlayerId/prevHandicap }
+  else { save prev*, set linkedPlayerId=user.id, name=user.name, handicap=user.handicap }
+}
+```
+```1253:1261:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+<DraggableFlatList
+  data={detectedPlayers}
+  extraData={listVersion}
+  ...
+/>
+```
+```1315:1321:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+<TextInput
+  value={player.name}
+  onChangeText={(text) => handleEditPlayerNameById(player.id, text)}
+  editable={!player.linkedPlayerId}
+/>
+```
+```1176:1188:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+headerLeft: () => (
+  <TouchableOpacity onPress={() => { setShowPlayerLinking(false); setSelectedPlayerIndex(null); setSelectedPlayerId(null); setLinkingWasRemoved(false); }}>
+    <Text>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
+  </TouchableOpacity>
+)
+```
+```1220:1227:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+onPress={() => handleSelectExistingPlayer(player.id, player.name, player.handicap)}
+```
+```1219:1220:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+const isSelected = selectedLinkedId === player.id;
+```
+```1229:1231:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+{isSelected ? (<Check .../>) : (<LinkIcon .../>)}
+```
+```122:131:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+Edit Round header Cancel uses router.replace('/')
+```
+
+Notes
+- No backend/api changes required.
+- All new state props (`prevName`, `prevLinkedPlayerId`, `prevHandicap`, `selectedPlayerId`, `linkingWasRemoved`, `listVersion`) are local to the screen.
+- Lint passes clean.
+
+### Agent Report: Linking screen UX fixes
+
+- Date: 2025-09-25
+- Area: `app/scan-scorecard.tsx` linking screen
+- Status: Completed
+
+Changes
+- Cancel button: added hitSlop and ensured it reliably closes linking view.
+- Selected indicator: the currently linked player is highlighted and shows a check icon.
+- Remove Link: added header action to unlink the selected detected player from its current link.
+
+Key references
+```1032:1062:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+            headerLeft: () => (
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowPlayerLinking(false);
+                  setSelectedPlayerIndex(null);
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={styles.headerButton}
+              >
+                <Text style={styles.headerButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            ),
+            headerRight: () => (
+              selectedLinkedId ? (
+                <TouchableOpacity onPress={handleUnlinkSelectedPlayer} style={styles.headerButton}>
+                  <Text style={styles.headerButtonText}>Remove Link</Text>
+                </TouchableOpacity>
+              ) : null
+            )
+```
+
+### Agent Report: Toggle Select-as-me + preserve original name
+
+- Date: 2025-09-25
+- Area: `app/scan-scorecard.tsx` Players tab
+- Status: Completed
+
+Changes
+- Added toggle behavior: tapping the user icon again restores the previous state.
+- Do not overwrite player name when selecting yourself.
+- When selecting yourself, store `prevLinkedPlayerId` and `prevHandicap` so unselect restores prior linkage/handicap.
+- Removed disabled state from the user icon so it can be toggled off.
+
+Key code
+```792:810:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+  const handleMarkAsUserById = (playerId: string) => {
+    const currentUser = players.find(p => p.isUser);
+    setDetectedPlayers(prev => {
+      const updated = prev.map(p => ({ ...p }));
+      const idx = updated.findIndex(p => p.id === playerId);
+      if (idx >= 0) {
+        const selected = { ...updated[idx] };
+        const togglingOff = !!selected.isUser;
+        if (togglingOff) {
+          selected.isUser = false;
+          if (selected.prevLinkedPlayerId !== undefined) selected.linkedPlayerId = selected.prevLinkedPlayerId; else delete selected.linkedPlayerId;
+          if (selected.prevHandicap !== undefined) selected.handicap = selected.prevHandicap; else delete (selected as any).handicap;
+          delete selected.prevLinkedPlayerId; delete selected.prevHandicap;
+        } else {
+          updated.forEach(p => { p.isUser = false; });
+          selected.isUser = true;
+          if (currentUser) {
+            selected.prevLinkedPlayerId = selected.linkedPlayerId;
+            if (selected.handicap !== undefined) selected.prevHandicap = selected.handicap;
+            selected.linkedPlayerId = currentUser.id;
+            selected.handicap = currentUser.handicap;
+          }
+        }
+        updated[idx] = selected;
+      }
+      return updated;
+    });
+  };
+```
+
+Testing
+- Tap user icon: icon turns green, "You" badge appears. Tap again: badge/icon clear and prior linked state returns. Player name remains unchanged throughout.
+
+## Agent Report: Fix "Select as me" on Scorecard Review
+
+- Date: 2025-09-25
+- Section: Scan Scorecard Review UI
+- Status: Completed
+
+Summary
+- The "Select as me" action in the scorecard review screen toggled `isUser` locally but did not link the detected player to the actual app user. This caused saves to create or use a non-user ID rather than the current user's ID, so downstream features didn't recognize the round as belonging to the user.
+
+Root Cause
+- `handleMarkAsUser` only set `isUser` on the detected player and cleared others, but did not set `linkedPlayerId`, name, and handicap to the current user's data from the store.
+- Save logic mapped `playerId` as `linkedPlayerId || id`, which failed to use the actual user ID when `linkedPlayerId` was missing.
+
+Edits
+- File: `app/scan-scorecard.tsx`
+  - Updated `handleMarkAsUser(index)` to:
+    - Find the current user from the store.
+    - Clear `isUser` across detected players, set `isUser` on the selected.
+    - If a current user exists, set `linkedPlayerId = currentUser.id`, and sync `name` and `handicap` from the user.
+  - In `handleSaveRound`:
+    - Calculated `playersWithTotalScores` as before, then sorted to put the `isUser` player first (`orderedPlayers`).
+    - Used `orderedPlayers` when building `newRound.players` so the user mapping runs first and reliably uses `linkedPlayerId || id` with the correct user ID.
+
+Testing/Debugging Notes
+- Steps:
+  1. Scan a scorecard or use edit mode with players populated.
+  2. In Players tab, tap the user icon on the desired player.
+  3. Confirm the "You" badge appears and the name/handicap updates to the stored user data (if user exists).
+  4. Save the round; verify in Home/History that the round associates with the current user.
+- Lint: Ran linter for `app/scan-scorecard.tsx`; no issues reported.
+
+Relevant Code References
+```781:800:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+  const handleMarkAsUser = (index: number) => {
+    const currentUser = players.find(p => p.isUser);
+    setDetectedPlayers(prev => {
+      const updated = prev.map(p => ({ ...p, isUser: false }));
+      if (index >= 0 && index < updated.length) {
+        const selected = { ...updated[index] };
+        selected.isUser = true;
+        if (currentUser) {
+          selected.linkedPlayerId = currentUser.id;
+          selected.name = currentUser.name;
+          selected.handicap = currentUser.handicap;
+        }
+        updated[index] = selected;
+      }
+      return updated;
+    });
+  };
+```
+```965:976:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
+    const newRound = {
+      id: roundId,
+      date,
+      courseId: finalCourseId,
+      courseName: finalCourseName,
+      players: orderedPlayers.map(player => ({
+        playerId: player.linkedPlayerId || player.id,
+        playerName: player.name,
+        scores: player.scores,
+        totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
+        handicapUsed: player.handicap
+      })),
+```
+
 ## Agent Report: Rounds Date Filter (Calendar Button in Search Row)
 
 **What changed**
