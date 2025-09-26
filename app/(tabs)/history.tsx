@@ -454,7 +454,7 @@ export default function HistoryScreen() {
       <FlatList
         data={getData()}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${activeTab}-${item.id}-${index}`}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={getEmptyState()}
