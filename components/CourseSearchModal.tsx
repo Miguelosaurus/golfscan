@@ -28,11 +28,12 @@ interface CourseSearchModalProps {
   onSelectCourse: (course: Course) => void;
 }
 
-export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualCourse?: () => void }> = ({
+export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualCourse?: () => void, showMyCoursesTab?: boolean }> = ({
   visible,
   onClose,
   onSelectCourse,
   onAddManualCourse,
+  showMyCoursesTab = true,
 }) => {
   const { getFrequentCourses, getCourseById, addCourse, courses, rounds } = useGolfStore();
   const router = useRouter();
@@ -292,27 +293,29 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
         {!showTeeSelection ? (
           <>
-            {/* Tab Header */}
-            <View style={styles.tabContainer}>
-              <TouchableOpacity 
-                style={[styles.tab, activeTab === 'search' && styles.activeTab]}
-                onPress={() => setActiveTab('search')}
-              >
-                <Search size={18} color={activeTab === 'search' ? colors.primary : colors.textSecondary} />
-                <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
-                  Search
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.tab, activeTab === 'my-courses' && styles.activeTab]}
-                onPress={() => setActiveTab('my-courses')}
-              >
-                <Flag size={18} color={activeTab === 'my-courses' ? colors.primary : colors.textSecondary} />
-                <Text style={[styles.tabText, activeTab === 'my-courses' && styles.activeTabText]}>
-                  My Courses
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {/* Tab Header (only when My Courses tab is enabled) */}
+            {showMyCoursesTab && (
+              <View style={styles.tabContainer}>
+                <TouchableOpacity 
+                  style={[styles.tab, activeTab === 'search' && styles.activeTab]}
+                  onPress={() => setActiveTab('search')}
+                >
+                  <Search size={18} color={activeTab === 'search' ? colors.primary : colors.textSecondary} />
+                  <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
+                    Search
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.tab, activeTab === 'my-courses' && styles.activeTab]}
+                  onPress={() => setActiveTab('my-courses')}
+                >
+                  <Flag size={18} color={activeTab === 'my-courses' ? colors.primary : colors.textSecondary} />
+                  <Text style={[styles.tabText, activeTab === 'my-courses' && styles.activeTabText]}>
+                    My Courses
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Search Tab Content */}
             {activeTab === 'search' && (
@@ -377,7 +380,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
             )}
 
             {/* My Courses Tab Content */}
-            {activeTab === 'my-courses' && (
+            {showMyCoursesTab && activeTab === 'my-courses' && (
               <FlatList
                 data={localCoursesByFrequency}
                 renderItem={renderLocalCourse}

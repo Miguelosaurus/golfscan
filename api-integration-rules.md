@@ -6,14 +6,14 @@ Scope
 Fixes and Enhancements
 - Select-as-me
   - Converted to id-based handler `handleMarkAsUserById(playerId)` to avoid draggable-index drift.
-  - Selecting “me” links to current user, adopts user name and handicap; deselecting restores prior name/link/handicap.
+  - Selecting "me" links to current user, adopts user name and handicap; deselecting restores prior name/link/handicap.
   - Added toggle behavior and proper state restoration via `prevName`, `prevLinkedPlayerId`, `prevHandicap`.
 - Linking to existing profiles
   - Opening linking now stores `selectedPlayerId` (stable id) rather than relying on index.
   - Tapping a profile in the linking list applies link immediately and re-renders main list.
   - The linking list highlights the currently linked profile with a checkmark; non-selected rows show the link icon.
-  - Added header-right “Remove Link” which unlinks and restores previous name/link/handicap.
-  - After unlink, header-left label changes from “Cancel” to “Back” to acknowledge the change.
+  - Added header-right "Remove Link" which unlinks and restores previous name/link/handicap.
+  - After unlink, header-left label changes from "Cancel" to "Back" to acknowledge the change.
 - Players list rendering
   - Introduced `listVersion` render key and passed as `extraData` to `DraggableFlatList` to force immediate UI updates on link/unlink/remove.
   - All user actions (link, unlink, select-as-me, remove) now update state by `player.id`.
@@ -24,7 +24,7 @@ Fixes and Enhancements
   - Confirm and remove by id (and by index path retained); list re-renders immediately after deletion.
 - Cancel buttons
   - Edit Round header Cancel now reliably closes (uses `router.replace('/')`).
-  - Link Player header Cancel resets selection; when link removed, shows “Back”.
+  - Link Player header Cancel resets selection; when link removed, shows "Back".
 
 Important Code References
 ```780:832:/Users/miguel/CursorProjects/GolfScan-AI/app/scan-scorecard.tsx
@@ -249,7 +249,7 @@ Relevant Code References
 **What changed**
 - Persist scanned scorecard photos with rounds via new `Round.scorecardPhotos?: string[]` in `types/index.ts`.
 - Included `scorecardPhotos` when saving a round in `app/scan-scorecard.tsx`.
-- Display a “Scorecard Photos” section in `app/round/[id].tsx` with clickable thumbnails that open a full-screen preview modal.
+- Display a "Scorecard Photos" section in `app/round/[id].tsx` with clickable thumbnails that open a full-screen preview modal.
 - Added a gentle hint and a `Retake Photos` button in the Scores tab of the review screen. It clears current results and returns to the capture UI for re-scanning.
 
 **Files modified**
@@ -2338,7 +2338,7 @@ The app is now fully rebranded to ScanCaddie with consistent naming throughout t
 **Reverted Bundle Identifiers Temporarily:**
 1. **`app.json`**: Bundle IDs reverted to `com.golfscanai.app` 
 2. **`ios/GolfScoreTracker/Info.plist`**: Bundle ID reverted
-3. **`ios/GolfScoreTracker.xcodeproj/project.pbxproj`**: Bundle ID reverted
+3. **`ios/GolfScoreTracker.xcodeproj/project.pbxproj** - Reverted bundle identifier
 
 **Result:** User data should now be accessible again since we're back to the original bundle ID.
 
@@ -2433,3 +2433,76 @@ The app is now fully rebranded to ScanCaddie with consistent naming throughout t
 - Result: Back navigation behaves correctly; repeated edits no longer stack multiple Round Details screens.
 
 **Agent Report:** ✅ Fix applied. Back once returns to the previous screen as expected.
+
+---
+
+## Agent Report: History Tabs — Independent Search States for Rounds, Players, Courses
+
+**What changed:**
+- Decoupled shared search into three independent states in `app/(tabs)/history.tsx`:
+  - `roundsSearchQuery`
+  - `playersSearchQuery`
+  - `coursesSearchQuery`
+- Wired the `TextInput` to read/write the active tab's query only.
+- Implemented per-tab filtering:
+  - Rounds: filters by course name or any player name using `roundsSearchQuery`, with date presets respected
+  - Players: filters unique player summaries by name using `playersSearchQuery`
+  - Courses: filters by course name/location using `coursesSearchQuery`
+
+**Files modified:**
+- `app/(tabs)/history.tsx`
+
+**Why:**
+- Previously a single `searchQuery` caused cross-tab coupling: entering text in one tab affected all tabs and triggered incorrect filtering.
+
+**How to test:**
+1. Open History → Rounds; type a search term (e.g., a player name). Confirm only Rounds list changes.
+2. Switch to Players; the search field should be independent and Players list filters by name.
+3. Switch to Courses; searching filters courses only and does not affect Rounds/Players.
+4. Toggle date presets in Rounds; ensure filters still respect date range.
+
+**Notes:**
+- No backend changes required. Linter passes for the edited file.
+
+**Status:** ✅ Complete
+
+---
+
+## Agent Report: History Search UX — Proper Empty States for Search Results
+
+**Changes:**
+- Added search-empty vs no-data empty states in `app/(tabs)/history.tsx`:
+  - Rounds: shows "No rounds found" when filtering returns nothing; keeps original "No rounds yet" only when no rounds exist
+  - Players: shows "No players found" for search; shows onboarding message only when no players exist
+  - Courses: shows "No courses found" for search and retains the orange "Add Course" button (no onboarding message); keeps original onboarding when there are no courses at all
+- Updated `components/EmptyState.tsx` to make `message` optional so we can hide descriptive text for search-empty states while retaining buttons
+
+**Files modified:**
+- `app/(tabs)/history.tsx`
+- `components/EmptyState.tsx`
+
+**How to test:**
+1. Ensure each tab has some data; search for a term that yields no matches → see "No ... found" and, for Courses, the Add Course button without extra text.
+2. Clear all data for a tab (e.g., no rounds) → see the original onboarding empty state with message and action.
+
+**Status:** ✅ Complete
+
+---
+
+## Agent Report: Course Search Modal — Hide "My Courses" tab when adding a new course
+
+**Changes:**
+- Added `showMyCoursesTab?: boolean` prop to `components/CourseSearchModal` (default true)
+- Updated callers:
+  - `app/new-course.tsx`: `showMyCoursesTab={false}` so only Search tab appears when adding
+  - `app/scan-scorecard.tsx`: `showMyCoursesTab={true}` to keep both tabs during scan flow
+
+**Why:**
+- In Add Course flow users are adding new courses, so "My Courses" is not needed; in Scan flow both options are useful.
+
+**Files modified:**
+- `components/CourseSearchModal.tsx`
+- `app/new-course.tsx`
+- `app/scan-scorecard.tsx`
+
+**Status:** ✅ Complete

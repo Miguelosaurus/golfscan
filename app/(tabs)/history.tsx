@@ -23,7 +23,9 @@ import { History, Camera, Search, Users, Flag, Check, X, Link, Edit, Calendar as
 export default function HistoryScreen() {
   const router = useRouter();
   const { rounds, players, courses, updatePlayer, mergePlayerData } = useGolfStore();
-  const [searchQuery, setSearchQuery] = useState('');
+  const [roundsSearchQuery, setRoundsSearchQuery] = useState('');
+  const [playersSearchQuery, setPlayersSearchQuery] = useState('');
+  const [coursesSearchQuery, setCoursesSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'rounds' | 'players' | 'courses'>('rounds');
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
@@ -61,17 +63,17 @@ export default function HistoryScreen() {
 
   const filteredRounds = rounds
     .filter(round => 
-      round.courseName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      round.courseName.toLowerCase().includes(roundsSearchQuery.toLowerCase()) ||
       round.players.some(player => 
-        player.playerName.toLowerCase().includes(searchQuery.toLowerCase())
+        player.playerName.toLowerCase().includes(roundsSearchQuery.toLowerCase())
       )
     )
     .filter(round => withinRange(round.date))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const filteredCourses = courses.filter(course => 
-    course.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    course.location.toLowerCase().includes(searchQuery.toLowerCase())
+    course.name.toLowerCase().includes(coursesSearchQuery.toLowerCase()) ||
+    course.location.toLowerCase().includes(coursesSearchQuery.toLowerCase())
   );
   
   const navigateToRoundDetails = (roundId: string) => {
@@ -186,6 +188,10 @@ export default function HistoryScreen() {
     });
   };
   
+  const filteredPlayers = getUniquePlayers().filter(playerSummary =>
+    playerSummary.name.toLowerCase().includes(playersSearchQuery.toLowerCase())
+  );
+  
   const renderPlayerItem = ({ item }: { item: PlayerSummary }) => {
     const player = players.find(p => p.id === item.id);
     const name = player?.name || item.name;
@@ -255,37 +261,78 @@ export default function HistoryScreen() {
   };
 
   const getEmptyState = () => {
+    const searchActive =
+      (activeTab === 'rounds' && (
+        roundsSearchQuery.length > 0 ||
+        datePreset !== 'all' ||
+        (customStart !== null || customEnd !== null)
+      )) ||
+      (activeTab === 'players' && playersSearchQuery.length > 0) ||
+      (activeTab === 'courses' && coursesSearchQuery.length > 0);
+
     switch (activeTab) {
-      case 'rounds':
+      case 'rounds': {
+        if (rounds.length === 0) {
+          return (
+            <EmptyState
+              title="No rounds yet"
+              message="Start tracking your golf rounds by scanning your scorecard."
+              buttonTitle="Scan Scorecard"
+              onButtonPress={navigateToScanScorecard}
+              icon={<History size={40} color={colors.primary} />}
+            />
+          );
+        }
+        // Search/filter empty state
         return (
           <EmptyState
-            title="No rounds yet"
-            message="Start tracking your golf rounds by scanning your scorecard."
-            buttonTitle="Scan Scorecard"
-            onButtonPress={navigateToScanScorecard}
+            title="No rounds found"
             icon={<History size={40} color={colors.primary} />}
           />
         );
-      case 'players':
+      }
+      case 'players': {
+        const hasAnyPlayers = getUniquePlayers().length > 0;
+        if (!hasAnyPlayers) {
+          return (
+            <EmptyState
+              title="No players yet"
+              message="Start tracking your golf rounds to see player statistics."
+              buttonTitle="Scan Scorecard"
+              onButtonPress={navigateToScanScorecard}
+              icon={<Users size={40} color={colors.primary} />}
+            />
+          );
+        }
         return (
           <EmptyState
-            title="No players yet"
-            message="Start tracking your golf rounds to see player statistics."
-            buttonTitle="Scan Scorecard"
-            onButtonPress={navigateToScanScorecard}
+            title="No players found"
             icon={<Users size={40} color={colors.primary} />}
           />
         );
-      case 'courses':
+      }
+      case 'courses': {
+        if (courses.length === 0) {
+          return (
+            <EmptyState
+              title="No courses yet"
+              message="Add your favorite golf courses to start tracking your rounds."
+              buttonTitle="Add Course"
+              onButtonPress={navigateToAddCourse}
+              icon={<Flag size={40} color={colors.primary} />}
+            />
+          );
+        }
+        // Search-empty: keep button, hide message
         return (
           <EmptyState
-            title="No courses yet"
-            message="Add your favorite golf courses to start tracking your rounds."
+            title="No courses found"
             buttonTitle="Add Course"
             onButtonPress={navigateToAddCourse}
             icon={<Flag size={40} color={colors.primary} />}
           />
         );
+      }
       default:
         return null;
     }
@@ -296,7 +343,7 @@ export default function HistoryScreen() {
       case 'rounds':
         return filteredRounds;
       case 'players':
-        return getUniquePlayers();
+        return filteredPlayers;
       case 'courses':
         return filteredCourses;
       default:
@@ -351,8 +398,18 @@ export default function HistoryScreen() {
           style={styles.searchInput}
           placeholder={getPlaceholder()}
           placeholderTextColor={colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+          value={
+            activeTab === 'rounds'
+              ? roundsSearchQuery
+              : activeTab === 'players'
+              ? playersSearchQuery
+              : coursesSearchQuery
+          }
+          onChangeText={(text) => {
+            if (activeTab === 'rounds') setRoundsSearchQuery(text);
+            else if (activeTab === 'players') setPlayersSearchQuery(text);
+            else setCoursesSearchQuery(text);
+          }}
         />
         {activeTab === 'rounds' && (
           <TouchableOpacity 

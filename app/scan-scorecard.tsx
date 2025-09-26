@@ -1604,6 +1604,7 @@ export default function ScanScorecardScreen() {
           onClose={() => setShowCourseSearchModal(false)}
           onSelectCourse={handleSelectCourse}
           onAddManualCourse={handleAddCourseManually}
+          showMyCoursesTab={true}
         />
       </SafeAreaView>
     );

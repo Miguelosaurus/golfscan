@@ -95,6 +95,7 @@ export default function NewCourseScreen() {
         visible={showSearchModal}
         onClose={() => setShowSearchModal(false)}
         onSelectCourse={handleSelectCourse}
+        showMyCoursesTab={false}
       />
     </SafeAreaView>
   );

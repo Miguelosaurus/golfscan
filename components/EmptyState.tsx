@@ -5,7 +5,7 @@ import { Button } from './Button';
 
 interface EmptyStateProps {
   title: string;
-  message: string;
+  message?: string;
   buttonTitle?: string;
   onButtonPress?: () => void;
   icon?: React.ReactNode;
@@ -22,7 +22,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     <View style={styles.container}>
       {icon && <View style={styles.iconContainer}>{icon}</View>}
       <Text style={styles.title}>{title}</Text>
-      <Text style={styles.message}>{message}</Text>
+      {message ? <Text style={styles.message}>{message}</Text> : null}
       {buttonTitle && onButtonPress && (
         <Button
           title={buttonTitle}
