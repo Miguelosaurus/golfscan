@@ -11,6 +11,23 @@ interface CourseUsage {
   lastUsed: string;
 }
 
+type ScanStage = 'preparing' | 'uploading' | 'analyzing' | 'processing' | 'complete' | 'error';
+type ScanStatus = 'processing' | 'complete' | 'error';
+
+interface ActiveScanJob {
+  id: string;
+  status: ScanStatus;
+  stage: ScanStage;
+  progress: number;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  thumbnailUri?: string | null;
+  result?: ScorecardScanResult | null;
+  requiresReview: boolean;
+  autoReviewLaunched?: boolean;
+}
+
 interface GolfState {
   courses: Course[];
   players: Player[];
@@ -21,6 +38,8 @@ interface GolfState {
   scannedData: ScorecardScanResult | null;
   isScanning: boolean;
   remainingScans: number;
+  pendingScanPhotos: string[];
+  activeScanJob: ActiveScanJob | null;
   addCourse: (course: Course) => void;
   updateCourse: (course: Course) => void;
   deleteCourse: (courseId: string) => void;
@@ -42,6 +61,13 @@ interface GolfState {
   setIsScanning: (scanning: boolean) => void;
   setRemainingScans: (scans: number) => void;
   clearScanData: () => void;
+  setPendingScanPhotos: (photos: string[]) => void;
+  clearPendingScanPhotos: () => void;
+  setActiveScanJob: (job: ActiveScanJob | null) => void;
+  updateActiveScanJob: (updates: Partial<ActiveScanJob>) => void;
+  markActiveScanReviewPending: () => void;
+  markActiveScanReviewed: () => void;
+  clearActiveScanJob: () => void;
 }
 
 export const useGolfStore = create<GolfState>()(
@@ -56,6 +82,8 @@ export const useGolfStore = create<GolfState>()(
       scannedData: null,
       isScanning: false,
       remainingScans: 50,
+      pendingScanPhotos: [],
+      activeScanJob: null,
       
       addCourse: (course) => set((state) => ({
         courses: [...state.courses, course]
@@ -297,6 +325,38 @@ export const useGolfStore = create<GolfState>()(
         scannedData: null
         // Don't reset isScanning here - it should be managed separately
       }),
+      setPendingScanPhotos: (photos) => set({ pendingScanPhotos: photos }),
+      clearPendingScanPhotos: () => set({ pendingScanPhotos: [] }),
+      setActiveScanJob: (job) => set({ activeScanJob: job }),
+      updateActiveScanJob: (updates) => set((state) => {
+        if (!state.activeScanJob) return {};
+        return {
+          activeScanJob: {
+            ...state.activeScanJob,
+            ...updates,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      }),
+      markActiveScanReviewPending: () => set((state) => {
+        if (!state.activeScanJob) return {};
+        return {
+          activeScanJob: {
+            ...state.activeScanJob,
+            requiresReview: true,
+          },
+        };
+      }),
+      markActiveScanReviewed: () => set((state) => {
+        if (!state.activeScanJob) return {};
+        return {
+          activeScanJob: {
+            ...state.activeScanJob,
+            requiresReview: false,
+          },
+        };
+      }),
+      clearActiveScanJob: () => set({ activeScanJob: null }),
     }),
     {
       name: 'golf-storage',
@@ -311,6 +371,8 @@ export const useGolfStore = create<GolfState>()(
         // scannedData: excluded
         // isScanning: excluded  
         // remainingScans: excluded
+        // pendingScanPhotos: excluded
+        // activeScanJob: excluded
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
@@ -319,6 +381,8 @@ export const useGolfStore = create<GolfState>()(
           state.isScanning = false;
           state.scannedData = null;
           state.remainingScans = 50;
+          state.pendingScanPhotos = [];
+          state.activeScanJob = null;
         }
       },
     }

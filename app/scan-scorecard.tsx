@@ -6,12 +6,9 @@ import {
   StyleSheet, 
   Alert, 
   ScrollView, 
-  Dimensions, 
   ActivityIndicator,
   TextInput,
   Image,
-  PanResponder,
-  Animated,
   LayoutAnimation,
   Platform,
   UIManager
@@ -72,11 +69,7 @@ interface DetectedPlayer {
   }[];
 }
 
-interface ScanProgress {
-  stage: 'preparing' | 'uploading' | 'analyzing' | 'processing' | 'complete';
-  progress: number; // 0-100
-  message: string;
-}
+type ScanStage = 'preparing' | 'uploading' | 'analyzing' | 'processing' | 'complete' | 'error';
 
 const TEE_COLORS = [
   { name: 'Black', color: '#000000' },
@@ -100,16 +93,24 @@ export default function ScanScorecardScreen() {
     scannedData, 
     isScanning: storeScanningState,
     remainingScans,
+    pendingScanPhotos,
+    activeScanJob,
     setScannedData,
     setIsScanning,
     setRemainingScans,
-    clearScanData
+    clearScanData,
+    setPendingScanPhotos,
+    clearPendingScanPhotos,
+    setActiveScanJob,
+    updateActiveScanJob,
+    markActiveScanReviewPending,
+    markActiveScanReviewed,
+    clearActiveScanJob,
   } = useGolfStore();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<CameraType>('back');
-  const [photos, setPhotos] = useState<string[]>([]); // store data URLs or file URIs
-  const [localScanning, setLocalScanning] = useState(false);
-  const scanning = localScanning || storeScanningState;
+  const photos = pendingScanPhotos;
+  const scanning = storeScanningState || activeScanJob?.status === 'processing';
   const [processingComplete, setProcessingComplete] = useState(false);
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
   const [showPlayerLinking, setShowPlayerLinking] = useState(false);
@@ -123,20 +124,14 @@ export default function ScanScorecardScreen() {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
-  const [scanProgress, setScanProgress] = useState<ScanProgress>({
-    stage: 'preparing',
-    progress: 0,
-    message: 'Preparing to scan...'
-  });
   const [selectedApiCourse, setSelectedApiCourse] = useState<any | null>(null);
   const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [listVersion, setListVersion] = useState(0);
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const blockProgressAnim = useRef(new Animated.Value(0)).current;
   const cameraRef = useRef<CameraView>(null);
+  const lastProcessedScanId = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
   const isEditMode = !!editRoundId;
   const preDragPlayersRef = useRef<DetectedPlayer[] | null>(null);
 
@@ -156,16 +151,6 @@ export default function ScanScorecardScreen() {
 
   // Helper function to get current user ID
   function getCurrentUserId(): string { return userId; }
-
-  // Reset progress when scanning stops
-  useEffect(() => {
-    if (!scanning) {
-      setScanProgress({ stage: 'preparing', progress: 0, message: 'Preparing to scan...' });
-      progressAnim.setValue(0);
-      blockProgressAnim.setValue(0);
-      stopPulseAnimation();
-    }
-  }, [scanning]);
 
   // Initialize state from prefilled edit data
   useEffect(() => {
@@ -190,7 +175,7 @@ export default function ScanScorecardScreen() {
         // Preserve previously saved photos when editing
         const anyData: any = data as any;
         if (Array.isArray(anyData.scorecardPhotos) && anyData.scorecardPhotos.length > 0) {
-          setPhotos(anyData.scorecardPhotos);
+          setPendingScanPhotos(anyData.scorecardPhotos);
         }
         setProcessingComplete(true);
         setActiveTab('players');
@@ -221,6 +206,12 @@ export default function ScanScorecardScreen() {
     }
   }, []);
 
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Update remaining scans from query
   useEffect(() => {
     if (getRemainingScansQuery.data !== undefined) {
@@ -238,9 +229,22 @@ export default function ScanScorecardScreen() {
         console.log('Could not get user location for course matching, continuing without location bias');
       }
     };
-    
+
     getUserLocation();
   }, []);
+
+  useEffect(() => {
+    if (isEditMode) return;
+
+    if (activeScanJob?.requiresReview && activeScanJob.result) {
+      if (lastProcessedScanId.current !== activeScanJob.id) {
+        processAIResults(activeScanJob.result);
+        lastProcessedScanId.current = activeScanJob.id;
+      }
+    } else if (!activeScanJob) {
+      lastProcessedScanId.current = null;
+    }
+  }, [activeScanJob, isEditMode]);
 
   // Helper function for confidence-based styling
   const getConfidenceStyle = (confidence?: number) => {
@@ -262,9 +266,9 @@ export default function ScanScorecardScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: true });
       
       if (photo?.base64) {
-        setPhotos(prev => [...prev, `data:image/jpeg;base64,${photo.base64}`]);
+        setPendingScanPhotos([...photos, `data:image/jpeg;base64,${photo.base64}`]);
       } else if (photo?.uri) {
-        setPhotos(prev => [...prev, photo.uri]);
+        setPendingScanPhotos([...photos, photo.uri]);
       }
     } catch (error) {
       console.error('Error taking picture:', error);
@@ -286,7 +290,7 @@ export default function ScanScorecardScreen() {
         const newPhotos = result.assets.map(asset =>
           asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri
         );
-        setPhotos(prev => [...prev, ...newPhotos]);
+        setPendingScanPhotos([...photos, ...newPhotos]);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -295,7 +299,8 @@ export default function ScanScorecardScreen() {
   };
   
   const removePhoto = (index: number) => {
-    setPhotos(prev => prev.filter((_, i) => i !== index));
+    const updatedPhotos = photos.filter((_, i) => i !== index);
+    setPendingScanPhotos(updatedPhotos);
     
     // If no photos left, reset processing state
     if (photos.length === 1) {
@@ -307,60 +312,13 @@ export default function ScanScorecardScreen() {
   };
   
   const resetPhotos = () => {
-    setPhotos([]);
+    clearPendingScanPhotos();
     setProcessingComplete(false);
     setDetectedPlayers([]);
     setSelectedApiCourse(null);
     setIsLocalCourseSelected(false);
   };
 
-  // Progress animation functions
-  const updateProgress = (stage: ScanProgress['stage'], progress: number, message: string) => {
-    setScanProgress({ stage, progress, message });
-    
-    // Animate progress bar
-    Animated.timing(progressAnim, {
-      toValue: progress / 100,
-      duration: 500,
-      useNativeDriver: false,
-    }).start();
-
-    // Smooth block animation - moves independently but guided by progress
-    // This creates continuous movement even when percentage doesn't change
-    const targetBlockProgress = progress / 100;
-    Animated.timing(blockProgressAnim, {
-      toValue: targetBlockProgress,
-      duration: Math.random() * 3000 + 2000, // 2-5 seconds, varies for natural feel
-      useNativeDriver: false,
-    }).start();
-  };
-
-  const startPulseAnimation = () => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.05,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  };
-
-  const stopPulseAnimation = () => {
-    pulseAnim.stopAnimation();
-    Animated.timing(pulseAnim, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  };
-  
   const processScorecard = async () => {
     if (photos.length === 0) {
       Alert.alert('Error', 'Please take or select at least one photo first.');
@@ -372,35 +330,54 @@ export default function ScanScorecardScreen() {
 
     setIsScanning(true);
     clearScanData();
-    startPulseAnimation();
+
+    const scanId = generateUniqueId();
+    const timestamp = new Date().toISOString();
+
+    setActiveScanJob({
+      id: scanId,
+      status: 'processing',
+      stage: 'preparing',
+      progress: 0,
+      message: 'Preparing to scan...',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      thumbnailUri: photos[0] || null,
+      requiresReview: false,
+      result: null,
+      autoReviewLaunched: false,
+    });
+
+    if (!isEditMode) {
+      router.replace('/');
+    }
+
+    const updateJob = (stage: ScanStage, progress: number, message: string) => {
+      updateActiveScanJob({ stage, progress, message });
+    };
 
     try {
-      // Stage 1: Preparing images (0-15%)
-      updateProgress('preparing', 5, 'Preparing images for analysis...');
+      updateJob('preparing', 5, 'Preparing images for analysis...');
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      updateProgress('uploading', 10, 'Processing image data...');
-      
-      // Convert images to base64 (used only to kick off job; server uploads to Gemini Files API)
+      updateJob('uploading', 10, 'Processing image data...');
+
       const images: string[] = [];
       for (let i = 0; i < photos.length; i++) {
-        const progress = 10 + (5 * (i + 1) / photos.length);
-        updateProgress('uploading', progress, `Processing image ${i + 1} of ${photos.length}...`);
-        
+        const progress = 10 + Math.round((5 * (i + 1)) / photos.length);
+        updateJob('uploading', progress, `Processing image ${i + 1} of ${photos.length}...`);
+
         const b64 = await convertImageToBase64(photos[i]);
         images.push(b64);
-        
-        // Small delay for visual feedback
+
         await new Promise(resolve => setTimeout(resolve, 200));
       }
 
-      // Stage 2: Sending to AI (15-25%)
-      updateProgress('analyzing', 20, 'Connecting to AI analysis...');
+      updateJob('analyzing', 20, 'Connecting to AI analysis...');
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      updateProgress('analyzing', 25, 'AI is reading your scorecard...');
+      updateJob('analyzing', 25, 'AI is reading your scorecard...');
 
-      // Stage 3: AI Processing simulation (25-90%) - Slower progression to 90%
       const progressSteps = [
         { progress: 30, message: 'Detecting players and scores...' },
         { progress: 40, message: 'Analyzing handwriting patterns...' },
@@ -412,58 +389,69 @@ export default function ScanScorecardScreen() {
         { progress: 90, message: 'Finalizing results...' }
       ];
 
-      // Start the actual API call as a background job
       const startJob = await startScanMutation.mutateAsync({ images, userId: getCurrentUserId() });
       const jobId = startJob.jobId as string;
-      // Poll for completion
-      const pollStart = Date.now();
+
       let result: any = null;
-      for (let attempt = 0; attempt < 240; attempt++) { // ~8 minutes @2s
+      for (let attempt = 0; attempt < 240; attempt++) {
         await new Promise(r => setTimeout(r, 2000));
         const status = await trpcClient.scorecard.getScanStatus.query({ jobId });
-        if (status.status === 'complete') { result = status.result; break; }
-        if (status.status === 'error') { throw new Error(status.error || 'Scan failed'); }
+        if (status.status === 'complete') {
+          result = status.result;
+          break;
+        }
+        if (status.status === 'error') {
+          throw new Error(status.error || 'Scan failed');
+        }
       }
+
       if (!result) throw new Error('Scan timed out waiting for completion');
 
-      // Simulate progress while waiting for API (faster since Files API is much quicker)
       for (const step of progressSteps) {
-        updateProgress('analyzing', step.progress, step.message);
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 3000 + 2000)); // 2-5s per step (faster)
+        updateJob('analyzing', step.progress, step.message);
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 3000 + 2000));
       }
 
-      // Stage 4: Wait at 90% for API completion
       console.log('⏱️ TIMING: Reached 90% at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
-      updateProgress('processing', 90, 'Waiting for AI completion...');
-      
+      updateJob('processing', 90, 'Waiting for AI completion...');
+
       const response = result;
-      
-      // Fill blocks completely when we get response, then go to 100%
-      updateProgress('processing', 100, 'Processing complete!');
-      
-      // Fill blocks to 100% immediately for visual cohesion
-      Animated.timing(blockProgressAnim, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: false,
-      }).start();
-      
+
+      updateJob('processing', 100, 'Processing complete!');
+
       console.log('⏱️ TIMING: OpenAI response received at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s total)`);
+      updateJob('complete', 100, 'Scan complete!');
 
-      updateProgress('complete', 100, 'Scan complete!');
-      console.log('⏱️ TIMING: Process completed at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s total)`);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Update remaining scans count
       setRemainingScans(response.remainingScans);
-      
-      // Store scanned data
-      setScannedData(response.data);
 
-      // Stop animations
-      stopPulseAnimation();
+      const handleContinueToReview = () => {
+        setScannedData(response.data);
+        updateActiveScanJob({
+          status: 'complete',
+          stage: 'complete',
+          message: 'Review your round and save when ready.',
+          result: response.data,
+          autoReviewLaunched: true,
+        });
+        markActiveScanReviewPending();
+        router.push('/scan-scorecard?review=1');
+      };
 
-      // Check overall confidence - if too low, offer to retake
+      const handleRetake = () => {
+        clearPendingScanPhotos();
+        clearActiveScanJob();
+        if (isMountedRef.current) {
+          setProcessingComplete(false);
+          setDetectedPlayers([]);
+          setSelectedApiCourse(null);
+          setIsLocalCourseSelected(false);
+        }
+        clearScanData();
+        router.push('/scan-scorecard');
+      };
+
       if (response.data.overallConfidence < 0.6) {
         Alert.alert(
           'Low Confidence Detected',
@@ -471,29 +459,28 @@ export default function ScanScorecardScreen() {
           [
             {
               text: 'Retake Photos',
-              onPress: () => {
-                setPhotos([]);
-                setProcessingComplete(false);
-                setDetectedPlayers([]);
-                clearScanData();
-                setScanProgress({ stage: 'preparing', progress: 0, message: 'Preparing to scan...' });
-                progressAnim.setValue(0);
-              }
+              style: 'destructive',
+              onPress: handleRetake,
             },
             {
               text: 'Continue & Edit',
-              onPress: () => processAIResults(response.data)
+              onPress: handleContinueToReview,
             }
           ]
         );
       } else {
-        processAIResults(response.data);
+        handleContinueToReview();
       }
 
     } catch (error) {
       console.error('Scan error:', error);
-      stopPulseAnimation();
-      
+      updateActiveScanJob({
+        status: 'error',
+        stage: 'error',
+        message: error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
+        progress: 0,
+      });
+
       Alert.alert(
         'Scan Failed', 
         error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
@@ -506,8 +493,7 @@ export default function ScanScorecardScreen() {
             text: 'Cancel',
             style: 'cancel',
             onPress: () => {
-              setScanProgress({ stage: 'preparing', progress: 0, message: 'Preparing to scan...' });
-              progressAnim.setValue(0);
+              clearActiveScanJob();
             }
           }
         ]
@@ -1079,6 +1065,17 @@ export default function ScanScorecardScreen() {
       // Add the round to the store and navigate to the home page
       addRound(newRound as any);
       router.replace('/');
+    }
+
+    markActiveScanReviewed();
+    clearActiveScanJob();
+    clearPendingScanPhotos();
+    clearScanData();
+    if (isMountedRef.current) {
+      setProcessingComplete(false);
+      setDetectedPlayers([]);
+      setSelectedApiCourse(null);
+      setIsLocalCourseSelected(false);
     }
   };
   
@@ -1688,70 +1685,6 @@ export default function ScanScorecardScreen() {
               </Text>
             </View>
           )}
-          
-          {scanning && (
-            <View style={styles.progressOverlay}>
-              <Animated.View 
-                style={[
-                  styles.progressContainer,
-                  { transform: [{ scale: pulseAnim }] }
-                ]}
-              >
-                <View style={styles.progressHeader}>
-                  <Text style={styles.progressTitle}>Analyzing Scorecard</Text>
-                  <Text style={styles.progressSubtitle}>{scanProgress.message}</Text>
-                </View>
-                
-                <View style={styles.progressBarContainer}>
-                  <View style={styles.progressBarBackground}>
-                    <Animated.View 
-                      style={[
-                        styles.progressBarFill,
-                        { width: progressAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0%', '100%']
-                        })}
-                      ]} 
-                    />
-                  </View>
-                  <Text style={styles.progressText}>
-                    {Math.round(scanProgress.progress)}%
-                  </Text>
-                </View>
-                
-                <View style={styles.analysisIndicator}>
-                  <View style={styles.analysisGrid}>
-                    {Array.from({ length: 12 }, (_, i) => {
-                      return (
-                        <View key={i} style={styles.analysisCell}>
-                          <Animated.View
-                            style={[
-                              styles.analysisCellFill,
-                              {
-                                width: blockProgressAnim.interpolate({
-                                  inputRange: [i/12, (i+1)/12],
-                                  outputRange: ['0%', '100%'],
-                                  extrapolate: 'clamp'
-                                }),
-                                opacity: blockProgressAnim.interpolate({
-                                  inputRange: [i/12 - 0.05, i/12],
-                                  outputRange: [0.3, 1],
-                                  extrapolate: 'clamp'
-                                })
-                              }
-                            ]}
-                          />
-                        </View>
-                      );
-                    })}
-                  </View>
-                  <Text style={styles.analysisText}>
-                    AI is processing your scorecard data...
-                  </Text>
-                </View>
-              </Animated.View>
-            </View>
-          )}
         </View>
       ) : (
         <>
@@ -1764,73 +1697,6 @@ export default function ScanScorecardScreen() {
               >
                 <View style={styles.overlay}>
                   <View style={styles.scanFrame} />
-                  
-
-
-                  {/* Progress Overlay */}
-                  {scanning && (
-                    <View style={styles.progressOverlay}>
-                      <Animated.View 
-                        style={[
-                          styles.progressContainer,
-                          { transform: [{ scale: pulseAnim }] }
-                        ]}
-                      >
-                        <View style={styles.progressHeader}>
-                          <Text style={styles.progressTitle}>Analyzing Scorecard</Text>
-                          <Text style={styles.progressSubtitle}>{scanProgress.message}</Text>
-                        </View>
-                        
-                        <View style={styles.progressBarContainer}>
-                          <View style={styles.progressBarBackground}>
-                            <Animated.View 
-                              style={[
-                                styles.progressBarFill,
-                                { width: progressAnim.interpolate({
-                                  inputRange: [0, 1],
-                                  outputRange: ['0%', '100%']
-                                })}
-                              ]} 
-                            />
-                          </View>
-                          <Text style={styles.progressText}>
-                            {Math.round(scanProgress.progress)}%
-                          </Text>
-                        </View>
-                        
-                        <View style={styles.analysisIndicator}>
-                          <View style={styles.analysisGrid}>
-                            {Array.from({ length: 12 }, (_, i) => {
-                              return (
-                                <View key={i} style={styles.analysisCell}>
-                                  <Animated.View
-                                    style={[
-                                      styles.analysisCellFill,
-                                      {
-                                        width: blockProgressAnim.interpolate({
-                                          inputRange: [i/12, (i+1)/12],
-                                          outputRange: ['0%', '100%'],
-                                          extrapolate: 'clamp'
-                                        }),
-                                        opacity: blockProgressAnim.interpolate({
-                                          inputRange: [i/12 - 0.05, i/12],
-                                          outputRange: [0.3, 1],
-                                          extrapolate: 'clamp'
-                                        })
-                                      }
-                                    ]}
-                                  />
-                                </View>
-                              );
-                            })}
-                          </View>
-                          <Text style={styles.analysisText}>
-                            AI is processing your scorecard data...
-                          </Text>
-                        </View>
-                      </Animated.View>
-                    </View>
-                  )}
                 </View>
               </CameraView>
             ) : (

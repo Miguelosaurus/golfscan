@@ -16,14 +16,14 @@ import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { RoundCard } from '@/components/RoundCard';
 import { mockCourses } from '@/mocks/courses';
-import { Settings, User, Edit3, Crown, ArrowDown } from 'lucide-react-native';
+import { Settings, User, Edit3, Crown, ArrowDown, Flag } from 'lucide-react-native';
 import { Round } from '@/types';
 import { calculateAverageScoreWithHoleAdjustment } from '@/utils/helpers';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Circle } from 'react-native-svg';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { rounds, courses, addCourse, players, updatePlayer } = useGolfStore();
+  const { rounds, courses, addCourse, players, updatePlayer, activeScanJob, clearActiveScanJob } = useGolfStore();
   const [showHandicapModal, setShowHandicapModal] = useState(false);
   const [handicapInput, setHandicapInput] = useState('');
   const [ghinInput, setGhinInput] = useState('');
@@ -81,7 +81,129 @@ export default function HomeScreen() {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 3)
     .map(getRoundWithWinStatus);
-  
+
+  const scanJob = activeScanJob;
+  const hasActiveScanCard = !!scanJob && (
+    scanJob.status === 'processing' ||
+    scanJob.status === 'error' ||
+    scanJob.requiresReview
+  );
+
+  const ProgressRing = ({
+    percentage,
+    status,
+  }: {
+    percentage: number;
+    status: 'processing' | 'complete' | 'error';
+  }) => {
+    const size = 64;
+    const strokeWidth = 6;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const clamped = Math.min(100, Math.max(0, Math.round(percentage)));
+    const ratio = status === 'processing' ? clamped / 100 : status === 'complete' ? 1 : 0;
+    const strokeDashoffset = circumference - ratio * circumference;
+    const ringColor = status === 'error' ? colors.error : status === 'complete' ? colors.success : colors.primary;
+    const label = status === 'error'
+      ? '!'
+      : status === 'complete'
+        ? 'Done'
+        : `${clamped}%`;
+
+    return (
+      <View style={styles.scanCardProgressWrapper}>
+        <Svg width={size} height={size}>
+          <Circle
+            stroke="rgba(255,255,255,0.2)"
+            fill="transparent"
+            strokeWidth={strokeWidth}
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+          />
+          <Circle
+            stroke={ringColor}
+            fill="transparent"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={status === 'error' ? circumference : strokeDashoffset}
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+          />
+        </Svg>
+        <Text style={[styles.scanCardProgressLabel, status === 'error' && styles.scanCardProgressLabelError]}>
+          {label}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderActiveScanCard = () => {
+    if (!scanJob) return null;
+
+    const isProcessing = scanJob.status === 'processing';
+    const isError = scanJob.status === 'error';
+    const isReady = !isProcessing && !isError && scanJob.requiresReview;
+    const status: 'processing' | 'complete' | 'error' = isError ? 'error' : isReady ? 'complete' : 'processing';
+    const message = scanJob.message || (isReady ? 'Ready for review' : 'Processing your scorecard...');
+    const subtext = isProcessing
+      ? "We'll notify you when done."
+      : isError
+        ? 'Tap to try again.'
+        : 'Tap to review and save your round.';
+
+    const handlePress = () => {
+      if (isProcessing) return;
+      if (isError) {
+        clearActiveScanJob();
+        router.push('/scan-scorecard');
+        return;
+      }
+      router.push('/scan-scorecard?review=1');
+    };
+
+    return (
+      <TouchableOpacity
+        style={[styles.scanCard, isProcessing && styles.scanCardDisabled]}
+        activeOpacity={0.85}
+        onPress={handlePress}
+        disabled={isProcessing}
+      >
+        <View style={styles.scanCardImageWrapper}>
+          {scanJob.thumbnailUri ? (
+            <Image source={{ uri: scanJob.thumbnailUri }} style={styles.scanCardImage} />
+          ) : (
+            <View style={[styles.scanCardImage, styles.scanCardImagePlaceholder]}>
+              <Flag size={24} color={colors.inactive} />
+            </View>
+          )}
+          <View style={styles.scanCardDimmer} />
+          <View style={styles.scanCardProgressOverlay}>
+            <ProgressRing percentage={scanJob.progress ?? 0} status={status} />
+          </View>
+        </View>
+
+        <View style={styles.scanCardInfo}>
+          <Text style={styles.scanCardTitle} numberOfLines={1}>
+            {isProcessing ? 'Processing scorecard…' : isError ? 'Scan failed' : 'Ready to review'}
+          </Text>
+          <Text style={styles.scanCardMessage} numberOfLines={2}>
+            {message}
+          </Text>
+          <Text style={isReady ? styles.scanCardSubtextAction : styles.scanCardSubtext} numberOfLines={1}>
+            {subtext}
+          </Text>
+          <View style={styles.scanCardSkeletonRow}>
+            <View style={styles.scanCardSkeletonBlock} />
+            <View style={styles.scanCardSkeletonBlockShort} />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const navigateToScanScorecard = () => {
     router.push('/scan-scorecard');
   };
@@ -258,14 +380,21 @@ export default function HomeScreen() {
             keyExtractor={item => item.id}
             contentContainerStyle={styles.roundsList}
             showsVerticalScrollIndicator={false}
+            ListHeaderComponent={hasActiveScanCard ? renderActiveScanCard : null}
+            ListHeaderComponentStyle={hasActiveScanCard ? styles.scanCardHeader : undefined}
           />
         ) : (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No rounds yet</Text>
-            <Text style={styles.emptyMessage}>
-              Scan your scorecard with AI to add your scores and get your round summary
-            </Text>
-            <CurvedArrow />
+          <View style={styles.emptyWrapper}>
+            {hasActiveScanCard && (
+              <View style={styles.scanCardHeader}>{renderActiveScanCard()}</View>
+            )}
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No rounds yet</Text>
+              <Text style={styles.emptyMessage}>
+                Scan your scorecard with AI to add your scores and get your round summary
+              </Text>
+              <CurvedArrow />
+            </View>
           </View>
         )}
       </View>
@@ -427,6 +556,106 @@ const styles = StyleSheet.create({
   roundsList: {
     paddingBottom: 140,
   },
+  scanCardHeader: {
+    marginBottom: 16,
+  },
+  scanCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  scanCardDisabled: {
+    opacity: 0.85,
+  },
+  scanCardImageWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginRight: 16,
+    backgroundColor: '#e0e0e0',
+  },
+  scanCardImage: {
+    width: '100%',
+    height: '100%',
+    opacity: 0.35,
+  },
+  scanCardImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanCardDimmer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  scanCardProgressOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanCardInfo: {
+    flex: 1,
+  },
+  scanCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  scanCardMessage: {
+    fontSize: 14,
+    color: colors.text,
+    opacity: 0.8,
+    marginBottom: 6,
+  },
+  scanCardSubtext: {
+    fontSize: 12,
+    color: colors.inactive,
+    marginBottom: 12,
+  },
+  scanCardSubtextAction: {
+    fontSize: 12,
+    color: colors.primary,
+    marginBottom: 12,
+    fontWeight: '600',
+  },
+  scanCardSkeletonRow: {
+    flexDirection: 'row',
+  },
+  scanCardSkeletonBlock: {
+    height: 8,
+    flex: 1,
+    backgroundColor: '#E6E6E6',
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  scanCardSkeletonBlockShort: {
+    width: 60,
+    height: 8,
+    backgroundColor: '#E6E6E6',
+    borderRadius: 4,
+  },
+  scanCardProgressWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanCardProgressLabel: {
+    position: 'absolute',
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.card,
+  },
+  scanCardProgressLabelError: {
+    color: colors.error,
+  },
   roundCard: {
     backgroundColor: colors.card,
     borderRadius: 16,
@@ -505,6 +734,9 @@ const styles = StyleSheet.create({
   roundLocation: {
     fontSize: 14,
     color: colors.text,
+  },
+  emptyWrapper: {
+    flex: 1,
   },
   emptyState: {
     alignItems: 'center',
