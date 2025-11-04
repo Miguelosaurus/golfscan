@@ -47,8 +47,8 @@ export interface Player {
       longitude: number;
     };
     tees: {
-      male: TeeBox[];
-      female: TeeBox[];
+      male?: TeeBox[];
+      female?: TeeBox[];
     };
   }
   

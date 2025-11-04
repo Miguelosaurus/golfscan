@@ -44,11 +44,12 @@ import { useGolfStore } from '@/store/useGolfStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Button } from '@/components/Button';
-import { Hole, ScorecardScanResult } from '@/types';
+import { Hole, ScorecardScanResult, ApiCourseData, Course } from '@/types';
 import { trpc, trpcClient } from '@/lib/trpc';
 import { searchCourses } from '@/lib/golf-course-api';
-import { convertApiCourseToLocal } from '@/utils/course-helpers';
+import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/course-helpers';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
+import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 
 interface DetectedPlayer {
   id: string;
@@ -90,6 +91,7 @@ export default function ScanScorecardScreen() {
     updateRound,
     addPlayer,
     addCourse,
+    updateCourse,
     scannedData, 
     isScanning: storeScanningState,
     remainingScans,
@@ -124,7 +126,7 @@ export default function ScanScorecardScreen() {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
-  const [selectedApiCourse, setSelectedApiCourse] = useState<any | null>(null);
+  const [selectedApiCourse, setSelectedApiCourse] = useState<{ apiCourse: ApiCourseData; selectedTee?: string } | null>(null);
   const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -134,6 +136,7 @@ export default function ScanScorecardScreen() {
   const isMountedRef = useRef(true);
   const isEditMode = !!editRoundId;
   const preDragPlayersRef = useRef<DetectedPlayer[] | null>(null);
+  const hasInitializedPrefill = useRef(false);
 
   // Stable user id to avoid re-renders and repeated network calls
   const [userId] = useState<string>(() => {
@@ -154,13 +157,11 @@ export default function ScanScorecardScreen() {
 
   // Initialize state from prefilled edit data
   useEffect(() => {
-    if (isEditMode && prefilled) {
+    if (isEditMode && prefilled && !hasInitializedPrefill.current) {
       try {
         const data = JSON.parse(prefilled) as { courseId: string | null, players: { id: string, name: string, scores: { holeNumber: number, strokes: number }[]; teeColor?: string }[], date: string, notes: string, scorecardPhotos?: string[] };
         if (data.courseId) {
           setSelectedCourse(data.courseId);
-          const isLocal = courses.some(c => c.id === data.courseId);
-          setIsLocalCourseSelected(isLocal);
         }
         setDate(ensureValidDate(data.date));
         setNotes(data.notes || '');
@@ -179,11 +180,18 @@ export default function ScanScorecardScreen() {
         }
         setProcessingComplete(true);
         setActiveTab('players');
+        hasInitializedPrefill.current = true;
       } catch (e) {
         console.error('Failed to parse prefilled edit data', e);
       }
     }
-  }, [isEditMode, prefilled, courses]);
+  }, [isEditMode, prefilled]);
+
+  useEffect(() => {
+    if (!selectedCourse) return;
+    const isLocal = courses.some(c => c.id === selectedCourse);
+    setIsLocalCourseSelected((prev) => (prev === isLocal ? prev : isLocal));
+  }, [selectedCourse, courses]);
 
   // Helper: to base64 (full quality)
   const convertImageToBase64 = async (uri: string): Promise<string> => {
@@ -555,7 +563,7 @@ export default function ScanScorecardScreen() {
         const fullName = `${bestApiMatch.club_name} - ${bestApiMatch.course_name}`;
         console.log(`✅ API MATCH: Found "${fullName}" (${bestScore}% confidence)`);
         
-        setSelectedApiCourse(bestApiMatch);
+        setSelectedApiCourse({ apiCourse: bestApiMatch });
         setSelectedCourse(`api_temp_${bestApiMatch.id}`);
         setIsLocalCourseSelected(false);
       } else {
@@ -905,26 +913,20 @@ export default function ScanScorecardScreen() {
   
   // Helper function to get the display name of the selected course
   const getSelectedCourseName = (): string => {
-    if (selectedApiCourse) {
-      return `${selectedApiCourse.club_name} - ${selectedApiCourse.course_name}`;
+    if (selectedApiCourse?.apiCourse) {
+      const { apiCourse } = selectedApiCourse;
+      return `${apiCourse.club_name} - ${apiCourse.course_name}`;
     }
     
     const localCourse = courses.find(c => c.id === selectedCourse);
     return localCourse?.name || "Select Course";
   };
 
-  const handleSelectCourse = (course: any) => {
+  const handleSelectCourse = (course: Course, meta?: { apiCourse?: ApiCourseData; selectedTee?: string }) => {
     setSelectedCourse(course.id);
+    setSelectedApiCourse(meta?.apiCourse ? { apiCourse: meta.apiCourse, selectedTee: meta.selectedTee } : null);
     setShowCourseSearchModal(false);
-    
-    // Determine if this is a local course selection
-    const isLocal = courses.some(c => c.id === course.id);
-    setIsLocalCourseSelected(isLocal);
-    
-    // Clear API course if local course selected
-    if (isLocal) {
-      setSelectedApiCourse(null);
-    }
+    setActiveTab('details');
   };
 
   const buildPrefillHoles = (): Hole[] => {
@@ -972,7 +974,7 @@ export default function ScanScorecardScreen() {
     return true;
   };
   
-  const handleSaveRound = () => {
+  const handleSaveRound = async () => {
     if (!validateForm()) {
       return;
     }
@@ -986,45 +988,63 @@ export default function ScanScorecardScreen() {
       };
     });
     
-    // Context 2: Course matching at save point for duplicate prevention
+    // Ensure course persistence/image when saving
     let finalCourseId = selectedCourse as string;
-    let finalCourseName = "Unknown Course";
-    
-    if (!isLocalCourseSelected) {
-      // Course was not selected from "My Courses" tab - need to check for matches/duplicates
-      console.log(`🔄 SAVE MATCHING: Course not from local selection, checking for duplicates...`);
-      
-      if (selectedCourse?.startsWith('api_temp_') && selectedApiCourse) {
-        // Course was pre-selected from API via AI detection or manual search
-        const apiCourseName = `${selectedApiCourse.club_name} - ${selectedApiCourse.course_name}`;
-        console.log(`🔍 SAVE MATCHING: Checking API course "${apiCourseName}" against local courses`);
-        
-        const localMatchResult = matchCourseToLocal(apiCourseName, courses, userLocation, true); // LENIENT matching against existing local courses
-        
+    let finalCourseName = 'Unknown Course';
+
+    if (selectedApiCourse) {
+      const { apiCourse, selectedTee } = selectedApiCourse;
+      const apiCourseName = `${apiCourse.club_name} - ${apiCourse.course_name}`;
+      const deterministicId = getDeterministicCourseId(apiCourse, selectedTee);
+
+      let matchedCourse = courses.find(c => c.id === deterministicId);
+
+      if (!matchedCourse) {
+        const localMatchResult = matchCourseToLocal(apiCourseName, courses, userLocation, true);
         if (localMatchResult.match) {
-          // Found existing local course - use it instead
-          console.log(`✅ SAVE MATCH: Using existing local course "${localMatchResult.match.name}" (${localMatchResult.confidence}% confidence)`);
-          finalCourseId = localMatchResult.match.id;
-          finalCourseName = localMatchResult.match.name;
-        } else {
-          // No match - add API course to local store
-          console.log(`➕ SAVE MATCH: Adding new course "${apiCourseName}" to local store`);
-          const newLocalCourse = convertApiCourseToLocal(selectedApiCourse);
+          matchedCourse = localMatchResult.match;
+          console.log(`✅ SAVE MATCH: Using existing local course "${matchedCourse.name}" (${localMatchResult.confidence}% confidence)`);
+        }
+      }
+
+      if (matchedCourse) {
+        finalCourseId = matchedCourse.id;
+        finalCourseName = matchedCourse.name;
+
+        const needsImage = !matchedCourse.imageUrl || matchedCourse.imageUrl === DEFAULT_COURSE_IMAGE;
+        if (needsImage) {
+          try {
+            const refreshedCourse = await convertApiCourseToLocal(apiCourse, { selectedTee, fetchImage: true });
+            updateCourse(refreshedCourse);
+          } catch (error) {
+            console.error('Failed to refresh course image on save:', error);
+          }
+        }
+
+        if (selectedCourse !== matchedCourse.id) {
+          setSelectedCourse(matchedCourse.id);
+        }
+        setIsLocalCourseSelected(true);
+      } else {
+        console.log(`➕ SAVE MATCH: Adding new course "${apiCourseName}" to local store`);
+        try {
+          const newLocalCourse = await convertApiCourseToLocal(apiCourse, { selectedTee, fetchImage: true });
           addCourse(newLocalCourse);
           finalCourseId = newLocalCourse.id;
           finalCourseName = newLocalCourse.name;
+          setSelectedCourse(newLocalCourse.id);
+          setIsLocalCourseSelected(true);
+        } catch (error) {
+          console.error('Failed to convert API course while saving round:', error);
+          finalCourseName = apiCourseName;
+          finalCourseId = deterministicId;
         }
-      } else {
-        // Should not happen in normal flow, but handle gracefully
-        console.log(`⚠️ SAVE MATCHING: Unexpected course selection state`);
-        const localCourse = courses.find(c => c.id === selectedCourse);
-        finalCourseName = localCourse?.name || "Unknown Course";
       }
+
+      setSelectedApiCourse(null);
     } else {
-      // Course was selected from "My Courses" tab - use directly
       const localCourse = courses.find(c => c.id === selectedCourse);
-      finalCourseName = localCourse?.name || "Unknown Course";
-      console.log(`✅ SAVE DIRECT: Using local course "${finalCourseName}" directly`);
+      finalCourseName = localCourse?.name || 'Unknown Course';
     }
 
     // Create the round object

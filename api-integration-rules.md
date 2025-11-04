@@ -2506,3 +2506,29 @@ The app is now fully rebranded to ScanCaddie with consistent naming throughout t
 - `app/scan-scorecard.tsx`
 
 **Status:** ✅ Complete
+
+---
+
+## Agent Report: Backend runtime env — Add Google Places API key
+
+**Date:** 2025-11-03
+
+**Change:**
+- Added `GOOGLE_PLACES_API_KEY` to backend runtime environment.
+
+**Files modified:**
+- `.env` (repo root): added `GOOGLE_PLACES_API_KEY=AIzaSyC7vh9r671tt49_WTJPHuUeLL1ok0hF7MI`
+
+**Reason:**
+- `backend/services/googlePlaces.ts` reads `process.env.GOOGLE_PLACES_API_KEY` (fallback `GOOGLE_API_KEY`) to fetch course images via Google Places API.
+
+**How to test:**
+1. Restart backend: `npm run backend`.
+2. Trigger any flow that requests a course image (e.g., open a course detail that uses Places image).
+3. Watch backend logs for errors; successful requests should no longer throw "Google Places API key is not configured".
+
+**Notes:**
+- Backend auto-loads env via `import 'dotenv/config'` in `backend/trpc/hono.ts`.
+- No code changes required.
+
+**Status:** ✅ Complete

@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { trpcClient } from '@/lib/trpc';
-import { convertApiCourseToLocal, getCourseDisplayName, formatCourseLocation, getTeeBoxOptions } from '@/utils/course-helpers';
-import { Course } from '@/types';
+import { convertApiCourseToLocal, getCourseDisplayName, formatCourseLocation, getTeeBoxOptions, getDeterministicCourseId } from '@/utils/course-helpers';
+import { Course, ApiCourseData } from '@/types';
 import { useGolfStore } from '@/store/useGolfStore';
 import { CourseCard } from '@/components/CourseCard';
 import { Search, X, MapPin, ChevronDown, Clock, Star, PlusCircle, Flag } from 'lucide-react-native';
@@ -22,10 +22,15 @@ import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { getDistanceInKm } from '@/utils/helpers';
 
+interface CourseSelectionMeta {
+  apiCourse?: ApiCourseData;
+  selectedTee?: string;
+}
+
 interface CourseSearchModalProps {
   visible: boolean;
   onClose: () => void;
-  onSelectCourse: (course: Course) => void;
+  onSelectCourse: (course: Course, meta?: CourseSelectionMeta) => void;
 }
 
 export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualCourse?: () => void, showMyCoursesTab?: boolean }> = ({
@@ -42,6 +47,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const [loading, setLoading] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any | null>(null); // Changed from ApiCourse to any
   const [showTeeSelection, setShowTeeSelection] = useState(false);
+  const [selectingCourse, setSelectingCourse] = useState(false);
   const [activeTab, setActiveTab] = useState<'search' | 'my-courses'>('search');
 
   // User location & nearby courses
@@ -154,21 +160,42 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     }
   };
 
-  const handleSelectApiCourse = (apiCourse: any) => { // Changed from ApiCourse to any
+  const handleSelectApiCourse = async (apiCourse: any) => { // Changed from ApiCourse to any
+    if (selectingCourse) return;
     const teeOptions = getTeeBoxOptions(apiCourse);
-    
-    if (teeOptions.length > 1) {
+    const hasMultipleTees = teeOptions.length > 1;
+
+    if (hasMultipleTees) {
       setSelectedCourse(apiCourse);
       setShowTeeSelection(true);
-    } else {
-      // Only one tee option, select it automatically
-      const course = convertApiCourseToLocal(apiCourse, teeOptions[0]?.name);
-      // Persist the course the first time we encounter it
-      if (!getCourseById(course.id)) {
-        addCourse(course);
+      return;
+    }
+
+    const teeName = teeOptions[0]?.name;
+    const deterministicId = getDeterministicCourseId(apiCourse, teeName);
+    const existingCourse = getCourseById(deterministicId);
+
+    setSelectingCourse(true);
+    try {
+      if (existingCourse) {
+        onSelectCourse(existingCourse);
+      } else {
+        const course = await convertApiCourseToLocal(apiCourse, { selectedTee: teeName });
+        if (!getCourseById(course.id)) {
+          addCourse(course);
+        }
+        onSelectCourse(course, { apiCourse, selectedTee: teeName });
       }
-      onSelectCourse(course);
-      handleClose();
+      setSearchQuery('');
+      setSearchResults([]);
+      setSelectedCourse(null);
+      setShowTeeSelection(false);
+      onClose();
+    } catch (error) {
+      console.error('Failed to convert course:', error);
+      Alert.alert('Course Error', 'We could not prepare this course right now. Please try again.');
+    } finally {
+      setSelectingCourse(false);
     }
   };
 
@@ -180,18 +207,38 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     }
   };
 
-  const handleSelectTee = (teeName: string) => {
+  const handleSelectTee = async (teeName: string) => {
     if (!selectedCourse) return;
     
-    const course = convertApiCourseToLocal(selectedCourse, teeName);
-    if (!getCourseById(course.id)) {
-      addCourse(course);
+    setSelectingCourse(true);
+    try {
+      const deterministicId = getDeterministicCourseId(selectedCourse, teeName);
+      const existingCourse = getCourseById(deterministicId);
+
+      if (existingCourse) {
+        onSelectCourse(existingCourse);
+      } else {
+        const course = await convertApiCourseToLocal(selectedCourse, { selectedTee: teeName });
+        if (!getCourseById(course.id)) {
+          addCourse(course);
+        }
+        onSelectCourse(course, { apiCourse: selectedCourse, selectedTee: teeName });
+      }
+      setSearchQuery('');
+      setSearchResults([]);
+      setSelectedCourse(null);
+      setShowTeeSelection(false);
+      onClose();
+    } catch (error) {
+      console.error('Failed to convert course with tee selection:', error);
+      Alert.alert('Course Error', 'We could not prepare this course right now. Please try again.');
+    } finally {
+      setSelectingCourse(false);
     }
-    onSelectCourse(course);
-    handleClose();
   };
 
   const handleClose = () => {
+    if (selectingCourse) return;
     setSearchQuery('');
     setSearchResults([]);
     setSelectedCourse(null);
@@ -203,6 +250,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     <TouchableOpacity
       style={styles.courseItem}
       onPress={() => handleSelectApiCourse(item)}
+      disabled={selectingCourse}
     >
       <View style={styles.courseInfo}>
         <Text style={styles.courseName}>{getCourseDisplayName(item)}</Text>
