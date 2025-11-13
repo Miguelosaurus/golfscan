@@ -371,7 +371,7 @@ export default function HistoryScreen() {
           style={[styles.tab, activeTab === 'rounds' && styles.activeTab]}
           onPress={() => setActiveTab('rounds')}
         >
-          <History size={18} color={activeTab === 'rounds' ? colors.primary : colors.textSecondary} />
+          <History size={18} color={colors.text} />
           <Text style={[styles.tabText, activeTab === 'rounds' && styles.activeTabText]}>Rounds</Text>
         </TouchableOpacity>
         
@@ -379,7 +379,7 @@ export default function HistoryScreen() {
           style={[styles.tab, activeTab === 'players' && styles.activeTab]}
           onPress={() => setActiveTab('players')}
         >
-          <Users size={18} color={activeTab === 'players' ? colors.primary : colors.textSecondary} />
+          <Users size={18} color={colors.text} />
           <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
         </TouchableOpacity>
 
@@ -387,7 +387,7 @@ export default function HistoryScreen() {
           style={[styles.tab, activeTab === 'courses' && styles.activeTab]}
           onPress={() => setActiveTab('courses')}
         >
-          <Flag size={18} color={activeTab === 'courses' ? colors.primary : colors.textSecondary} />
+          <Flag size={18} color={colors.text} />
           <Text style={[styles.tabText, activeTab === 'courses' && styles.activeTabText]}>Courses</Text>
         </TouchableOpacity>
       </View>
@@ -521,9 +521,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 8,
-    borderRadius: 8,
-    backgroundColor: colors.card,
+    borderRadius: 22,
+    backgroundColor: 'rgba(29, 90, 84, 0.10)',
     padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(29, 90, 84, 0.12)',
+    overflow: 'hidden',
   },
   tab: {
     flex: 1,
@@ -531,19 +534,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
   },
   activeTab: {
-    backgroundColor: `${colors.primary}15`,
+    backgroundColor: colors.card,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   tabText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: colors.textSecondary,
+    fontWeight: '600',
+    color: colors.text,
     marginLeft: 6,
   },
   activeTabText: {
-    color: colors.primary,
+    color: colors.text,
+    fontWeight: '700',
   },
   searchContainer: {
     flexDirection: 'row',

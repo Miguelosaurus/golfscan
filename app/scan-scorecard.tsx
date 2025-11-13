@@ -1322,7 +1322,7 @@ export default function ScanScorecardScreen() {
             style={[styles.tab, activeTab === 'players' && styles.activeTab]}
             onPress={() => setActiveTab('players')}
           >
-            <User size={18} color={activeTab === 'players' ? colors.primary : colors.text} />
+            <User size={18} color={colors.text} />
             <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
           </TouchableOpacity>
           
@@ -1330,7 +1330,7 @@ export default function ScanScorecardScreen() {
             style={[styles.tab, activeTab === 'scores' && styles.activeTab]}
             onPress={() => setActiveTab('scores')}
           >
-            <Users size={18} color={activeTab === 'scores' ? colors.primary : colors.text} />
+            <Users size={18} color={colors.text} />
             <Text style={[styles.tabText, activeTab === 'scores' && styles.activeTabText]}>Scores</Text>
           </TouchableOpacity>
           
@@ -1338,7 +1338,7 @@ export default function ScanScorecardScreen() {
             style={[styles.tab, activeTab === 'details' && styles.activeTab]}
             onPress={() => setActiveTab('details')}
           >
-            <MapPin size={18} color={activeTab === 'details' ? colors.primary : colors.text} />
+            <MapPin size={18} color={colors.text} />
             <Text style={[styles.tabText, activeTab === 'details' && styles.activeTabText]}>Details</Text>
           </TouchableOpacity>
         </View>
@@ -1420,7 +1420,7 @@ export default function ScanScorecardScreen() {
                         <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>Linked</Text></View>
                       )}
                       <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayerById(player.id)}>
-                        <LinkIcon size={18} color={player.linkedPlayerId ? colors.success : colors.primary} />
+                        <LinkIcon size={18} color={player.linkedPlayerId ? colors.text : colors.primary} />
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUserById(player.id)}>
                         <User size={18} color={player.isUser ? colors.success : colors.primary} />
@@ -1469,30 +1469,32 @@ export default function ScanScorecardScreen() {
               <View style={styles.sectionHeaderColumn}>
                 <Text style={styles.sectionTitle}>Scores</Text>
                 <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
-                <View style={styles.retakeBox}>
-                  <Text style={styles.retakeText}>If these scores aren't accurate, retake the photo for better clarity.</Text>
-                  <View style={styles.retakeActions}>
-                    <Button
-                      title="Retake Photos"
-                      variant="outline"
-                      onPress={() => {
-                        resetPhotos();
-                        setActiveTab('players');
-                      }}
-                      style={{ marginTop: 8 }}
-                    />
-                  </View>
+                <View style={styles.retakeRow}>
+                  <RotateCcw size={18} color={colors.text} style={{ marginRight: 10 }} />
+                  <Text style={styles.retakeRowText}>Scores look off? Retake a clearer photo.</Text>
+                  <Button
+                    title="Retake"
+                    variant="outline"
+                    size="small"
+                    onPress={() => {
+                      resetPhotos();
+                      setActiveTab('players');
+                    }}
+                    style={styles.retakeButton}
+                  />
                 </View>
               </View>
               
               <View style={styles.scoresTable}>
                 <View style={styles.scoresTableHeader}>
-                  <Text style={[styles.scoresTableHeaderCell, styles.holeNumberCell]}>Hole</Text>
-                  <Text style={[styles.scoresTableHeaderCell, styles.holeParCell]}>Par</Text>
+                  <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeBandCell, styles.holeHeaderLabel]}>HOLE</Text>
+                  <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeParCell, styles.headerLabel]}>PAR</Text>
                   {detectedPlayers.map(player => (
                     <Text 
                       key={player.id} 
-                      style={[styles.scoresTableHeaderCell, styles.playerScoreCell]}
+                      numberOfLines={1}
+                      ellipsizeMode="clip"
+                      style={[styles.scoresTableHeaderCell, styles.playerScoreCell, styles.headerWhiteCell, styles.headerLabel]}
                       numberOfLines={1}
                     >
                       {player.name}
@@ -1509,7 +1511,7 @@ export default function ScanScorecardScreen() {
                   
                   return (
                     <View key={score.holeNumber} style={styles.scoresTableRow}>
-                      <Text style={[styles.scoresTableCell, styles.holeNumberCell]}>
+                      <Text style={[styles.scoresTableCell, styles.holeBandCell, styles.holeNumberText]}>
                         {score.holeNumber}
                       </Text>
                       
@@ -1557,6 +1559,9 @@ export default function ScanScorecardScreen() {
                     </View>
                   );
                 })}
+
+                {/* Totals row */}
+                {/* Totals row intentionally removed by design */}
               </View>
             </View>
           )}
@@ -1961,9 +1966,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 16,
-    borderRadius: 8,
-    backgroundColor: colors.card,
+    borderRadius: 22,
+    backgroundColor: 'rgba(29, 90, 84, 0.10)',
     padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(29, 90, 84, 0.12)',
+    overflow: 'hidden',
   },
   tab: {
     flex: 1,
@@ -1971,19 +1979,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
   },
   activeTab: {
-    backgroundColor: `${colors.primary}15`,
+    backgroundColor: colors.card,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   tabText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
     color: colors.text,
     marginLeft: 6,
   },
   activeTabText: {
-    color: colors.primary,
+    color: colors.text,
+    fontWeight: '700',
   },
   tabContent: {
     flex: 1,
@@ -2176,7 +2191,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   linkedBadge: {
-    backgroundColor: colors.success,
+    backgroundColor: colors.text,
     paddingVertical: 2,
     paddingHorizontal: 8,
     borderRadius: 12,
@@ -2184,7 +2199,7 @@ const styles = StyleSheet.create({
   },
   linkedBadgeText: {
     fontSize: 12,
-    color: colors.background,
+    color: colors.card,
     fontWeight: '500',
   },
   playerActions: {
@@ -2195,10 +2210,12 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   infoBox: {
-    backgroundColor: `${colors.primary}10`,
-    borderRadius: 8,
+    backgroundColor: `${colors.text}10`,
+    borderRadius: 10,
     padding: 16,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E6EAE9',
   },
   infoTitle: {
     fontSize: 16,
@@ -2214,21 +2231,24 @@ const styles = StyleSheet.create({
   scoresTable: {
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 10,
     overflow: 'hidden',
-    backgroundColor: colors.background,
+    backgroundColor: colors.card,
   },
   scoresTableHeader: {
     flexDirection: 'row',
-    backgroundColor: `${colors.primary}15`,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   scoresTableHeaderCell: {
-    padding: 12,
-    fontWeight: '600',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    fontWeight: '700',
+    fontSize: 13,
     color: colors.text,
     textAlign: 'center',
+    includeFontPadding: false,
   },
   scoresTableRow: {
     flexDirection: 'row',
@@ -2236,26 +2256,49 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   scoresTableCell: {
-    padding: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     textAlign: 'center',
     color: colors.text,
   },
-  holeNumberCell: {
-    width: 50,
-    backgroundColor: `${colors.card}80`,
-    fontWeight: '500',
+  holeBandCell: {
+    width: 56,
+    backgroundColor: colors.text,
+    color: '#FFFFFF',
+  },
+  holeHeaderLabel: {
+    color: '#FFFFFF',
+    letterSpacing: 1.1,
+    fontSize: 12,
+  },
+  holeNumberText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 12,
   },
   holeParCell: {
-    width: 50,
-    backgroundColor: `${colors.card}40`,
+    width: 64,
+    backgroundColor: '#F2F4F3',
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
   },
   playerScoreCell: {
     flex: 1,
     minWidth: 60,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: '#FFFFFF',
   },
   scoreInput: {
     textAlign: 'center',
-    fontSize: 16,
+    fontSize: 15,
+  },
+  headerLabel: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  headerWhiteCell: {
+    backgroundColor: '#FFFFFF',
   },
   dateContainer: {
     flexDirection: 'row',
@@ -2286,10 +2329,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   retakeBox: {
-    backgroundColor: `${colors.primary}10`,
+    backgroundColor: `${colors.primary}08`,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 10,
     padding: 12,
     marginTop: 8,
   },
@@ -2300,6 +2343,27 @@ const styles = StyleSheet.create({
   retakeActions: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
+  },
+  // New compact retake row design
+  retakeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#EEF2EF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: 10,
+  },
+  retakeRowText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.text,
+  },
+  retakeButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
   bottomBar: {
     position: 'absolute',
