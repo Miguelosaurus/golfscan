@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
+  Animated,
   ScrollView, 
   Image,
   TouchableOpacity,
@@ -15,7 +16,7 @@ import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
 import { RoundCard } from '@/components/RoundCard';
 import { getEighteenHoleEquivalentScore, getRoundHoleCount } from '@/utils/helpers';
-import { MapPin, Camera, X, TrendingUp, TrendingDown } from 'lucide-react-native';
+import { MapPin, Camera, X, TrendingUp, TrendingDown, ChevronRight, ChevronLeft } from 'lucide-react-native';
 
 export default function CourseDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -96,69 +97,96 @@ export default function CourseDetailsScreen() {
     });
   };
   
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const IMAGE_HEIGHT = 280;
+  const HEADER_STRETCH = 200;
+
+  const headerBg = scrollY.interpolate({
+    inputRange: [0, IMAGE_HEIGHT - 100, IMAGE_HEIGHT - 40],
+    outputRange: ['rgba(245,243,239,0)', 'rgba(245,243,239,0.6)', 'rgba(245,243,239,1)'],
+    extrapolate: 'clamp',
+  });
+
+  const extraHeaderSpace = scrollY.interpolate({
+    inputRange: [-HEADER_STRETCH, 0, HEADER_STRETCH],
+    outputRange: [HEADER_STRETCH, 0, 0],
+    extrapolate: 'clamp',
+  });
+
+  const imageHeight = scrollY.interpolate({
+    inputRange: [-HEADER_STRETCH, 0, HEADER_STRETCH],
+    outputRange: [IMAGE_HEIGHT + HEADER_STRETCH, IMAGE_HEIGHT, IMAGE_HEIGHT],
+    extrapolate: 'clamp',
+  });
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen 
-        options={{ 
-          title: course.name,
-          headerStyle: {
-            backgroundColor: colors.background,
-          },
-          headerTitleStyle: {
-            color: colors.text,
-          },
-          headerTintColor: colors.text,
-        }} 
-      />
-      
-      <ScrollView 
+      <Stack.Screen options={{ headerShown: false }} />
+
+      {/* Fixed background image */}
+      {course.imageUrl ? (
+        <Animated.Image 
+          source={{ uri: course.imageUrl }} 
+          style={[styles.fixedImage, { height: imageHeight }]}
+          resizeMode="cover" 
+        />
+      ) : (
+        <View style={[styles.placeholderImage, styles.fixedImage, { height: IMAGE_HEIGHT }]}>
+          <Text style={styles.placeholderText}>{course.name.charAt(0)}</Text>
+        </View>
+      )}
+
+      {/* Overlay toolbar with animated background */}
+      <Animated.View style={[styles.overlayHeader, { backgroundColor: headerBg }]} pointerEvents="box-none"> 
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={() => router.back()} 
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <ChevronLeft size={24} color={colors.text} />
+        </TouchableOpacity>
+      </Animated.View>
+
+      <Animated.ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[styles.contentContainer, { paddingTop: IMAGE_HEIGHT }]}
         showsVerticalScrollIndicator={false}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+        scrollEventThrottle={16}
       >
-        <View style={styles.imageContainer}>
-          {course.imageUrl ? (
-            <Image 
-              source={{ uri: course.imageUrl }} 
-              style={styles.image}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.placeholderImage}>
-              <Text style={styles.placeholderText}>{course.name.charAt(0)}</Text>
+        <Animated.View style={{ height: extraHeaderSpace }} />
+        <View style={styles.sheet}>
+          <View style={styles.headerContainer}>
+            <Text style={styles.courseName}>{course.name}</Text>
+            <View style={styles.locationContainer}>
+              <MapPin size={16} color={colors.text} />
+              <Text style={styles.location}>{course.location}</Text>
             </View>
-          )}
-        </View>
-        
-        <View style={styles.headerContainer}>
-          <Text style={styles.courseName}>{course.name}</Text>
-          
-          <View style={styles.locationContainer}>
-            <MapPin size={16} color={colors.text} />
-            <Text style={styles.location}>{course.location}</Text>
           </View>
-        </View>
-        
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{course.holes.length}</Text>
-            <Text style={styles.statLabel}>Holes</Text>
+
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{course.holes.length}</Text>
+              <Text style={styles.statLabel}>Holes</Text>
+            </View>
+
+            <View style={styles.statDivider} />
+
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totalPar}</Text>
+              <Text style={styles.statLabel}>Par</Text>
+            </View>
+
+            <View style={styles.statDivider} />
+
+            <TouchableOpacity style={styles.statItem} onPress={() => setShowRoundsModal(true)}>
+              <Text style={styles.statValue}>{courseRounds.length}</Text>
+              <Text style={styles.statLabel}>{courseRounds.length === 1 ? 'Round' : 'Rounds'}</Text>
+              <ChevronRight size={16} strokeWidth={2.2} color={colors.text} style={styles.statChevron} />
+            </TouchableOpacity>
           </View>
-          
-          <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{totalPar}</Text>
-            <Text style={styles.statLabel}>Par</Text>
-          </View>
-          
-          <View style={styles.statDivider} />
-          
-          <TouchableOpacity style={styles.statItem} onPress={() => setShowRoundsModal(true)}>
-            <Text style={styles.statValue}>{courseRounds.length}</Text>
-            <Text style={styles.statLabel}>Rounds Played</Text>
-          </TouchableOpacity>
-        </View>
         
         {stats && (
           <View style={styles.statsSection}>
@@ -244,13 +272,9 @@ export default function CourseDetailsScreen() {
           icon={<Camera size={18} color={colors.background} style={{ marginRight: 8 }} />}
         />
 
-        <Button
-          title="View Rounds"
-          onPress={() => setShowRoundsModal(true)}
-          style={styles.startButton}
-          icon={<TrendingUp size={18} color={colors.background} style={{ marginRight: 8 }} />}
-        />
-      </ScrollView>
+        {/* Removed explicit View Rounds button; hint added on the stat tile */}
+        </View>
+      </Animated.ScrollView>
 
       <Modal
         visible={showRoundsModal}
@@ -345,6 +369,24 @@ const styles = StyleSheet.create({
   statItem: {
     flex: 1,
     alignItems: 'center',
+    position: 'relative',
+  },
+  statLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statChevron: {
+    position: 'absolute',
+    right: 8,
+    bottom: 14,
+    opacity: 0.85,
+  },
+  contentCard: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 12,
+    marginBottom: 16,
   },
   statDivider: {
     width: 1,
@@ -364,6 +406,42 @@ const styles = StyleSheet.create({
   sectionHeader: {
     paddingHorizontal: 16,
     marginBottom: 16,
+  },
+  overlayHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 94,
+    zIndex: 10,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 12,
+    paddingTop: 42,
+  },
+  sheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    // Lift the sheet slightly into the hero so rounded corners reveal image behind
+    marginTop: -16,
+    paddingTop: 16,
+    zIndex: 2,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  fixedImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    width: '115%',
+    marginLeft: '-7.5%',
   },
   sectionTitle: {
     fontSize: 18,

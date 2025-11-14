@@ -25,7 +25,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.inactive,
+        tabBarInactiveTintColor: colors.text,
         tabBarStyle: {
           position: 'absolute',
           bottom: Platform.OS === 'ios' ? 34 : 24,
@@ -56,7 +56,9 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color }) => <Home size={28} color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Home size={28} color={color} strokeWidth={focused ? 2.4 : 1.6} />
+          ),
           tabBarItemStyle: {
             marginRight: 40,
             marginLeft: 15,
@@ -82,7 +84,9 @@ export default function TabLayout() {
         name="history"
         options={{
           title: "History",
-          tabBarIcon: ({ color }) => <History size={28} color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <History size={28} color={color} strokeWidth={focused ? 2.4 : 1.6} />
+          ),
           tabBarItemStyle: {
             marginLeft: 40,
             marginRight: 15,
@@ -107,7 +111,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 6,
   },

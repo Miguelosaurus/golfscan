@@ -307,7 +307,7 @@ export default function PlayerProfileScreen() {
         {stats.favoriteCourse && (
           <View style={styles.favoriteContainer}>
             <View style={styles.sectionHeader}>
-              <Flag size={18} color={colors.primary} />
+              <Flag size={18} color={colors.text} />
               <Text style={styles.sectionTitle}>Favorite Course</Text>
             </View>
             
@@ -400,10 +400,12 @@ const styles = StyleSheet.create({
   handicapContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: `${colors.primary}15`,
+    backgroundColor: `${colors.text}10`,
     paddingVertical: 4,
     paddingHorizontal: 12,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E6EAE9',
   },
   handicapLabel: {
     fontSize: 14,
@@ -413,7 +415,7 @@ const styles = StyleSheet.create({
   handicapValue: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.primary,
+    color: colors.text,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -506,9 +508,11 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   favoriteCourseCard: {
-    backgroundColor: `${colors.primary}10`,
-    borderRadius: 8,
+    backgroundColor: `${colors.text}10`,
+    borderRadius: 10,
     padding: 12,
+    borderWidth: 1,
+    borderColor: '#E6EAE9',
   },
   favoriteCourseName: {
     fontSize: 16,

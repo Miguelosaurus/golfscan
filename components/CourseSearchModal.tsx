@@ -348,7 +348,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                   style={[styles.tab, activeTab === 'search' && styles.activeTab]}
                   onPress={() => setActiveTab('search')}
                 >
-                  <Search size={18} color={activeTab === 'search' ? colors.primary : colors.textSecondary} />
+                  <Search size={18} color={colors.text} />
                   <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
                     Search
                   </Text>
@@ -357,7 +357,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                   style={[styles.tab, activeTab === 'my-courses' && styles.activeTab]}
                   onPress={() => setActiveTab('my-courses')}
                 >
-                  <Flag size={18} color={activeTab === 'my-courses' ? colors.primary : colors.textSecondary} />
+                  <Flag size={18} color={colors.text} />
                   <Text style={[styles.tabText, activeTab === 'my-courses' && styles.activeTabText]}>
                     My Courses
                   </Text>
@@ -656,9 +656,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     marginBottom: 8,
-    borderRadius: 8,
-    backgroundColor: colors.card,
+    borderRadius: 22,
+    backgroundColor: 'rgba(29, 90, 84, 0.10)',
     padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(29, 90, 84, 0.12)',
+    overflow: 'hidden',
   },
   tab: {
     flex: 1,
@@ -666,19 +669,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
   },
   activeTab: {
-    backgroundColor: `${colors.primary}15`,
+    backgroundColor: colors.card,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   tabText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: colors.textSecondary,
+    fontWeight: '600',
+    color: colors.text,
     marginLeft: 6,
   },
   activeTabText: {
-    color: colors.primary,
+    color: colors.text,
+    fontWeight: '700',
   },
   
   // Course card container style

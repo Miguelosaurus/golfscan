@@ -272,6 +272,7 @@ export default function HomeScreen() {
             source={{ uri: course?.imageUrl || 'https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80' }}
             style={styles.roundImage}
           />
+          {/* Removed dark shade for a cleaner overlay */}
           {item.userWon && (
             <View style={styles.crownContainer}>
               <Crown size={20} color="#FFD700" fill="#FFD700" />
@@ -281,11 +282,15 @@ export default function HomeScreen() {
             <Text style={styles.scoreText}>Total</Text>
             <Text style={styles.scoreValue}>{userPlayer?.totalScore || 0}</Text>
           </View>
-        </View>
-        
-        <View style={styles.roundInfo}>
-          <Text style={styles.roundCourse}>{item.courseName}</Text>
-          <Text style={styles.roundLocation}>{course?.location || 'Unknown Location'}</Text>
+          {/* Overlay course info on image */}
+          <View style={styles.roundInfoOverlay}>
+            <Text style={styles.roundLocationOnImage} numberOfLines={1}>
+              {course?.location || 'Unknown Location'}
+            </Text>
+            <Text style={styles.roundCourseOnImage} numberOfLines={1}>
+              {item.courseName}
+            </Text>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -319,7 +324,7 @@ export default function HomeScreen() {
           style={styles.headerButton}
           onPress={navigateToProfile}
         >
-          <User size={24} color={colors.text} />
+          <User size={26} color={colors.text} />
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>ScanCaddie</Text>
@@ -328,7 +333,7 @@ export default function HomeScreen() {
           style={styles.headerButton}
           onPress={navigateToSettings}
         >
-          <Settings size={24} color={colors.text} />
+          <Settings size={26} color={colors.text} />
         </TouchableOpacity>
       </View>
       
@@ -347,7 +352,7 @@ export default function HomeScreen() {
       <View style={styles.statsContainer}>
         <View style={styles.statItem}>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>{averageScore || 0}</Text>
+            <Text style={styles.statValue}>{(averageScore || 0).toFixed(1)}</Text>
           </View>
           <Text style={styles.statLabel}>AVG SCORE</Text>
         </View>
@@ -360,10 +365,10 @@ export default function HomeScreen() {
         </View>
         
         <TouchableOpacity style={styles.statItem} onPress={handleEditHandicap}>
-          <View style={styles.statBox}>
-            <View style={styles.handicapContainer}>
-              <Text style={styles.statValue}>{userHandicap.toFixed(1)}</Text>
-              <Edit3 size={16} color={colors.text} style={styles.editIcon} />
+          <View style={[styles.statBox, styles.statBoxInteractive]}>
+            <Text style={styles.statValue}>{userHandicap.toFixed(1)}</Text>
+            <View style={styles.statEditBadge}>
+              <Edit3 size={14} color={colors.text} />
             </View>
           </View>
           <Text style={styles.statLabel}>HANDICAP</Text>
@@ -457,7 +462,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingTop: 60,
+    paddingTop: 74,
   },
   header: {
     flexDirection: 'row',
@@ -470,23 +475,22 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.card,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
   },
   profileSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   avatarContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
@@ -498,35 +502,39 @@ const styles = StyleSheet.create({
     color: colors.card,
   },
   userName: {
-    fontSize: 24,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: colors.text,
   },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingHorizontal: 20,
-    marginBottom: 32,
+    paddingHorizontal: 16,
+    marginBottom: 28,
   },
   statItem: {
     alignItems: 'center',
   },
   statBox: {
     backgroundColor: colors.card,
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderRadius: 8,
+    paddingVertical: 18,
+    paddingHorizontal: 14,
     marginBottom: 8,
-    minWidth: 80,
+    minWidth: 72,
+    minHeight: 64,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
     elevation: 2,
   },
+  statBoxInteractive: {
+    position: 'relative',
+  },
   statValue: {
-    fontSize: 28,
+    fontSize: 23,
     fontWeight: '700',
     color: colors.text,
   },
@@ -534,7 +542,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: colors.text,
-    letterSpacing: 0.5,
+    letterSpacing: 1.0,
+    includeFontPadding: false,
   },
   handicapContainer: {
     flexDirection: 'row',
@@ -543,18 +552,40 @@ const styles = StyleSheet.create({
   editIcon: {
     marginLeft: 4,
   },
+  statEditBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E6EAE9',
+    zIndex: 2,
+    // Let taps pass through to the stat box
+    pointerEvents: 'none',
+  },
   roundsSection: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
+    marginTop: 10,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.text,
     marginBottom: 16,
   },
   roundsList: {
-    paddingBottom: 140,
+    paddingBottom: 96,
   },
   scanCardHeader: {
     marginBottom: 16,
@@ -658,15 +689,19 @@ const styles = StyleSheet.create({
   },
   roundCard: {
     backgroundColor: colors.card,
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: 14,
+    marginBottom: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E6EAE9',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    padding: 16,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
   roundHeader: {
     flexDirection: 'row',
@@ -675,9 +710,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   roundTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '800',
     color: colors.text,
+    includeFontPadding: false,
+    lineHeight: 20,
   },
   roundArrow: {
     fontSize: 20,
@@ -685,10 +722,10 @@ const styles = StyleSheet.create({
   },
   roundImageContainer: {
     position: 'relative',
-    height: 160,
-    borderRadius: 12,
+    height: 188,
+    borderRadius: 8,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 0,
   },
   roundImage: {
     width: '100%',
@@ -702,15 +739,29 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 6,
   },
+  roundBottomShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 64,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
   scoreOverlay: {
     position: 'absolute',
     bottom: 12,
     right: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
     borderRadius: 8,
-    padding: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     alignItems: 'center',
     minWidth: 50,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   scoreText: {
     fontSize: 10,
@@ -722,18 +773,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
-  roundInfo: {
-    alignItems: 'flex-start',
+  roundInfoOverlay: {
+    position: 'absolute',
+    left: 12,
+    bottom: 18,
+    right: 100,
   },
-  roundCourse: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 2,
+  roundCourseOnImage: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ECEFEA',
+    marginBottom: 0,
   },
-  roundLocation: {
-    fontSize: 14,
-    color: colors.text,
+  roundLocationOnImage: {
+    fontSize: 13,
+    color: '#ECEFEA',
+    fontWeight: '700',
   },
   emptyWrapper: {
     flex: 1,
