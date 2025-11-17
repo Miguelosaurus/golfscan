@@ -23,7 +23,7 @@ import Svg, { Path, Circle } from 'react-native-svg';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { rounds, courses, addCourse, players, updatePlayer, activeScanJob, clearActiveScanJob } = useGolfStore();
+  const { rounds, courses, addCourse, players, updatePlayer, activeScanJob, clearActiveScanJob, updateActiveScanJob } = useGolfStore();
   const [showHandicapModal, setShowHandicapModal] = useState(false);
   const [handicapInput, setHandicapInput] = useState('');
   const [ghinInput, setGhinInput] = useState('');
@@ -79,7 +79,7 @@ export default function HomeScreen() {
   
   const recentRounds = userRounds
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 3)
+    .slice(0, 5)
     .map(getRoundWithWinStatus);
 
   const scanJob = activeScanJob;
@@ -88,6 +88,13 @@ export default function HomeScreen() {
     scanJob.status === 'error' ||
     scanJob.requiresReview
   );
+
+  useEffect(() => {
+    if (scanJob?.requiresReview && !scanJob.autoReviewLaunched) {
+      updateActiveScanJob({ autoReviewLaunched: true });
+      router.push('/scan-scorecard?review=1');
+    }
+  }, [scanJob?.requiresReview, scanJob?.autoReviewLaunched, updateActiveScanJob, router]);
 
   const ProgressRing = ({
     percentage,
@@ -272,7 +279,7 @@ export default function HomeScreen() {
             source={{ uri: course?.imageUrl || 'https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80' }}
             style={styles.roundImage}
           />
-          {/* Removed dark shade for a cleaner overlay */}
+          <View style={styles.roundImageDimmer} />
           {item.userWon && (
             <View style={styles.crownContainer}>
               <Crown size={20} color="#FFD700" fill="#FFD700" />
@@ -505,6 +512,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     color: colors.text,
+    marginBottom: 6,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -576,16 +584,16 @@ const styles = StyleSheet.create({
   roundsSection: {
     flex: 1,
     paddingHorizontal: 12,
-    marginTop: 10,
+    marginTop: 20,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: colors.text,
-    marginBottom: 16,
+    marginBottom: 22,
   },
   roundsList: {
-    paddingBottom: 96,
+    paddingBottom: 160,
   },
   scanCardHeader: {
     marginBottom: 16,
@@ -690,7 +698,7 @@ const styles = StyleSheet.create({
   roundCard: {
     backgroundColor: colors.card,
     borderRadius: 14,
-    marginBottom: 12,
+    marginBottom: 24,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#E6EAE9',
@@ -730,6 +738,10 @@ const styles = StyleSheet.create({
   roundImage: {
     width: '100%',
     height: '100%',
+  },
+  roundImageDimmer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.1)',
   },
   crownContainer: {
     position: 'absolute',

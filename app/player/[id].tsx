@@ -1,27 +1,27 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   ScrollView, 
   TouchableOpacity,
-  Image
+  TouchableWithoutFeedback,
+  Modal,
+  Image,
+  useWindowDimensions,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
+import { ScoreTrendCard } from '@/components/ScoreTrendCard';
 import { RoundCard } from '@/components/RoundCard';
-import { Round, Course } from '@/types';
+import { Round } from '@/types';
 import { getWinner, calculateAverageScoreWithHoleAdjustment, getEighteenHoleEquivalentScore, getRoundHoleCount } from '@/utils/helpers';
-import { User, Award, TrendingUp, Calendar, Flag } from 'lucide-react-native';
-
-interface CourseCount {
-  id: string;
-  name: string;
-  count: number;
-}
+import { calculateBlowUpRate, calculatePerformanceByPar, calculatePerformanceByDifficulty, buildScoreTrendData } from '@/utils/stats';
+import { User, Award, TrendingUp, Calendar, Info } from 'lucide-react-native';
+import { PieChart } from 'react-native-gifted-charts';
 
 interface PlayerStats {
   roundsPlayed: number;
@@ -34,20 +34,63 @@ interface PlayerStats {
   bogeys: number;
   doubleBogeys: number;
   worseThanDouble: number;
-  favoriteCourse: CourseCount | null;
 }
 
-interface CoursePlayCount {
-  [courseId: string]: {
-    count: number;
-    name: string;
-  };
+interface HeadToHeadStats {
+  record: string;
+  userAverage: string;
+  playerAverage: string;
+  rounds: number;
 }
+
+const calculateHeadToHeadStats = (
+  allRounds: Round[],
+  profilePlayerId: string,
+  userPlayerId: string
+): HeadToHeadStats | null => {
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+  let userTotal = 0;
+  let playerTotal = 0;
+  let roundsPlayed = 0;
+
+  allRounds.forEach(round => {
+    const profilePlayer = round.players.find(player => player.playerId === profilePlayerId);
+    const userPlayer = round.players.find(player => player.playerId === userPlayerId);
+
+    if (profilePlayer && userPlayer) {
+      roundsPlayed++;
+      playerTotal += profilePlayer.totalScore;
+      userTotal += userPlayer.totalScore;
+
+      if (profilePlayer.totalScore < userPlayer.totalScore) {
+        wins++;
+      } else if (profilePlayer.totalScore > userPlayer.totalScore) {
+        losses++;
+      } else {
+        ties++;
+      }
+    }
+  });
+
+  if (roundsPlayed === 0) return null;
+
+  const record = ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
+
+  return {
+    record,
+    userAverage: (userTotal / roundsPlayed).toFixed(1),
+    playerAverage: (playerTotal / roundsPlayed).toFixed(1),
+    rounds: roundsPlayed,
+  };
+};
 
 export default function PlayerProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { rounds, courses, players, deletePlayer } = useGolfStore();
+  const { width: windowWidth } = useWindowDimensions();
   
   // Find all rounds this player participated in
   const playerRounds = rounds.filter(round => 
@@ -60,6 +103,7 @@ export default function PlayerProfileScreen() {
     : undefined;
   
   const playerFromList = players.find(player => player.id === id);
+  const currentUserPlayer = players.find(player => player.isUser);
   
   const playerName = playerFromList?.name || playerFromRounds?.playerName || "Unknown Player";
   const playerPhotoUrl = playerFromList?.photoUrl;
@@ -91,8 +135,6 @@ export default function PlayerProfileScreen() {
     let worseThanDouble = 0;
     
     // Favorite courses (count occurrences)
-    const courseCounts: CoursePlayCount = {};
-    
     // Calculate handicap
     const handicapDifferentials: number[] = [];
     
@@ -106,16 +148,6 @@ export default function PlayerProfileScreen() {
       // Get 18-hole equivalent score for averaging
       const eighteenHoleEquivalentScore = getEighteenHoleEquivalentScore(playerData, round, course);
       totalEighteenHoleEquivalentScore += eighteenHoleEquivalentScore;
-      
-      // Count course plays
-      if (courseCounts[round.courseId]) {
-        courseCounts[round.courseId].count++;
-      } else {
-        courseCounts[round.courseId] = {
-          count: 1,
-          name: round.courseName
-        };
-      }
       
       // Get course par for handicap calculation (adjusted for hole count)
       if (course) {
@@ -157,18 +189,6 @@ export default function PlayerProfileScreen() {
     const handicapSum = handicapRounds > 0 ? handicapDifferentials.slice(0, handicapRounds).reduce((sum, diff) => sum + diff, 0) : 0;
     const handicap = handicapRounds > 0 ? (handicapSum / handicapRounds).toFixed(1) : "N/A";
     
-    // Find favorite course
-    let favoriteCourse: CourseCount | null = null;
-    Object.keys(courseCounts).forEach(courseId => {
-      if (!favoriteCourse || courseCounts[courseId].count > favoriteCourse.count) {
-        favoriteCourse = { 
-          id: courseId, 
-          name: courseCounts[courseId].name, 
-          count: courseCounts[courseId].count 
-        };
-      }
-    });
-    
     return {
       roundsPlayed,
       averageScore: roundsPlayed > 0 ? (totalEighteenHoleEquivalentScore / roundsPlayed).toFixed(1) : "0",
@@ -180,12 +200,103 @@ export default function PlayerProfileScreen() {
       pars,
       bogeys,
       doubleBogeys,
-      worseThanDouble,
-      favoriteCourse
+      worseThanDouble
     };
   };
   
   const stats = calculatePlayerStats();
+
+  const blowUpStats = calculateBlowUpRate({
+    playerId: id,
+    rounds: playerRounds,
+    courses,
+  });
+  const performanceByPar = calculatePerformanceByPar({
+    playerId: id,
+    rounds: playerRounds,
+    courses,
+  });
+  const performanceByDifficulty = calculatePerformanceByDifficulty({
+    playerId: id,
+    rounds: playerRounds,
+    courses,
+  });
+  const scoreTrendData = buildScoreTrendData({
+    playerId: id,
+    rounds: playerRounds,
+    courses,
+    maxRounds: playerRounds.length || 10,
+    movingAverageWindow: Math.min(5, Math.max(2, playerRounds.length || 2)),
+  });
+  const scoreDistributionEntries = [
+    { label: 'Eagles', value: stats.eagles, color: '#F7B32B' },
+    { label: 'Birdies', value: stats.birdies, color: '#4CAF50' },
+    { label: 'Pars', value: stats.pars, color: '#1E6059' },
+    { label: 'Bogeys', value: stats.bogeys, color: '#FFB347' },
+    { label: 'Doubles', value: stats.doubleBogeys, color: '#F44336' },
+    { label: 'Worse', value: stats.worseThanDouble, color: '#B71C1C' },
+  ];
+  const hasScoreDistribution = scoreDistributionEntries.some(item => item.value > 0);
+  const pieRadius = Math.max(Math.min((windowWidth - 96) / 2.2, 130), 90);
+  const totalScores = scoreDistributionEntries.reduce((sum, item) => sum + item.value, 0);
+  const pieChartData = scoreDistributionEntries
+    .filter(item => item.value > 0)
+    .map(item => ({
+      value: item.value,
+      color: item.color,
+      text: totalScores ? `${Math.round((item.value / totalScores) * 100)}%` : '0%',
+      textColor: '#fff',
+      textSize: 12,
+      shiftX: -6,
+      shiftY: 0,
+    }));
+
+  const headToHeadStats = !isCurrentUser && currentUserPlayer
+    ? calculateHeadToHeadStats(rounds, id, currentUserPlayer.id)
+    : null;
+
+  const [activeTooltip, setActiveTooltip] = useState<'blowup' | 'avgVsPar' | 'performanceByPar' | 'difficulty' | null>(null);
+  const formatParPerformance = (value: number | null) => {
+    if (value === null) return '--';
+    const rounded = value.toFixed(1);
+    return value > 0 ? `+${rounded}` : rounded;
+  };
+
+  const tooltipContent = {
+    blowup: {
+      title: 'Blow-Up Holes/Rd',
+      body: 'Average number of holes per round where you scored triple bogey or worse.',
+    },
+    avgVsPar: {
+      title: 'Avg vs Par',
+      body: 'How many strokes over/under par you typically shoot each round.',
+    },
+    performanceByPar: {
+      title: 'Performance by Par',
+      body: 'Average score relative to par for Par 3s, 4s, and 5s.',
+    },
+    difficulty: {
+      title: 'Performance vs Difficulty',
+      body: 'Average score relative to par grouped by hole handicap (hard, medium, easy).',
+    },
+  } as const;
+
+  const renderTooltip = () => {
+    if (!activeTooltip) return null;
+    const { title, body } = tooltipContent[activeTooltip];
+    return (
+      <Modal transparent animationType="fade" visible onRequestClose={() => setActiveTooltip(null)}>
+        <TouchableWithoutFeedback onPress={() => setActiveTooltip(null)}>
+          <View style={styles.tooltipOverlay}>
+            <View style={styles.tooltipBox}>
+              <Text style={styles.tooltipTitle}>{title}</Text>
+              <Text style={styles.tooltipText}>{body}</Text>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
   
   const navigateToRoundDetails = (round: Round) => {
     router.push(`/round/${round.id}`);
@@ -193,6 +304,7 @@ export default function PlayerProfileScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      {renderTooltip()}
       <Stack.Screen 
         options={{ 
           title: playerName + (isCurrentUser ? " (You)" : ""),
@@ -243,85 +355,175 @@ export default function PlayerProfileScreen() {
           </View>
           
           <View style={styles.statDivider} />
-          
+
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{stats.averageScore}</Text>
             <Text style={styles.statLabel}>Avg. Score</Text>
           </View>
-          
+
           <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Text 
+
+          <View style={[styles.statItem, styles.statItemWithIcon]}>
+            <Text style={styles.statValue}>{blowUpStats.averagePerRound.toFixed(1)}</Text>
+            <Text style={styles.statLabel}>Blow-Up Holes/Rd</Text>
+            <TouchableOpacity
+              onPress={() => setActiveTooltip('blowup')}
+              style={styles.statInfoButton}
+              hitSlop={8}
+            >
+              <Info size={14} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        {headToHeadStats && (
+          <View style={styles.headToHeadCard}>
+            <View style={styles.sectionHeader}>
+              <TrendingUp size={18} color={colors.primary} />
+              <Text style={styles.sectionTitle}>Head-to-Head (vs. You)</Text>
+            </View>
+            <View style={styles.headToHeadRow}>
+              <View style={styles.headToHeadItem}>
+                <Text style={styles.headToHeadLabel}>Record</Text>
+                <Text style={styles.headToHeadValue}>{headToHeadStats.record}</Text>
+              </View>
+              <View style={styles.headToHeadItem}>
+                <Text style={styles.headToHeadLabel}>Their Avg (H2H)</Text>
+                <Text style={styles.headToHeadValue}>{headToHeadStats.playerAverage}</Text>
+              </View>
+              <View style={styles.headToHeadItem}>
+                <Text style={styles.headToHeadLabel}>Your Avg (H2H)</Text>
+                <Text style={styles.headToHeadValue}>{headToHeadStats.userAverage}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        <ScoreTrendCard data={scoreTrendData} />
+
+        <View style={styles.keyInsightsCard}>
+          <View style={styles.sectionHeaderLeft}>
+            <TrendingUp size={18} color={colors.primary} />
+            <Text style={styles.sectionTitle}>Key Insights</Text>
+          </View>
+
+          <View style={styles.avgVsParRow}>
+            <View style={styles.sectionLabelRow}>
+              <Text style={styles.avgVsParLabel}>Avg vs Par</Text>
+              <TouchableOpacity onPress={() => setActiveTooltip('avgVsPar')} style={styles.infoButtonSmall} hitSlop={8}>
+                <Info size={16} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <Text
               style={[
-                styles.statValue, 
-                parseFloat(stats.averageVsPar) < 0 ? styles.goodStat : 
-                parseFloat(stats.averageVsPar) > 0 ? styles.badStat : {}
+                styles.avgVsParValue,
+                parseFloat(stats.averageVsPar) < 0
+                  ? styles.goodStat
+                  : parseFloat(stats.averageVsPar) > 0
+                    ? styles.badStat
+                    : null
               ]}
             >
               {parseFloat(stats.averageVsPar) > 0 ? '+' : ''}{stats.averageVsPar}
             </Text>
-            <Text style={styles.statLabel}>Avg. vs Par</Text>
+          </View>
+
+          <View style={styles.sectionDivider} />
+
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionSubtitle}>Performance by Par</Text>
+            <TouchableOpacity onPress={() => setActiveTooltip('performanceByPar')} style={styles.infoButtonSmall} hitSlop={8}>
+              <Info size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.performanceByParRow}>
+            <View style={styles.performanceByParItem}>
+              <Text style={styles.performanceByParLabel}>Par 3s</Text>
+              <Text style={styles.performanceByParValue}>
+                {formatParPerformance(performanceByPar.par3)}
+              </Text>
+            </View>
+            <View style={styles.performanceByParItem}>
+              <Text style={styles.performanceByParLabel}>Par 4s</Text>
+              <Text style={styles.performanceByParValue}>
+                {formatParPerformance(performanceByPar.par4)}
+              </Text>
+            </View>
+            <View style={styles.performanceByParItem}>
+              <Text style={styles.performanceByParLabel}>Par 5s</Text>
+              <Text style={styles.performanceByParValue}>
+                {formatParPerformance(performanceByPar.par5)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.sectionDivider} />
+
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionSubtitle}>Performance vs Difficulty</Text>
+            <TouchableOpacity onPress={() => setActiveTooltip('difficulty')} style={styles.infoButtonSmall} hitSlop={8}>
+              <Info size={16} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.performanceDifficultyRow}>
+            <View style={styles.performanceDifficultyItem}>
+              <Text style={styles.performanceDifficultyLabel}>Hard (HCP 1-6)</Text>
+              <Text style={styles.performanceDifficultyValue}>
+                {formatParPerformance(performanceByDifficulty.hard)}
+              </Text>
+            </View>
+            <View style={styles.performanceDifficultyItem}>
+              <Text style={styles.performanceDifficultyLabel}>Medium (7-12)</Text>
+              <Text style={styles.performanceDifficultyValue}>
+                {formatParPerformance(performanceByDifficulty.medium)}
+              </Text>
+            </View>
+            <View style={styles.performanceDifficultyItem}>
+              <Text style={styles.performanceDifficultyLabel}>Easy (13-18)</Text>
+              <Text style={styles.performanceDifficultyValue}>
+                {formatParPerformance(performanceByDifficulty.easy)}
+              </Text>
+            </View>
           </View>
         </View>
-        
+
         <View style={styles.scoreDistributionContainer}>
           <View style={styles.sectionHeader}>
             <TrendingUp size={18} color={colors.primary} />
             <Text style={styles.sectionTitle}>Score Distribution</Text>
           </View>
-          
-          <View style={styles.scoreDistribution}>
-            <View style={styles.scoreTypeItem}>
-              <Text style={[styles.scoreTypeValue, styles.eagleText]}>{stats.eagles}</Text>
-              <Text style={styles.scoreTypeLabel}>Eagles</Text>
-            </View>
-            
-            <View style={styles.scoreTypeItem}>
-              <Text style={[styles.scoreTypeValue, styles.birdieText]}>{stats.birdies}</Text>
-              <Text style={styles.scoreTypeLabel}>Birdies</Text>
-            </View>
-            
-            <View style={styles.scoreTypeItem}>
-              <Text style={styles.scoreTypeValue}>{stats.pars}</Text>
-              <Text style={styles.scoreTypeLabel}>Pars</Text>
-            </View>
-            
-            <View style={styles.scoreTypeItem}>
-              <Text style={[styles.scoreTypeValue, styles.bogeyText]}>{stats.bogeys}</Text>
-              <Text style={styles.scoreTypeLabel}>Bogeys</Text>
-            </View>
-            
-            <View style={styles.scoreTypeItem}>
-              <Text style={[styles.scoreTypeValue, styles.doubleText]}>{stats.doubleBogeys}</Text>
-              <Text style={styles.scoreTypeLabel}>Doubles</Text>
-            </View>
-            
-            <View style={styles.scoreTypeItem}>
-              <Text style={[styles.scoreTypeValue, styles.worseText]}>{stats.worseThanDouble}</Text>
-              <Text style={styles.scoreTypeLabel}>Worse</Text>
-            </View>
-          </View>
+
+          <Text style={styles.sectionSubtitle}>Score Distribution (All-Time)</Text>
+
+          {hasScoreDistribution ? (
+            <>
+              <View style={styles.pieChartWrapper}>
+                <PieChart
+                  data={pieChartData}
+                  radius={pieRadius}
+                  showText
+                  textColor="#fff"
+                  textSize={12}
+                  centerLabelComponent={() => null}
+                  innerRadius={0}
+                  strokeColor="#FFFFFF"
+                  strokeWidth={2}
+                />
+              </View>
+              <View style={styles.pieLegend}>
+                {scoreDistributionEntries.map(entry => (
+                  <View key={entry.label} style={styles.pieLegendItem}>
+                    <View style={[styles.pieLegendDot, { backgroundColor: entry.color }]} />
+                    <Text style={styles.pieLegendLabel}>{entry.label}</Text>
+                    <Text style={styles.pieLegendCount}>{entry.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          ) : (
+            <Text style={styles.pieChartPlaceholder}>Play a few more rounds to see your scoring mix.</Text>
+          )}
         </View>
-        
-        {stats.favoriteCourse && (
-          <View style={styles.favoriteContainer}>
-            <View style={styles.sectionHeader}>
-              <Flag size={18} color={colors.text} />
-              <Text style={styles.sectionTitle}>Favorite Course</Text>
-            </View>
-            
-            <TouchableOpacity 
-              style={styles.favoriteCourseCard}
-              onPress={() => router.push(`/course/${stats.favoriteCourse?.id}`)}
-            >
-              <Text style={styles.favoriteCourseName}>{stats.favoriteCourse?.name}</Text>
-              <Text style={styles.favoriteCourseCount}>
-                Played {stats.favoriteCourse?.count} {stats.favoriteCourse?.count === 1 ? 'time' : 'times'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
         
         <View style={styles.roundsContainer}>
           <View style={styles.sectionHeader}>
@@ -422,11 +624,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
+    position: 'relative',
+  },
+  statItemWithIcon: {
+    paddingTop: 4,
   },
   statDivider: {
     width: 1,
@@ -442,6 +648,7 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 14,
     color: colors.text,
+    textAlign: 'center',
   },
   goodStat: {
     color: colors.success,
@@ -449,16 +656,70 @@ const styles = StyleSheet.create({
   badStat: {
     color: colors.error,
   },
+  statInfoButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    padding: 4,
+  },
+  headToHeadCard: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  headToHeadRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  headToHeadItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headToHeadLabel: {
+    fontSize: 12,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  headToHeadValue: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  keyInsightsCard: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  avgVsParRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  avgVsParLabel: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  avgVsParValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.text,
+  },
   scoreDistributionContainer: {
     backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   sectionTitle: {
     fontSize: 16,
@@ -466,62 +727,128 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginLeft: 8,
   },
-  scoreDistribution: {
+  sectionSubtitle: {
+    fontSize: 14,
+    color: colors.text,
+    marginBottom: 12,
+  },
+  sectionLabelRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
-  scoreTypeItem: {
-    width: '30%',
+  sectionDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 16,
+  },
+  pieChartWrapper: {
     alignItems: 'center',
     marginBottom: 16,
   },
-  scoreTypeValue: {
-    fontSize: 18,
+  pieChartPlaceholder: {
+    color: colors.text,
+    opacity: 0.6,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+  pieLegend: {
+    paddingLeft: 0,
+    marginTop: 8,
+    width: '100%',
+  },
+  pieLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    paddingHorizontal: 16,
+  },
+  pieLegendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+  pieLegendLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+  },
+  pieLegendCount: {
+    fontSize: 14,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 4,
   },
-  scoreTypeLabel: {
-    fontSize: 12,
-    color: colors.text,
+  statLabelWithIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  eagleText: {
-    color: '#FFD700',
+  infoButtonSmall: {
+    padding: 2,
+    marginLeft: 4,
   },
-  birdieText: {
-    color: colors.success,
+  infoButton: {
+    padding: 4,
   },
-  bogeyText: {
-    color: '#FF9800',
+  tooltipOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
   },
-  doubleText: {
-    color: '#F44336',
-  },
-  worseText: {
-    color: '#D32F2F',
-  },
-  favoriteContainer: {
+  tooltipBox: {
     backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    width: '90%',
   },
-  favoriteCourseCard: {
-    backgroundColor: `${colors.text}10`,
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E6EAE9',
-  },
-  favoriteCourseName: {
+  tooltipTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: colors.text,
+    marginBottom: 8,
+  },
+  tooltipText: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  performanceByParRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  performanceByParItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  performanceByParLabel: {
+    fontSize: 12,
+    color: colors.text,
     marginBottom: 4,
   },
-  favoriteCourseCount: {
-    fontSize: 14,
+  performanceByParValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  performanceDifficultyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  performanceDifficultyItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  performanceDifficultyLabel: {
+    fontSize: 12,
+    color: colors.text,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  performanceDifficultyValue: {
+    fontSize: 18,
+    fontWeight: '600',
     color: colors.text,
   },
   roundsContainer: {

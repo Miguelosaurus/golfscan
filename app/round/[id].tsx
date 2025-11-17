@@ -100,6 +100,11 @@ export default function RoundDetailsScreen() {
       let bogeys = 0;
       let doubleBogeys = 0;
       let worseThanDouble = 0;
+      const scoreByPar = {
+        par3: 0,
+        par4: 0,
+        par5: 0,
+      };
       
       // Front 9 and back 9 scores
       let front9Score = 0;
@@ -140,6 +145,10 @@ export default function RoundDetailsScreen() {
         else if (relativeToPar === 1) bogeys++;
         else if (relativeToPar === 2) doubleBogeys++;
         else if (relativeToPar > 2) worseThanDouble++;
+
+        if (hole.par === 3) scoreByPar.par3 += relativeToPar;
+        else if (hole.par === 4) scoreByPar.par4 += relativeToPar;
+        else if (hole.par === 5) scoreByPar.par5 += relativeToPar;
         
         // Add to front 9 or back 9
         if (score.holeNumber <= 9) {
@@ -190,7 +199,8 @@ export default function RoundDetailsScreen() {
         fairwaysHit,
         fairwaysTotal,
         totalPutts,
-        puttsTracked
+        puttsTracked,
+        scoreByPar
       };
     });
     
@@ -199,6 +209,10 @@ export default function RoundDetailsScreen() {
   
   const winner = getWinner();
   const playerStats = calculateStats();
+  const formatParTotal = (value: number) => {
+    if (value === 0) return 'Even';
+    return value > 0 ? `+${value}` : `${value}`;
+  };
   
   const handleDeleteRound = () => {
     Alert.alert(
@@ -432,6 +446,31 @@ export default function RoundDetailsScreen() {
                 <View style={styles.statBox}>
                   <Text style={styles.statValue}>{stats.worseThanDouble}</Text>
                   <Text style={styles.statLabel}>Worse</Text>
+                </View>
+              </View>
+
+              <View style={styles.parBreakdownContainer}>
+                <View style={styles.sectionDivider} />
+                <Text style={styles.parBreakdownTitle}>Score by Par (This Round)</Text>
+                <View style={styles.parBreakdownRow}>
+                  <View style={styles.parBreakdownItem}>
+                    <Text style={styles.parBreakdownLabel}>Par 3s</Text>
+                    <Text style={styles.parBreakdownValue}>
+                      {formatParTotal(stats.scoreByPar.par3)}
+                    </Text>
+                  </View>
+                  <View style={styles.parBreakdownItem}>
+                    <Text style={styles.parBreakdownLabel}>Par 4s</Text>
+                    <Text style={styles.parBreakdownValue}>
+                      {formatParTotal(stats.scoreByPar.par4)}
+                    </Text>
+                  </View>
+                  <View style={styles.parBreakdownItem}>
+                    <Text style={styles.parBreakdownLabel}>Par 5s</Text>
+                    <Text style={styles.parBreakdownValue}>
+                      {formatParTotal(stats.scoreByPar.par5)}
+                    </Text>
+                  </View>
                 </View>
               </View>
               
@@ -717,6 +756,38 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
+    color: colors.text,
+  },
+  parBreakdownContainer: {
+    marginBottom: 16,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginBottom: 12,
+  },
+  parBreakdownTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  parBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  parBreakdownItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  parBreakdownLabel: {
+    fontSize: 12,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  parBreakdownValue: {
+    fontSize: 16,
+    fontWeight: '600',
     color: colors.text,
   },
   additionalStatsContainer: {
