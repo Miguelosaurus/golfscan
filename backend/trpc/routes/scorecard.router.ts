@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { GoogleGenerativeAI, type Part, type Content } from '@google/generative-ai';
-import { GoogleAIFileManager } from '@google/generative-ai/server';
+import { GoogleGenAI, MediaResolution, type Part, type Content } from '@google/genai';
+import { GoogleAIFileManager } from '@google/genai/server';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -89,10 +89,6 @@ const calculateOverallConfidence = (data: ScorecardScanResult): number => {
     });
   });
   
-  data.holes.forEach(hole => {
-    if (hole.parConfidence !== undefined) confidences.push(hole.parConfidence);
-  });
-  
   return confidences.length > 0 
     ? confidences.reduce((sum, conf) => sum + conf, 0) / confidences.length 
     : 0;
@@ -117,7 +113,7 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
       throw new Error('No images provided for scanning');
     }
 
-    console.log('🔵 Calling Google Gemini API with gemini-2.5-pro model...');
+    console.log('🔵 Calling Google Gemini API with gemini-3-pro-preview model...');
     console.log('📸 Processing images:', (input.images?.length || input.files?.length || 0));
     console.log('⏰ Scan started at:', new Date().toLocaleTimeString());
 
@@ -158,8 +154,7 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
       const uploadElapsed = Date.now() - uploadStart;
       console.log(`[SCAN] upload end ${new Date().toLocaleTimeString()} | ${uploadElapsed}ms | files=${uploadedFiles.length}`);
 
-      const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+      const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
 
       // Build parts with prompt + file references
       const parts: Part[] = [ { text: SCORECARD_PROMPT } ];
@@ -170,13 +165,49 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
       const userContent: Content = { role: 'user', parts };
       const aiStart = Date.now();
       console.log(`[SCAN] ai call start ${new Date(aiStart).toLocaleTimeString()}`);
-      const result = await model.generateContent({
+      const result = await genAI.models.generateContent({
+        model: 'gemini-3-pro-preview',
         contents: [ userContent ],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 4000,
+        config: {
+          temperature: 1,
+          maxOutputTokens: 5000,
           responseMimeType: 'application/json',
-        },
+          responseSchema: {
+            type: 'object',
+            properties: {
+              courseName: { type: 'string', nullable: true },
+              courseNameConfidence: { type: 'number' },
+              date: { type: 'string', nullable: true },
+              dateConfidence: { type: 'number' },
+              players: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string' },
+                    nameConfidence: { type: 'number' },
+                    scores: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          hole: { type: 'integer' },
+                          score: { type: 'integer' },
+                          confidence: { type: 'number' },
+                        },
+                        required: ['hole', 'score'],
+                      },
+                    },
+                  },
+                  required: ['name', 'scores'],
+                },
+              },
+            },
+            required: ['players'],
+          } as any,
+          thinkingConfig: { thinkingLevel: 'low' },
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+        } as any,
       });
 
       const gemResponse = await result.response;
@@ -205,28 +236,41 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
 
       console.log('📄 Raw content from AI:', rawContent.substring(0, 200) + '...');
 
-      // Parse and validate JSON
-      let parsedJson: ScorecardScanResult;
-      try {
-        parsedJson = JSON.parse(rawContent);
-        console.log('✅ Successfully parsed JSON response');
-      } catch (parseError) {
-        // Try to extract JSON from a fenced code block as a fallback
-        const match = rawContent.match(/```(?:json)?\n([\s\S]*?)\n```/);
-        if (match) {
-          try {
-            parsedJson = JSON.parse(match[1]);
-            console.log('✅ Parsed JSON from fenced code block');
-          } catch (e) {
-            console.error('❌ JSON Parse Error (from fenced block):', e);
-            console.error('❌ Raw content that failed to parse:', rawContent);
-            throw new Error('Failed to parse JSON from Gemini response.');
-          }
-        } else {
-          console.error('❌ JSON Parse Error:', parseError);
-          console.error('❌ Raw content that failed to parse:', rawContent);
-          throw new Error('Failed to parse JSON from Gemini response.');
+      const parsedFromSdk = (gemResponse as any)?.parsed as ScorecardScanResult | undefined;
+      const tryParseJson = (text: string): ScorecardScanResult | null => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
         }
+      };
+
+      let parsedJson: ScorecardScanResult | null =
+        parsedFromSdk ||
+        tryParseJson(rawContent) ||
+        (() => {
+          const match = rawContent.match(/```(?:json)?\n([\s\S]*?)\n```/);
+          if (match) return tryParseJson(match[1]);
+          const firstBrace = rawContent.indexOf('{');
+          const lastBrace = rawContent.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+            return tryParseJson(rawContent.slice(firstBrace, lastBrace + 1));
+          }
+          return null;
+        })();
+
+      if (!parsedJson) {
+        const partsJson = (() => {
+          try {
+            return JSON.stringify(gemResponse.candidates?.[0]?.content?.parts ?? null);
+          } catch {
+            return '[unstringifiable parts]';
+          }
+        })();
+        console.error('❌ JSON Parse Error: raw length', rawContent.length);
+        console.error('❌ Raw content that failed to parse:', rawContent);
+        console.error('❌ Parts:', partsJson);
+        throw new Error('Failed to parse JSON from Gemini response.');
       }
 
       // Calculate overall confidence

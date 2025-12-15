@@ -4,6 +4,7 @@ export interface Player {
     photoUrl?: string;
     handicap?: number;
     isUser?: boolean;
+    gender?: "M" | "F";
   }
   
   export interface PlayerSummary {
@@ -32,6 +33,17 @@ export interface Player {
     rating?: number;
     isApiCourse?: boolean;
     apiId?: number;
+    teeSets?: Array<{
+      name: string;
+      rating: number;
+      slope: number;
+      gender?: string;
+      frontRating?: number;
+      frontSlope?: number;
+      backRating?: number;
+      backSlope?: number;
+      holes?: Hole[];
+    }>;
   }
   
   export interface ApiCourseData {
@@ -82,13 +94,19 @@ export interface Player {
     greenInRegulation?: boolean;
   }
   
-  export interface PlayerRound {
+export interface PlayerRound {
     playerId: string;
     playerName: string;
     scores: Score[];
     totalScore: number;
     handicapUsed?: number;
     netScore?: number;
+    teeColor?: string;
+    teeGender?: "M" | "F";
+    // Marks this round's row as the current user ("You")
+    isUser?: boolean;
+    // For Convex summaries where the backing player record is flagged as self
+    isSelf?: boolean;
   }
   
   export interface Round {
@@ -96,12 +114,20 @@ export interface Player {
     date: string;
     courseId: string;
     courseName: string;
+    // When coming from Convex summaries, we may also have a canonical
+    // external id + imageUrl for the backing course so the client can
+    // reconcile with local Course records.
+    courseExternalId?: string;
+    courseImageUrl?: string;
     players: PlayerRound[];
     notes?: string;
     weather?: string;
     imageUrl?: string;
     holeCount?: number; // 9 or 18, determined from scores
     scorecardPhotos?: string[]; // URIs or base64 strings of scanned scorecard images
+    syncStatus?: "synced" | "pending" | "failed";
+    remoteId?: string;
+    updatedAt?: string;
   }
 
   // Scorecard Scanning Types
@@ -118,11 +144,6 @@ export interface Player {
         score: number;
         confidence: number;
       }>;
-    }>;
-    holes: Array<{
-      hole: number;
-      par: number | null;
-      parConfidence: number;
     }>;
     overallConfidence: number;  // Average of all confidences for UI decisions
   }

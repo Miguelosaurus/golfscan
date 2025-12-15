@@ -12,7 +12,7 @@ import {
   Image
 } from 'react-native';
 import { colors } from '@/constants/colors';
-import { trpcClient } from '@/lib/trpc';
+import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 import { convertApiCourseToLocal, getCourseDisplayName, formatCourseLocation, getTeeBoxOptions, getDeterministicCourseId } from '@/utils/course-helpers';
 import { Course, ApiCourseData } from '@/types';
 import { useGolfStore } from '@/store/useGolfStore';
@@ -21,6 +21,8 @@ import { Search, X, MapPin, ChevronDown, Clock, Star, PlusCircle, Flag } from 'l
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { getDistanceInKm } from '@/utils/helpers';
+import { useAction, useMutation, useQuery } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
 
 interface CourseSelectionMeta {
   apiCourse?: ApiCourseData;
@@ -31,6 +33,7 @@ interface CourseSearchModalProps {
   visible: boolean;
   onClose: () => void;
   onSelectCourse: (course: Course, meta?: CourseSelectionMeta) => void;
+  testID?: string;
 }
 
 export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualCourse?: () => void, showMyCoursesTab?: boolean }> = ({
@@ -39,9 +42,31 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   onSelectCourse,
   onAddManualCourse,
   showMyCoursesTab = true,
+  testID,
 }) => {
-  const { getFrequentCourses, getCourseById, addCourse, courses, rounds } = useGolfStore();
+  const { getFrequentCourses, getCourseById, addCourse, updateCourse, courses, rounds } = useGolfStore();
   const router = useRouter();
+
+  // Debug: log visibility with instance ID
+  console.log(`[CourseSearchModal] ${testID || 'unknown'} visible:`, visible);
+
+  // Debug: log when Modal should be showing
+  useEffect(() => {
+    if (visible) {
+      console.log(`[CourseSearchModal] ${testID || 'unknown'} MODAL SHOULD BE VISIBLE NOW`);
+    }
+  }, [visible, testID]);
+
+  // Use Convex rounds data (same as history tab) for My Courses
+  const profile = useQuery(api.users.getProfile);
+  const roundsData = useQuery(
+    api.rounds.listWithSummary,
+    profile?._id ? { hostId: profile._id as any } : "skip"
+  ) || [];
+
+  const searchAction = useAction(api.golfCourse.search);
+  const searchConvexCourses = useAction(api.courses.searchByNameAction);
+  const upsertCourse = useMutation(api.courses.upsert);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]); // Changed from ApiCourse[] to any[]
   const [loading, setLoading] = useState(false);
@@ -55,22 +80,44 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const [nearbyCourses, setNearbyCourses] = useState<any[]>([]);
 
   const frequentCourses = getFrequentCourses();
-  
-  // Get local courses sorted by frequency
+
+  // Ground truth for "My Courses": only courses referenced by rounds (from Convex, matching history tab)
   const getLocalCoursesByFrequency = () => {
-    const usage = rounds.reduce((acc, round) => {
-      const courseId = round.courseId;
-      acc[courseId] = (acc[courseId] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    return courses
-      .slice()
-      .sort((a, b) => {
-        const aCount = usage[a.id] || 0;
-        const bCount = usage[b.id] || 0;
-        return bCount - aCount; // Sort by frequency (descending)
-      });
+    const usage: Record<string, number> = {};
+    const map = new Map<string, Course>();
+
+    // Use roundsData from Convex (same as history tab) instead of local Zustand rounds
+    roundsData.forEach((round: any) => {
+      const externalId = round.courseExternalId as string | undefined;
+      const key = externalId ?? (round.courseId as string);
+      usage[key] = (usage[key] || 0) + 1;
+      if (!map.has(key)) {
+        const storeCourse =
+          (externalId && courses.find((c) => c.id === externalId)) ||
+          courses.find((c) => c.id === (round.courseId as string));
+
+        const id = storeCourse?.id ?? externalId ?? (round.courseId as string);
+
+        map.set(key, {
+          id,
+          name: round.courseName,
+          location: storeCourse?.location ?? 'Unknown location',
+          holes: storeCourse?.holes ?? [],
+          imageUrl: storeCourse?.imageUrl ?? (round.courseImageUrl as string | undefined),
+          slope: storeCourse?.slope,
+          rating: storeCourse?.rating,
+        });
+      }
+    });
+
+    const derived = Array.from(map.values());
+    // Return only courses that have been played - no fallback to all courses
+    return derived.sort((a, b) => {
+      const aCount = usage[a.id as any] || 0;
+      const bCount = usage[b.id as any] || 0;
+      if (bCount !== aCount) return bCount - aCount;
+      return a.name.localeCompare(b.name);
+    });
   };
 
   const localCoursesByFrequency = getLocalCoursesByFrequency();
@@ -102,7 +149,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
         for (const q of queries) {
           try {
-            const results = await trpcClient.golfCourse.searchCourses.query({ query: q });
+            const results = await searchAction({ query: q });
             if (results && results.length) {
               // Sort by distance if we have coordinates
               const sorted = results.sort((a: any, b: any) => {
@@ -138,15 +185,72 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     if (searchQuery.length < 3) return;
     setLoading(true);
     try {
-      // Use the vanilla tRPC client for imperative call to avoid React-hook runtime constraints
-      const results = await trpcClient.golfCourse.searchCourses.query({ query: searchQuery });
+      // 1) First check Convex global cache (free, fast)
+      let convexResults: any[] = [];
+      try {
+        convexResults = await searchConvexCourses({ term: searchQuery, limit: 20 });
+        console.log('[CourseSearch] Convex cache results:', convexResults.length);
+      } catch (err) {
+        console.warn('[CourseSearch] Convex search failed, falling back to API:', err);
+      }
+
+      // 2) If we have enough Convex results, skip the paid API
+      //    Otherwise, call the paid API and merge results
+      let apiResults: any[] = [];
+      if (convexResults.length < 5) {
+        // Not enough cached results, query the paid API
+        console.log('[CourseSearch] Querying paid API...');
+        apiResults = await searchAction({ query: searchQuery });
+      }
+
+      // 3) Merge results: Convex first (converted to API format), then API results
+      //    Dedupe by externalId to avoid showing the same course twice
+      const seenIds = new Set<string>();
+      const mergedResults: any[] = [];
+
+      // Add Convex results first (convert to display format)
+      for (const course of convexResults) {
+        const id = course.externalId || course._id;
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          // Mark as from Convex cache so we know not to re-upsert
+          mergedResults.push({
+            ...course,
+            id: course.externalId ? Number(course.externalId) : course._id,
+            club_name: course.name.split(' - ')[0] || course.name,
+            course_name: course.name.split(' - ')[1] || '',
+            location: {
+              address: course.location,
+              city: course.location?.split(',')[0] || '',
+              state: course.location?.split(',')[1]?.trim() || '',
+              country: 'USA',
+              latitude: 0,
+              longitude: 0,
+            },
+            _fromConvexCache: true,
+            _convexCourse: course,
+          });
+        }
+      }
+
+      // Add API results (skip if already in Convex cache)
+      for (const course of apiResults) {
+        const id = String(course.id);
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          mergedResults.push(course);
+        }
+      }
 
       // If we have user location, sort by distance so closest appear first
-      let sorted = results;
+      let sorted = mergedResults;
       if (userLocation) {
-        sorted = [...results].sort((a: any, b: any) => {
-          const d1 = getDistanceInKm(userLocation.latitude, userLocation.longitude, a.location.latitude, a.location.longitude);
-          const d2 = getDistanceInKm(userLocation.latitude, userLocation.longitude, b.location.latitude, b.location.longitude);
+        sorted = [...mergedResults].sort((a: any, b: any) => {
+          const loc1 = a.location || {};
+          const loc2 = b.location || {};
+          if (!loc1.latitude || !loc2.latitude) return 0;
+          const d1 = getDistanceInKm(userLocation.latitude, userLocation.longitude, loc1.latitude, loc1.longitude);
+          const d2 = getDistanceInKm(userLocation.latitude, userLocation.longitude, loc2.latitude, loc2.longitude);
           return d1 - d2;
         });
       }
@@ -162,6 +266,11 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
   const handleSelectApiCourse = async (apiCourse: any) => { // Changed from ApiCourse to any
     if (selectingCourse) return;
+
+    // Check if this course came from Convex cache
+    const isFromConvexCache = apiCourse._fromConvexCache === true;
+    const convexCourse = apiCourse._convexCourse;
+
     const teeOptions = getTeeBoxOptions(apiCourse);
     const hasMultipleTees = teeOptions.length > 1;
 
@@ -172,20 +281,96 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     }
 
     const teeName = teeOptions[0]?.name;
-    const deterministicId = getDeterministicCourseId(apiCourse, teeName);
+    const deterministicId = isFromConvexCache && convexCourse
+      ? convexCourse.externalId || convexCourse._id
+      : getDeterministicCourseId(apiCourse, teeName);
     const existingCourse = getCourseById(deterministicId);
 
     setSelectingCourse(true);
     try {
-      if (existingCourse) {
+      let courseToUse: Course;
+
+      // If from Convex cache, convert the cached course directly
+      if (isFromConvexCache && convexCourse) {
+        courseToUse = {
+          id: convexCourse.externalId || convexCourse._id,
+          name: convexCourse.name,
+          location: convexCourse.location,
+          holes: convexCourse.holes?.map((h: any) => ({
+            number: h.number,
+            par: h.par,
+            distance: h.yardage || 0,
+            handicap: h.hcp,
+          })) || [],
+          imageUrl: convexCourse.imageUrl,
+          slope: convexCourse.slope,
+          rating: convexCourse.rating,
+          teeSets: convexCourse.teeSets,
+        };
+        // Ensure it's in local Zustand cache
+        if (!getCourseById(courseToUse.id)) {
+          addCourse(courseToUse);
+        }
+        onSelectCourse(courseToUse);
+      } else if (existingCourse) {
+        courseToUse = existingCourse;
         onSelectCourse(existingCourse);
       } else {
         const course = await convertApiCourseToLocal(apiCourse, { selectedTee: teeName });
+        courseToUse = course;
         if (!getCourseById(course.id)) {
           addCourse(course);
         }
         onSelectCourse(course, { apiCourse, selectedTee: teeName });
       }
+
+      // Only upsert to Convex if NOT already from cache
+      if (!isFromConvexCache) {
+        try {
+          await upsertCourse({
+            externalId: courseToUse.id,
+            name: courseToUse.name,
+            location: courseToUse.location || "Unknown",
+            slope: (courseToUse as any).slope,
+            rating: (courseToUse as any).rating,
+            teeSets: (courseToUse as any).teeSets
+              ? (courseToUse as any).teeSets.map((t: any) => ({
+                name: t.name,
+                rating: t.rating,
+                slope: t.slope,
+                gender: t.gender,
+                frontRating: t.frontRating,
+                frontSlope: t.frontSlope,
+                backRating: t.backRating,
+                backSlope: t.backSlope,
+                holes: Array.isArray(t.holes)
+                  ? t.holes.map((h: any, index: number) => ({
+                    number: h.number ?? index + 1,
+                    par: h.par,
+                    hcp: h.handicap ?? h.hcp ?? index + 1,
+                    yardage: h.distance ?? h.yardage,
+                  }))
+                  : undefined,
+              }))
+              : undefined,
+            holes: courseToUse.holes.map((h) => ({
+              number: h.number,
+              par: h.par,
+              hcp: (h as any).handicap ?? (h as any).hcp ?? h.number,
+              yardage: (h as any).distance ?? (h as any).yardage,
+            })),
+            // Only persist a real image (e.g., Google data URL); never the Unsplash placeholder
+            imageUrl:
+              (courseToUse as any).imageUrl &&
+                (courseToUse as any).imageUrl !== DEFAULT_COURSE_IMAGE
+                ? (courseToUse as any).imageUrl
+                : undefined,
+          });
+        } catch (err) {
+          console.warn("Convex upsert course failed (non-fatal):", err);
+        }
+      }
+
       setSearchQuery('');
       setSearchResults([]);
       setSelectedCourse(null);
@@ -209,21 +394,93 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
   const handleSelectTee = async (teeName: string) => {
     if (!selectedCourse) return;
-    
+
+
     setSelectingCourse(true);
     try {
       const deterministicId = getDeterministicCourseId(selectedCourse, teeName);
       const existingCourse = getCourseById(deterministicId);
 
+      let courseToUse: Course;
       if (existingCourse) {
-        onSelectCourse(existingCourse);
+        // Hydrate legacy courses that are missing teeSets/holes using the latest API data
+        const needsHydrate =
+          !(existingCourse as any).teeSets ||
+          (existingCourse as any).teeSets.length === 0 ||
+          (existingCourse as any).teeSets.every(
+            (t: any) => !Array.isArray(t.holes) || t.holes.length === 0
+          );
+
+        if (needsHydrate) {
+          const refreshed = await convertApiCourseToLocal(selectedCourse, { selectedTee: teeName });
+          courseToUse = {
+            ...(existingCourse as any),
+            // Keep the deterministic id stable, but refresh teeSets/holes + core metadata
+            id: existingCourse.id,
+            holes: refreshed.holes,
+            slope: refreshed.slope,
+            rating: refreshed.rating,
+            teeSets: refreshed.teeSets,
+            imageUrl: refreshed.imageUrl ?? existingCourse.imageUrl,
+          };
+          updateCourse(courseToUse);
+        } else {
+          courseToUse = existingCourse;
+        }
       } else {
         const course = await convertApiCourseToLocal(selectedCourse, { selectedTee: teeName });
+        courseToUse = course;
         if (!getCourseById(course.id)) {
           addCourse(course);
         }
-        onSelectCourse(course, { apiCourse: selectedCourse, selectedTee: teeName });
       }
+
+      onSelectCourse(courseToUse, { apiCourse: selectedCourse, selectedTee: teeName });
+
+      // Upsert into Convex courses table so teeSets/holes and image are cached server-side
+      try {
+        await upsertCourse({
+          externalId: courseToUse.id,
+          name: courseToUse.name,
+          location: courseToUse.location || "Unknown",
+          slope: (courseToUse as any).slope,
+          rating: (courseToUse as any).rating,
+          teeSets: (courseToUse as any).teeSets
+            ? (courseToUse as any).teeSets.map((t: any) => ({
+              name: t.name,
+              rating: t.rating,
+              slope: t.slope,
+              gender: t.gender,
+              frontRating: t.frontRating,
+              frontSlope: t.frontSlope,
+              backRating: t.backRating,
+              backSlope: t.backSlope,
+              holes: Array.isArray(t.holes)
+                ? t.holes.map((h: any, index: number) => ({
+                  number: h.number ?? index + 1,
+                  par: h.par,
+                  hcp: h.handicap ?? h.hcp ?? index + 1,
+                  yardage: h.distance ?? h.yardage,
+                }))
+                : undefined,
+            }))
+            : undefined,
+          holes: courseToUse.holes.map((h) => ({
+            number: h.number,
+            par: h.par,
+            hcp: (h as any).handicap ?? (h as any).hcp ?? h.number,
+            yardage: (h as any).distance ?? (h as any).yardage,
+          })),
+          imageUrl:
+            (courseToUse as any).imageUrl &&
+              (courseToUse as any).imageUrl !== DEFAULT_COURSE_IMAGE
+              ? (courseToUse as any).imageUrl
+              : undefined,
+        });
+      } catch (error) {
+        console.warn("Convex upsert course failed (tee selection, non-fatal):", error);
+      }
+
       setSearchQuery('');
       setSearchResults([]);
       setSelectedCourse(null);
@@ -287,12 +544,12 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const renderLocalCourse = ({ item }: { item: Course }) => {
     return (
       <View style={styles.courseCardContainer}>
-        <CourseCard 
-          course={item} 
+        <CourseCard
+          course={item}
           onPress={(course) => {
             onSelectCourse(course);
             handleClose();
-          }} 
+          }}
         />
       </View>
     );
@@ -344,7 +601,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
             {/* Tab Header (only when My Courses tab is enabled) */}
             {showMyCoursesTab && (
               <View style={styles.tabContainer}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.tab, activeTab === 'search' && styles.activeTab]}
                   onPress={() => setActiveTab('search')}
                 >
@@ -353,7 +610,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                     Search
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={[styles.tab, activeTab === 'my-courses' && styles.activeTab]}
                   onPress={() => setActiveTab('my-courses')}
                 >
@@ -432,7 +689,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
               <FlatList
                 data={localCoursesByFrequency}
                 renderItem={renderLocalCourse}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item, index) => `${item.id}-${index}`}
                 style={styles.resultsList}
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={
@@ -450,9 +707,9 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
               {selectedCourse ? getCourseDisplayName(selectedCourse) : ''}
             </Text>
             <Text style={styles.teeSelectionSubtitle}>Choose your tee box:</Text>
-            
+
             <View style={styles.teeOptionsContainer}>
-              {selectedCourse && getTeeBoxOptions(selectedCourse).map((option, index) => 
+              {selectedCourse && getTeeBoxOptions(selectedCourse).map((option, index) =>
                 renderTeeOption(option.name, index)
               )}
             </View>
@@ -649,7 +906,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     textAlign: 'center',
   },
-  
+
   // Tab styles
   tabContainer: {
     flexDirection: 'row',
@@ -690,7 +947,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontWeight: '700',
   },
-  
+
   // Course card container style
   courseCardContainer: {
     marginHorizontal: 16,

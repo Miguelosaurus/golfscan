@@ -24,34 +24,60 @@ import {
   ChevronRight
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useMutation, useQuery } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
+import { useUser } from '@clerk/clerk-expo';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { players, updatePlayer } = useGolfStore();
+  const profile = useQuery(api.users.getProfile);
+  const updateProfile = useMutation(api.users.updateProfile);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showHandicapModal, setShowHandicapModal] = useState(false);
   const [showGhinModal, setShowGhinModal] = useState(false);
   const [editName, setEditName] = useState('');
   const [editHandicap, setEditHandicap] = useState('');
   const [ghinNumber, setGhinNumber] = useState('');
+  const { user, isLoaded: isUserLoaded } = useUser();
   
   const currentUser = players.find(p => p.isUser);
+  const displayName = profile?.name ?? currentUser?.name ?? 'Golf Player';
   
   const handleEditProfile = () => {
-    setEditName(currentUser?.name || '');
+    setEditName(displayName || '');
     setShowEditModal(true);
   };
   
-  const handleSaveProfile = () => {
-    if (!currentUser || !editName.trim()) {
+  const handleSaveProfile = async () => {
+    if (!editName.trim()) {
       Alert.alert('Error', 'Please enter a valid name');
       return;
     }
-    
-    updatePlayer({
-      ...currentUser,
-      name: editName.trim()
-    });
+    const trimmed = editName.trim();
+    try {
+      await updateProfile({ name: trimmed, profileSetupComplete: true });
+      if (currentUser) {
+        updatePlayer({
+          ...currentUser,
+          name: trimmed,
+        });
+      }
+
+      // Keep Clerk profile in sync so the dashboard and future
+      // sessions reflect the same name.
+      if (user && isUserLoaded) {
+        const parts = trimmed.split(/\s+/).filter(Boolean);
+        const firstName = parts[0] ?? trimmed;
+        const lastName = parts.slice(1).join(' ');
+        const updatePayload: any = { firstName };
+        if (lastName) updatePayload.lastName = lastName;
+        await user.update(updatePayload);
+      }
+    } catch {
+      Alert.alert('Error', 'Could not update your profile. Please try again.');
+      return;
+    }
     
     setShowEditModal(false);
     Alert.alert('Success', 'Profile updated successfully');
@@ -62,22 +88,30 @@ export default function ProfileScreen() {
     setShowHandicapModal(true);
   };
   
-  const handleSaveHandicap = () => {
-    if (!currentUser) return;
+  const updateHandicapMutation = useMutation(api.users.updateHandicap);
+
+  const handleSaveHandicap = async () => {
+    if (!currentUser && !profile) return;
     
     const newHandicap = parseFloat(editHandicap);
     if (isNaN(newHandicap)) {
       Alert.alert('Error', 'Please enter a valid handicap');
       return;
     }
-    
-    updatePlayer({
-      ...currentUser,
-      handicap: newHandicap
-    });
-    
-    setShowHandicapModal(false);
-    Alert.alert('Success', 'Handicap updated successfully');
+
+    try {
+      await updateHandicapMutation({ handicap: newHandicap });
+      if (currentUser) {
+        updatePlayer({
+          ...currentUser,
+          handicap: newHandicap
+        });
+      }
+      setShowHandicapModal(false);
+      Alert.alert('Success', 'Handicap updated successfully');
+    } catch (e) {
+      Alert.alert('Error', 'Could not update handicap. Please try again.');
+    }
   };
   
   const handleGhinLink = () => {
@@ -177,13 +211,13 @@ export default function ProfileScreen() {
             {currentUser?.photoUrl ? (
               <Image source={{ uri: currentUser.photoUrl }} style={{ width: 100, height: 100, borderRadius: 50 }} />
             ) : (
-              <Text style={styles.avatarText}>{currentUser?.name?.charAt(0) || 'G'}</Text>
+              <Text style={styles.avatarText}>{displayName?.charAt(0) || 'G'}</Text>
             )}
             <View style={styles.cameraOverlay}>
               <Camera size={16} color={colors.card} />
             </View>
           </TouchableOpacity>
-          <Text style={styles.userName}>{currentUser?.name || 'Golf Player'}</Text>
+          <Text style={styles.userName}>{displayName}</Text>
           <Text style={styles.userInfo}>Member since June 2025</Text>
         </View>
         
@@ -196,7 +230,7 @@ export default function ProfileScreen() {
             <User size={20} color={colors.text} />
             <View style={styles.menuItemContent}>
               <Text style={styles.menuItemText}>Name</Text>
-              <Text style={styles.menuItemValue}>{currentUser?.name || 'Not set'}</Text>
+              <Text style={styles.menuItemValue}>{displayName || 'Not set'}</Text>
             </View>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Course } from '@/types';
 import { colors } from '@/constants/colors';
 import { MapPin } from 'lucide-react-native';
+import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 
 interface CourseCardProps {
   course: Course;
@@ -11,7 +12,12 @@ interface CourseCardProps {
 
 export const CourseCard: React.FC<CourseCardProps> = ({ course, onPress }) => {
   const totalPar = course.holes.reduce((sum, hole) => sum + hole.par, 0);
-  
+  const [imageUri, setImageUri] = useState(course.imageUrl || DEFAULT_COURSE_IMAGE);
+
+  useEffect(() => {
+    setImageUri(course.imageUrl || DEFAULT_COURSE_IMAGE);
+  }, [course.imageUrl]);
+
   return (
     <TouchableOpacity 
       style={styles.container}
@@ -19,11 +25,12 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, onPress }) => {
       activeOpacity={0.7}
     >
       <View style={styles.imageContainer}>
-        {course.imageUrl ? (
+        {imageUri ? (
           <Image 
-            source={{ uri: course.imageUrl }} 
+            source={{ uri: imageUri }} 
             style={styles.image}
             resizeMode="cover"
+            onError={() => setImageUri(DEFAULT_COURSE_IMAGE)}
           />
         ) : (
           <View style={styles.placeholderImage}>

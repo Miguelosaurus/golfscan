@@ -1,34 +1,35 @@
 {
-    "expo": {
-      "name": "Golf Score Tracker",
-      "slug": "golf-score-tracker-u82dxka",
-      "version": "1.0.0",
-      "orientation": "portrait",
-      "runtimeVersion": {
-        "policy": "sdkVersion"
-      },
-      "scheme": "myapp",
-      "userInterfaceStyle": "automatic",
-      "newArchEnabled": true,
-      "splash": {
-        "resizeMode": "contain",
-        "backgroundColor": "#ffffff"
-      },
-      "ios": {
-        "supportsTablet": true,
-        "bundleIdentifier": "com.golfscanai.app"
-      },
-      "android": {
-        "package": "com.golfscanai.app"
-      },
-      "plugins": [
-        [
-          "expo-router",
-          {}
-        ]
+  "expo": {
+    "name": "Golf Score Tracker",
+    "slug": "golf-score-tracker-u82dxka",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "scheme": "myapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.golfscanai.app"
+    },
+    "android": {
+      "package": "com.golfscanai.app"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {}
       ],
-      "experiments": {
-        "typedRoutes": true
-      }
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
     }
   }
+}

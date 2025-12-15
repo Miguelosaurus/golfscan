@@ -29,24 +29,27 @@ export interface ScoreTrendData {
 interface PlayerScopedOptions {
   playerId: string;
   rounds: Round[];
-  courses: Course[];
-  courseId?: string;
 }
 
-const getCourseForRound = (courses: Course[], round: Round): Course | undefined => {
-  return courses.find(course => course.id === round.courseId);
-};
-
 const getPlayerRoundData = (round: Round, playerId: string): PlayerRound | undefined => {
-  return round.players.find(player => player.playerId === playerId);
+  // Prefer an exact id match when available
+  const exact = round.players.find(player => player.playerId === playerId);
+  if (exact) return exact;
+
+  // Fallback: use the row flagged as self / user. This helps when the
+  // local "current user" id does not match the Convex players table id
+  // but the summary rows still carry an isSelf / isUser flag.
+  const anySelf = (round.players as any[]).find(
+    (p) => (p as any).isSelf || (p as any).isUser
+  );
+  return anySelf as PlayerRound | undefined;
 };
 
 export const calculatePerformanceByPar = ({
   playerId,
   rounds,
-  courses,
-  courseId,
-}: PlayerScopedOptions): PerformanceByPar => {
+  course,
+}: PlayerScopedOptions & { course: Course }): PerformanceByPar => {
   const totals: Record<number, { relativeToPar: number; count: number }> = {
     3: { relativeToPar: 0, count: 0 },
     4: { relativeToPar: 0, count: 0 },
@@ -54,15 +57,8 @@ export const calculatePerformanceByPar = ({
   };
 
   rounds.forEach(round => {
-    if (courseId && round.courseId !== courseId) {
-      return;
-    }
-
     const player = getPlayerRoundData(round, playerId);
     if (!player) return;
-
-    const course = getCourseForRound(courses, round);
-    if (!course) return;
 
     player.scores.forEach(score => {
       const hole = course.holes.find(h => h.number === score.holeNumber);
@@ -186,7 +182,6 @@ export const calculatePerHoleAverages = ({
   const aggregates: Record<number, { total: number; count: number }> = {};
 
   rounds.forEach(round => {
-    if (round.courseId !== course.id) return;
     const player = getPlayerRoundData(round, playerId);
     if (!player) return;
 

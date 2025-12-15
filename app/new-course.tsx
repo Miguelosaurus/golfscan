@@ -15,15 +15,38 @@ import { Button } from '@/components/Button';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Course } from '@/types';
 import { Search, Plus } from 'lucide-react-native';
+import { useMutation } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
 
 export default function NewCourseScreen() {
   const router = useRouter();
   const { addCourse } = useGolfStore();
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const upsertCourse = useMutation(api.courses.upsert);
   
-  const handleSelectCourse = (course: Course) => {
-    addCourse(course);
-    router.replace(`/course/${course.id}`);
+  const handleSelectCourse = async (course: Course) => {
+    let convexId: string | null = null;
+    try {
+      convexId = await upsertCourse({
+        externalId: course.apiId ? `api-${course.apiId}` : course.id,
+        name: course.name,
+        location: course.location,
+        slope: course.slope,
+        rating: course.rating,
+        teeSets: undefined,
+        holes: course.holes.map((h, idx) => ({
+          number: h.number,
+          par: h.par,
+          hcp: h.handicap ?? idx + 1,
+          yardage: h.distance || undefined,
+        })),
+        imageUrl: course.imageUrl,
+      }) as unknown as string;
+    } catch (e) {
+      // If Convex write fails, fall back to local only
+    }
+    addCourse({ ...course, id: convexId ?? course.id });
+    router.replace(`/course/${convexId ?? course.id}`);
   };
   
   const handleManualEntry = () => {

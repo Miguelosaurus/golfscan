@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -13,16 +13,20 @@ import {
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
-import { useGolfStore } from '@/store/useGolfStore';
 import { RoundCard } from '@/components/RoundCard';
 import { CourseCard } from '@/components/CourseCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Round, Player, PlayerSummary, Course } from '@/types';
 import { History, Camera, Search, Users, Flag, Check, X, Link, Edit, Calendar as CalendarIcon } from 'lucide-react-native';
+import { useQuery } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
+import { useGolfStore } from '@/store/useGolfStore';
+import { convertNineHoleToEighteenEquivalent } from '@/utils/helpers';
+import { useUser } from '@clerk/clerk-expo';
 
 export default function HistoryScreen() {
   const router = useRouter();
-  const { rounds, players, courses, updatePlayer, mergePlayerData } = useGolfStore();
   const [roundsSearchQuery, setRoundsSearchQuery] = useState('');
   const [playersSearchQuery, setPlayersSearchQuery] = useState('');
   const [coursesSearchQuery, setCoursesSearchQuery] = useState('');
@@ -33,7 +37,52 @@ export default function HistoryScreen() {
   const [datePreset, setDatePreset] = useState<'all' | 'week' | 'month' | 'year' | 'last30' | 'custom'>('all');
   const [customStart, setCustomStart] = useState<string | null>(null); // YYYY-MM-DD
   const [customEnd, setCustomEnd] = useState<string | null>(null);
-  
+  const { isScanning, activeScanJob, courses, players, addPlayer, updatePlayer } = useGolfStore();
+  const { user, isLoaded: isUserLoaded } = useUser();
+
+  const profile = useQuery(api.users.getProfile);
+  const selfPlayer = useQuery(api.players.getSelf, {}) as any;
+  const roundsData = useQuery(
+    api.rounds.listWithSummary,
+    profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
+  ) || [];
+
+  // Ensure the signed-in user always has a Player entry flagged as isUser for UI highlighting
+  useEffect(() => {
+    // Wait until Clerk is loaded so we have a stable identity & Convex self player
+    if (!isUserLoaded || selfPlayer === undefined) return;
+    // If someone is already marked as user, do nothing
+    if (players.some((p) => p.isUser)) return;
+
+    const canonicalId = (selfPlayer?._id as string | undefined);
+    if (!canonicalId) return;
+
+    const canonicalName =
+      selfPlayer?.name ??
+      profile?.name ??
+      user?.fullName ??
+      user?.firstName ??
+      user?.username ??
+      'You';
+
+    const existingById = players.find((p) => p.id === canonicalId);
+    if (existingById) {
+      updatePlayer({
+        ...existingById,
+        isUser: true,
+        name: existingById.name || canonicalName,
+      });
+      return;
+    }
+
+    addPlayer({
+      id: canonicalId,
+      name: canonicalName,
+      handicap: (profile as any)?.handicap,
+      isUser: true,
+    });
+  }, [selfPlayer, profile, user, isUserLoaded, players, addPlayer, updatePlayer]);
+
   const withinRange = (dateStr: string): boolean => {
     if (datePreset === 'all') return true;
     const d = new Date(dateStr);
@@ -61,7 +110,7 @@ export default function HistoryScreen() {
     }
   };
 
-  const filteredRounds = rounds
+  const filteredRounds = roundsData
     .filter(round => 
       round.courseName.toLowerCase().includes(roundsSearchQuery.toLowerCase()) ||
       round.players.some(player => 
@@ -69,12 +118,120 @@ export default function HistoryScreen() {
       )
     )
     .filter(round => withinRange(round.date))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) as Round[];
 
-  const filteredCourses = courses.filter(course => 
+  const derivedCourses: Course[] = useMemo(() => {
+    const map = new Map<string, Course>();
+    roundsData.forEach((r: any) => {
+      const externalId = r.courseExternalId as string | undefined;
+      const key = externalId ?? (r.courseId as string);
+      if (map.has(key)) return;
+
+      const storeCourse =
+        (externalId && courses.find((c) => c.id === externalId)) ||
+        courses.find((c) => c.id === (r.courseId as string));
+
+      const id = storeCourse?.id ?? externalId ?? (r.courseId as string);
+
+      map.set(key, {
+        id,
+        name: r.courseName,
+        location: storeCourse?.location ?? 'Unknown location',
+        holes: storeCourse?.holes ?? [],
+        imageUrl: storeCourse?.imageUrl ?? (r.courseImageUrl as string | undefined),
+        slope: storeCourse?.slope,
+        rating: storeCourse?.rating,
+      });
+    });
+    return Array.from(map.values());
+  }, [roundsData, courses]);
+
+  const filteredCourses = derivedCourses.filter(course => 
     course.name.toLowerCase().includes(coursesSearchQuery.toLowerCase()) ||
     course.location.toLowerCase().includes(coursesSearchQuery.toLowerCase())
   );
+  
+  const getUniquePlayers = (): PlayerSummary[] => {
+    const playerMap = new Map<string, PlayerSummary>();
+    
+    roundsData.forEach(round => {
+      round.players.forEach(player => {
+        // Compute 18-hole equivalent score for this round/player
+        const holeCount = (round as any).holeCount ?? (
+          player.scores && player.scores.length
+            ? Math.max(...player.scores.map((s: any) => s.holeNumber))
+            : 18
+        );
+        const isNineHole = holeCount <= 9;
+        const course = courses.find(c => c.id === (round.courseId as any));
+        const coursePar9 = course
+          ? course.holes.slice(0, 9).reduce((sum, h) => sum + (h.par ?? 4), 0)
+          : 36;
+        const eighteenEq = isNineHole
+          ? convertNineHoleToEighteenEquivalent(
+              player.totalScore,
+              player.handicapUsed ?? undefined,
+              coursePar9
+            )
+          : player.totalScore;
+
+        const existing = playerMap.get(player.playerId);
+        const storePlayer = players.find((p) => p.id === player.playerId);
+        playerMap.set(player.playerId, {
+          id: player.playerId,
+          name: player.playerName,
+          roundsPlayed: (existing?.roundsPlayed || 0) + 1,
+          totalScore: (existing?.totalScore || 0) + eighteenEq,
+          isUser: storePlayer?.isUser || false,
+          handicap: player.handicapUsed || storePlayer?.handicap || existing?.handicap,
+        });
+      });
+    });
+    
+    const summaries = Array.from(playerMap.values());
+
+    // Fallback: if no player is flagged as the current user, try to infer from profile name
+    if (!summaries.some(p => p.isUser) && profile?.name) {
+      const normalizedProfileName = profile.name.trim().toLowerCase();
+      const profileMatch = summaries.find(
+        p => p.name.trim().toLowerCase() === normalizedProfileName
+      );
+      if (profileMatch) {
+        profileMatch.isUser = true;
+      }
+    }
+
+    // Sort players: user first, then by rounds played desc, then name
+    return summaries.sort((a, b) => {
+      if (a.isUser && !b.isUser) return -1;
+      if (!a.isUser && b.isUser) return 1;
+      if (b.roundsPlayed !== a.roundsPlayed) return b.roundsPlayed - a.roundsPlayed;
+      return a.name.localeCompare(b.name);
+    });
+  };
+  
+  const uniquePlayers = getUniquePlayers();
+
+  const filteredPlayers = uniquePlayers.filter(playerSummary =>
+    playerSummary.name.toLowerCase().includes(playersSearchQuery.toLowerCase())
+  );
+
+  // If there are no round-based players yet, seed the Players tab with a single
+  // "You" row based on the Convex profile so the user always sees their
+  // profile, even before tracking any rounds.
+  const playersForList: PlayerSummary[] =
+    filteredPlayers.length > 0 || !selfPlayer
+      ? filteredPlayers
+      : [
+          {
+            id: selfPlayer._id as any,
+            name: selfPlayer.name || profile?.name || 'You',
+            roundsPlayed: 0,
+            totalScore: 0,
+            isUser: true,
+            handicap: (selfPlayer as any).handicap ?? (profile as any)?.handicap,
+          },
+        ];
   
   const navigateToRoundDetails = (roundId: string) => {
     router.push(`/round/${roundId}`);
@@ -110,34 +267,7 @@ export default function HistoryScreen() {
   };
   
   const handleMergePlayers = () => {
-    if (selectedPlayerIds.length !== 2) {
-      Alert.alert('Error', 'Please select exactly 2 players to merge.');
-      return;
-    }
-    
-    const playerData = selectedPlayerIds.map(id => getUniquePlayers().find(p => p.id === id)).filter(Boolean);
-    if (playerData.length !== 2) return;
-    
-    Alert.prompt(
-      'Merge Players',
-      `Enter the final name for merging "${playerData[0]!.name}" and "${playerData[1]!.name}":`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Merge',
-          onPress: (finalName) => {
-            if (finalName && finalName.trim()) {
-              mergePlayerData(selectedPlayerIds[0], selectedPlayerIds[1], finalName.trim());
-              setIsSelectMode(false);
-              setSelectedPlayerIds([]);
-              Alert.alert('Success', 'Players merged successfully.');
-            }
-          }
-        }
-      ],
-      'plain-text',
-      playerData[0]!.name
-    );
+    Alert.alert('Not available', 'Player merge is not available in the cloud version yet.');
   };
   
   const renderRoundItem = ({ item }: { item: Round }) => (
@@ -148,55 +278,13 @@ export default function HistoryScreen() {
     <CourseCard course={item} onPress={navigateToCourseDetails} />
   );
   
-  const getUniquePlayers = (): PlayerSummary[] => {
-    const playerMap = new Map<string, PlayerSummary>();
-    
-    // Find the user player
-    const userPlayer = players.find(p => p.isUser);
-    const userId = userPlayer ? userPlayer.id : '';
-    
-    rounds.forEach(round => {
-      round.players.forEach(player => {
-        if (!playerMap.has(player.playerId)) {
-          playerMap.set(player.playerId, {
-            id: player.playerId,
-            name: player.playerName,
-            roundsPlayed: 1,
-            totalScore: player.totalScore,
-            isUser: player.playerId === userId,
-            handicap: player.handicapUsed
-          });
-        } else {
-          const existingPlayer = playerMap.get(player.playerId);
-          if (existingPlayer) {
-            playerMap.set(player.playerId, {
-              ...existingPlayer,
-              roundsPlayed: existingPlayer.roundsPlayed + 1,
-              totalScore: existingPlayer.totalScore + player.totalScore,
-              handicap: player.handicapUsed || existingPlayer.handicap
-            });
-          }
-        }
-      });
-    });
-    
-    // Sort players: user first, then alphabetically
-    return Array.from(playerMap.values()).sort((a, b) => {
-      if (a.isUser && !b.isUser) return -1;
-      if (!a.isUser && b.isUser) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  };
-  
-  const filteredPlayers = getUniquePlayers().filter(playerSummary =>
-    playerSummary.name.toLowerCase().includes(playersSearchQuery.toLowerCase())
-  );
-  
   const renderPlayerItem = ({ item }: { item: PlayerSummary }) => {
-    const player = players.find(p => p.id === item.id);
+    const player = undefined as unknown as Player | undefined;
     const name = player?.name || item.name;
     const photoUrl = player?.photoUrl;
     const isSelected = selectedPlayerIds.includes(item.id);
+    const avg =
+      item.roundsPlayed > 0 ? Math.round(item.totalScore / item.roundsPlayed) : undefined;
     
     return (
       <TouchableOpacity 
@@ -240,7 +328,7 @@ export default function HistoryScreen() {
         <View style={styles.playerScoreContainer}>
           <Text style={styles.playerScoreLabel}>Avg. Score</Text>
           <Text style={styles.playerScore}>
-            {Math.round(item.totalScore / item.roundsPlayed)}
+            {avg !== undefined ? avg : '--'}
           </Text>
         </View>
       </TouchableOpacity>
@@ -261,6 +349,9 @@ export default function HistoryScreen() {
   };
 
   const getEmptyState = () => {
+    const scanInProgress = isScanning || activeScanJob?.status === 'processing';
+    if (scanInProgress) return null;
+
     const searchActive =
       (activeTab === 'rounds' && (
         roundsSearchQuery.length > 0 ||
@@ -272,7 +363,7 @@ export default function HistoryScreen() {
 
     switch (activeTab) {
       case 'rounds': {
-        if (rounds.length === 0) {
+        if (roundsData.length === 0) {
           return (
             <EmptyState
               title="No rounds yet"
@@ -283,7 +374,6 @@ export default function HistoryScreen() {
             />
           );
         }
-        // Search/filter empty state
         return (
           <EmptyState
             title="No rounds found"
@@ -292,7 +382,7 @@ export default function HistoryScreen() {
         );
       }
       case 'players': {
-        const hasAnyPlayers = getUniquePlayers().length > 0;
+        const hasAnyPlayers = playersForList.length > 0;
         if (!hasAnyPlayers) {
           return (
             <EmptyState
@@ -312,7 +402,7 @@ export default function HistoryScreen() {
         );
       }
       case 'courses': {
-        if (courses.length === 0) {
+        if (derivedCourses.length === 0) {
           return (
             <EmptyState
               title="No courses yet"
@@ -323,7 +413,6 @@ export default function HistoryScreen() {
             />
           );
         }
-        // Search-empty: keep button, hide message
         return (
           <EmptyState
             title="No courses found"
@@ -343,7 +432,7 @@ export default function HistoryScreen() {
       case 'rounds':
         return filteredRounds;
       case 'players':
-        return filteredPlayers;
+        return playersForList;
       case 'courses':
         return filteredCourses;
       default:

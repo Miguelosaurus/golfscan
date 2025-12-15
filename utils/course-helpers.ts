@@ -1,5 +1,4 @@
 import { ApiCourseData, Course, Hole, TeeBox } from '@/types';
-import { trpcClient } from '@/lib/trpc';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 import * as FileSystem from 'expo-file-system';
 
@@ -83,23 +82,35 @@ const getAllTeeBoxes = (apiCourse: ApiCourseData): TeeBox[] => {
   return [...maleTees, ...femaleTees];
 };
 
-export const getDeterministicCourseId = (apiCourse: ApiCourseData, teeName?: string): string => {
-  const normalizedTee = (teeName ?? '').replace(/\s+/g, '').toLowerCase();
-  return `${apiCourse.id}-${normalizedTee || 'default'}`;
+// Use a deterministic id per underlying course, not per tee selection,
+// so picking a different tee does not create a new course entry.
+export const getDeterministicCourseId = (apiCourse: ApiCourseData, _teeName?: string): string => {
+  return `${apiCourse.id}`;
 };
 
 interface ConvertCourseOptions {
   selectedTee?: string;
   fetchImage?: boolean;
+  fetchImageFn?: (args: {
+    courseName: string;
+    locationText?: string;
+    latitude?: number;
+    longitude?: number;
+  }) => Promise<{ url: string | null } | null>;
 }
 
 export const convertApiCourseToLocal = async (
   apiCourse: ApiCourseData,
   options: ConvertCourseOptions = {}
 ): Promise<Course> => {
-  const { selectedTee, fetchImage = false } = options;
+  const { selectedTee, fetchImage = false, fetchImageFn } = options;
   // Get the appropriate tee box (default to first male tee if not specified)
-  const teeBoxes = getAllTeeBoxes(apiCourse);
+  // Pull male/female tees and tag with gender for downstream selection
+  const teeBoxes = [
+    ...(apiCourse.tees.male?.map((tee) => ({ ...tee, gender: "M" })) ?? []),
+    ...(apiCourse.tees.female?.map((tee) => ({ ...tee, gender: "F" })) ?? []),
+  ];
+
   const selectedTeeBox = selectedTee 
     ? teeBoxes.find(tee => tee.tee_name.toLowerCase() === selectedTee.toLowerCase())
     : teeBoxes[0];
@@ -115,6 +126,24 @@ export const convertApiCourseToLocal = async (
     distance: hole.yardage,
     handicap: hole.handicap
   }));
+
+  // Tee set summaries for prompting tee selection later
+  const teeSets = teeBoxes.map((tee) => ({
+    name: tee.tee_name,
+    rating: tee.course_rating,
+    slope: tee.slope_rating,
+    gender: tee.gender as string | undefined,
+    frontRating: tee.front_course_rating,
+    frontSlope: tee.front_slope_rating,
+    backRating: tee.back_course_rating,
+    backSlope: tee.back_slope_rating,
+    holes: tee.holes.map((hole, index) => ({
+      number: index + 1,
+      par: hole.par,
+      distance: hole.yardage,
+      handicap: hole.handicap,
+    })),
+  }));
   
   // Use a deterministic id so that the same course / tee combination maps to the same record
   const deterministicId = getDeterministicCourseId(apiCourse, selectedTeeBox.tee_name);
@@ -122,25 +151,19 @@ export const convertApiCourseToLocal = async (
   const courseName = getCourseDisplayName(apiCourse);
   let imageUri = DEFAULT_COURSE_IMAGE;
 
-  if (fetchImage) {
+  if (fetchImage && fetchImageFn) {
     try {
-      const imageResponse = await trpcClient.courseImage.getOrCreate.mutate({
+      const imageResponse = await fetchImageFn({
         courseName,
         locationText: formatCourseLocation(apiCourse.location),
         latitude: apiCourse.location.latitude,
         longitude: apiCourse.location.longitude,
       });
-
-      const remoteImage = imageResponse.imageDataUrl || DEFAULT_COURSE_IMAGE;
-
-      if (!imageResponse.usedFallback && remoteImage.startsWith('data:')) {
-        const persistedPath = await saveDataUrlToFile(remoteImage, deterministicId);
-        imageUri = persistedPath || remoteImage;
-      } else {
-        imageUri = remoteImage;
+      if (imageResponse?.url) {
+        imageUri = imageResponse.url;
       }
     } catch (error) {
-      console.error('Course image lookup failed, using fallback image:', error);
+      console.error("Course image lookup failed, using fallback image:", error);
     }
   }
 
@@ -153,6 +176,7 @@ export const convertApiCourseToLocal = async (
     rating: selectedTeeBox.course_rating,
     isApiCourse: true,
     apiId: apiCourse.id,
+    teeSets,
     imageUrl: imageUri,
   };
 };

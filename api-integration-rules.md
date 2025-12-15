@@ -1,3 +1,29 @@
+## Agent Report: Convex Server Import Fix (2025-11-25)
+
+Summary
+- Updated Convex function files to import `mutation`/`query` from `./_generated/server` so they pick up schema-safe typings.
+
+Files Modified
+- `convex/auth.ts`
+- `convex/rounds.ts`
+- `convex/scorecard.ts`
+
+Verification
+- Not run (Convex dev server not started in this session).
+
+## Agent Report: Dependency Install Fixes (2025-11-25)
+
+Summary
+- Corrected invalid dependency specs blocking `npm install`.
+- Swapped the deprecated `@convex-dev/react-clerk` import to `convex/react-clerk` for the Convex/Clerk provider wiring.
+
+Files Modified
+- `package.json` – set `@clerk/clerk-expo` to `^2.19.6`, adjusted `expo-secure-store` to `~13.0.2`, and removed the unpublished `@convex-dev/react-clerk` entry.
+- `app/_layout.tsx` – updated the Convex provider import to align with the `convex` package.
+
+Verification
+- `npm install`
+
 ## Agent Report: Scorecard Review and Linking UX Overhaul (2025-09-26)
 
 Scope

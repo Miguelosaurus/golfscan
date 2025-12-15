@@ -6,7 +6,8 @@ import {
   ScrollView, 
   TouchableOpacity,
   Alert,
-  Linking
+  Linking,
+  Switch
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
@@ -23,9 +24,29 @@ import {
   Moon,
   Smartphone
 } from 'lucide-react-native';
+import { useAuth, useUser } from '@clerk/clerk-expo';
+import { useQuery } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
+import { useGolfStore } from '@/store/useGolfStore';
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { signOut, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const profile = useQuery(api.users.getProfile);
+  const devMode = useGolfStore((s) => s.devMode);
+  const setDevMode = useGolfStore((s) => s.setDevMode);
+
+  const displayName =
+    profile?.name ||
+    user?.fullName ||
+    user?.username ||
+    'ScanCaddie Golfer';
+  const email =
+    profile?.email ||
+    user?.primaryEmailAddress?.emailAddress ||
+    'Signed in with Clerk';
+  const initial = displayName?.charAt(0) || 'S';
   
   const handleHelp = () => {
     Alert.alert(
@@ -113,6 +134,10 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
   };
   
   const handleLogout = () => {
+    if (!isSignedIn) {
+      Alert.alert("Not signed in", "You are not currently signed in.");
+      return;
+    }
     Alert.alert(
       "Logout",
       "Are you sure you want to logout?",
@@ -125,9 +150,14 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
           text: "Logout",
           style: "destructive",
           onPress: () => {
-            // Implement logout logic here
-            console.log("User logged out");
-            Alert.alert("Logged Out", "You have been successfully logged out.");
+            signOut()
+              .then(() => {
+                // After signing out, send the user back to the
+                // auth landing screen instead of leaving them
+                // inside the signed-in tab flow.
+                router.replace("/");
+              })
+              .catch(() => {});
           }
         }
       ]
@@ -154,6 +184,21 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
       >
+        {user && (
+          <View style={styles.menuSection}>
+            <Text style={styles.menuSectionTitle}>Account</Text>
+            <View style={styles.accountRow}>
+              <View style={styles.accountAvatar}>
+                <Text style={styles.accountInitial}>{initial}</Text>
+              </View>
+              <View style={styles.accountInfo}>
+                <Text style={styles.accountName}>{displayName}</Text>
+                <Text style={styles.accountEmail}>{email}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Preferences</Text>
           
@@ -174,6 +219,24 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
             <Text style={styles.menuItemText}>Language</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.menuSection}>
+          <Text style={styles.menuSectionTitle}>Developer</Text>
+          
+          <View style={[styles.menuItem, styles.menuItemNoBorder]}>
+            <Smartphone size={20} color={colors.text} />
+            <View style={styles.menuItemDevTextWrap}>
+              <Text style={styles.menuItemText}>Dev Mode</Text>
+              <Text style={styles.menuItemSubtext}>Simulate scan responses locally</Text>
+            </View>
+            <Switch
+              value={devMode}
+              onValueChange={setDevMode}
+              trackColor={{ false: '#DADFE0', true: '#CDE7E2' }}
+              thumbColor={devMode ? colors.primary : '#f4f3f4'}
+            />
+          </View>
         </View>
         
         <View style={styles.menuSection}>
@@ -209,8 +272,8 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
         </View>
         
         <Button
-          title="Logout"
-          onPress={handleLogout}
+          title={isSignedIn ? "Logout" : "Sign in"}
+          onPress={isSignedIn ? handleLogout : () => router.push('/')}
           variant="outline"
           style={styles.logoutButton}
         />
@@ -250,11 +313,56 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  menuItemNoBorder: {
+    borderBottomWidth: 0,
+  },
   menuItemText: {
     flex: 1,
     fontSize: 16,
     color: colors.text,
     marginLeft: 12,
+  },
+  menuItemSubtext: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginLeft: 12,
+    marginTop: 2,
+  },
+  menuItemDevTextWrap: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  accountAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  accountInitial: {
+    color: colors.card,
+    fontWeight: '700',
+    fontSize: 20,
+  },
+  accountInfo: {
+    flex: 1,
+  },
+  accountName: {
+    color: colors.text,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  accountEmail: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginTop: 2,
   },
   logoutButton: {
     marginBottom: 24,

@@ -1,36 +1,44 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { colors } from '@/constants/colors';
-import { useGolfStore } from '@/store/useGolfStore';
 import { Info, X } from 'lucide-react-native';
+import { useQuery } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 
 interface ActivityCalendarProps {
   year?: number;
 }
 
 export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new Date().getFullYear() }) => {
-  const { rounds } = useGolfStore();
   const [showInfo, setShowInfo] = useState(false);
-  
+
+  // Fetch rounds from Convex backend
+  const profile = useQuery(api.users.getProfile);
+  const hostRounds = useQuery(
+    api.rounds.listWithSummary,
+    profile?._id ? { hostId: profile._id as Id<'users'> } : "skip"
+  ) || [];
+
   // Get all dates in the year
   const startDate = new Date(year, 0, 1);
   const endDate = new Date(year, 11, 31);
-  
+
   // Create a map of dates to round counts
   const activityMap = new Map<string, number>();
-  
-  rounds.forEach(round => {
+
+  hostRounds.forEach((round: any) => {
     const roundDate = new Date(round.date);
     if (roundDate.getFullYear() === year) {
       const dateKey = roundDate.toISOString().split('T')[0];
       activityMap.set(dateKey, (activityMap.get(dateKey) || 0) + 1);
     }
   });
-  
+
   // Generate all days in the year
   const days: { date: Date; count: number }[] = [];
   const currentDate = new Date(startDate);
-  
+
   while (currentDate <= endDate) {
     const dateKey = currentDate.toISOString().split('T')[0];
     days.push({
@@ -39,17 +47,17 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
     });
     currentDate.setDate(currentDate.getDate() + 1);
   }
-  
+
   // Group days by weeks
   const weeks: { date: Date; count: number }[][] = [];
   let currentWeek: { date: Date; count: number }[] = [];
-  
+
   // Add empty days at the beginning to align with Sunday
   const firstDayOfWeek = days[0].date.getDay();
   for (let i = 0; i < firstDayOfWeek; i++) {
     currentWeek.push({ date: new Date(0), count: -1 }); // -1 indicates empty
   }
-  
+
   days.forEach(day => {
     currentWeek.push(day);
     if (currentWeek.length === 7) {
@@ -57,7 +65,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
       currentWeek = [];
     }
   });
-  
+
   // Add remaining days to last week
   if (currentWeek.length > 0) {
     while (currentWeek.length < 7) {
@@ -65,7 +73,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
     }
     weeks.push(currentWeek);
   }
-  
+
   const getActivityColor = (count: number) => {
     if (count === -1) return 'transparent'; // Empty day
     if (count === 0) return colors.border;
@@ -74,26 +82,26 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
     if (count >= 3) return '#30a14e';
     return '#216e39';
   };
-  
+
   const months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
-  
+
   const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  
+
   return (
     <View style={styles.container}>
       <View style={styles.titleContainer}>
         <Text style={styles.title}>Activity</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.infoButton}
           onPress={() => setShowInfo(true)}
         >
           <Info size={16} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
-      
+
       <View style={styles.calendarContainer}>
         {/* Month labels */}
         <View style={styles.monthsRow}>
@@ -104,7 +112,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
             </Text>
           ))}
         </View>
-        
+
         {/* Calendar grid */}
         <View style={styles.calendarGrid}>
           {/* Weekday labels */}
@@ -115,7 +123,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
               </Text>
             ))}
           </View>
-          
+
           {/* Activity squares */}
           <View style={styles.weeksContainer}>
             {weeks.map((week, weekIndex) => (
@@ -134,7 +142,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
           </View>
         </View>
       </View>
-      
+
       {/* Info Modal */}
       <Modal
         visible={showInfo}
@@ -146,18 +154,18 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Activity Calendar</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.modalCloseButton}
                 onPress={() => setShowInfo(false)}
               >
                 <X size={20} color={colors.text} />
               </TouchableOpacity>
             </View>
-            
+
             <Text style={styles.modalText}>
               This calendar shows your golf activity throughout the year. Each square represents a day:
             </Text>
-            
+
             <View style={styles.modalLegend}>
               <View style={styles.modalLegendItem}>
                 <View style={[styles.modalLegendSquare, { backgroundColor: colors.border }]} />
@@ -176,7 +184,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
                 <Text style={styles.modalLegendText}>3+ rounds played</Text>
               </View>
             </View>
-            
+
             <Text style={styles.modalFooterText}>
               The more you play, the more filled out your calendar becomes!
             </Text>

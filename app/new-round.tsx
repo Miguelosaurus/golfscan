@@ -18,6 +18,9 @@ import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Course, Player, Score, PlayerRound } from '@/types';
 import { generateUniqueId, calculateTotalScore, formatDate, ensureValidDate } from '@/utils/helpers';
 import { Calendar, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { useMutation, useQuery } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 
 interface PrefilledPlayer {
   id: string;
@@ -33,9 +36,16 @@ interface PrefilledData {
 }
 
 export default function NewRoundScreen() {
-  const { courseId, prefilled } = useLocalSearchParams<{ courseId?: string, prefilled?: string }>();
+  const { courseId, prefilled, editRoundId } = useLocalSearchParams<{ courseId?: string, prefilled?: string, editRoundId?: string }>();
   const router = useRouter();
   const { courses, players, addPlayer, addRound } = useGolfStore();
+  const profile = useQuery(api.users.getProfile);
+  const saveRoundMutation = useMutation(api.rounds.saveRound);
+  const updateRoundMutation = useMutation(api.rounds.updateRound);
+  const editRound = useQuery(
+    api.rounds.getDetail,
+    editRoundId ? { roundId: editRoundId as Id<"rounds"> } : "skip"
+  );
   
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(
     courseId ? courses.find(c => c.id === courseId) || null : null
@@ -98,7 +108,45 @@ export default function NewRoundScreen() {
         console.error('Error parsing prefilled data:', error);
       }
     }
-  }, [prefilled]);
+  }, [prefilled, courses, players, addPlayer]);
+
+  // Prefill when editing an existing round (Convex)
+  useEffect(() => {
+    if (!editRound || selectedPlayers.length) return;
+    const inferredCourse: Course = {
+      id: editRound.courseId,
+      name: editRound.courseName,
+      location: editRound.courseLocation ?? 'Unknown location',
+      holes: editRound.holes?.map((h: any) => ({
+        number: h.number,
+        par: h.par,
+        distance: h.yardage ?? 0,
+        handicap: h.hcp,
+      })) ?? [],
+    };
+    if (!selectedCourse) {
+      setSelectedCourse(inferredCourse);
+    }
+    setDate(editRound.date);
+    setNotes(editRound.notes ?? '');
+
+    const newPlayerScores: {[playerId: string]: Score[]} = {};
+    const newSelectedPlayers: Player[] = [];
+    editRound.players.forEach((p: any) => {
+      const player: Player = {
+        id: p.playerId,
+        name: p.playerName,
+        handicap: p.handicapUsed,
+      };
+      newSelectedPlayers.push(player);
+      newPlayerScores[player.id] = (p.scores || []).map((s: any) => ({
+        holeNumber: s.holeNumber,
+        strokes: s.strokes,
+      }));
+    });
+    setSelectedPlayers(newSelectedPlayers);
+    setPlayerScores(newPlayerScores);
+  }, [editRound, selectedCourse, selectedPlayers.length]);
   
   // Initialize empty scores for each player when course or players change
   useEffect(() => {
@@ -184,7 +232,7 @@ export default function NewRoundScreen() {
     return true;
   };
   
-  const handleSaveRound = () => {
+  const handleSaveRound = async () => {
     if (!validateForm()) return;
     
     const playerRounds: PlayerRound[] = selectedPlayers.map(player => {
@@ -210,6 +258,53 @@ export default function NewRoundScreen() {
       holeCount: selectedCourse!.holes.length
     };
     
+    const holeCount = selectedCourse!.holes.length === 9 ? 9 : 18;
+    const holeDataFor = (playerId: string) =>
+      (playerScores[playerId] || []).map(score => ({
+        hole: score.holeNumber,
+        score: score.strokes,
+        par: selectedCourse!.holes.find(h => h.number === score.holeNumber)?.par ?? 4,
+      }));
+
+    if (profile?._id) {
+      try {
+        if (editRoundId) {
+          await updateRoundMutation({
+            roundId: editRoundId as Id<"rounds">,
+            courseId: selectedCourse!.id as Id<"courses">,
+            date,
+            holeCount: holeCount as 9 | 18,
+            weather: notes.trim() || undefined,
+            players: playerRounds.map(p => ({
+              name: p.playerName,
+              playerId: (p.playerId as any) || undefined,
+              teeName: undefined,
+              handicap: p.handicapUsed,
+              holeData: holeDataFor(p.playerId),
+            })),
+          });
+        } else {
+          await saveRoundMutation({
+            courseId: selectedCourse!.id as Id<"courses">,
+            date,
+            holeCount: holeCount as 9 | 18,
+            weather: notes.trim() || undefined,
+            players: playerRounds.map(p => ({
+              name: p.playerName,
+              playerId: (p.playerId as any) || undefined,
+              teeName: undefined,
+              handicap: p.handicapUsed,
+              holeData: holeDataFor(p.playerId),
+            })),
+          });
+        }
+        router.replace('/');
+        return;
+      } catch (e) {
+        // fall back to local store if Convex save fails
+      }
+    }
+
     addRound(newRound);
     router.replace('/');
   };
@@ -287,7 +382,7 @@ export default function NewRoundScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <Stack.Screen options={{ 
-        title: prefilled ? "Scanned Round" : "New Round",
+        title: editRoundId ? "Edit Round" : prefilled ? "Scanned Round" : "New Round",
         headerRight: () => (
           <Button
             title="Save"

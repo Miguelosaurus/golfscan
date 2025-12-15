@@ -7,35 +7,49 @@ import { Calendar, Users } from 'lucide-react-native';
 interface RoundCardProps {
   round: Round;
   onPress: (round: Round) => void;
+  highlightPlayerId?: string; // Show this player's score instead of best
 }
 
-export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress }) => {
+export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress, highlightPlayerId }) => {
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
   };
-  
+
   const getBestScore = () => {
     if (round.players.length === 0) return null;
-    
-    const bestPlayer = round.players.reduce((best, current) => 
+
+    const bestPlayer = round.players.reduce((best, current) =>
       best.totalScore < current.totalScore ? best : current
     );
-    
+
     return {
       name: bestPlayer.playerName,
       score: bestPlayer.totalScore
     };
   };
-  
+
+  const getHighlightedPlayerScore = () => {
+    if (!highlightPlayerId) return null;
+    const player = round.players.find(p => p.playerId === highlightPlayerId);
+    if (!player) return null;
+    return {
+      name: player.playerName,
+      score: player.totalScore
+    };
+  };
+
+  const highlightedScore = getHighlightedPlayerScore();
   const bestScore = getBestScore();
-  
+  const displayScore = highlightedScore || bestScore;
+  const scoreLabel = highlightedScore ? "Score:" : "Best Score:";
+
   return (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={styles.container}
       onPress={() => onPress(round)}
       activeOpacity={0.7}
@@ -47,7 +61,7 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress }) => {
           <Text style={styles.date}>{formatDate(round.date)}</Text>
         </View>
       </View>
-      
+
       <View style={styles.content}>
         <View style={styles.playersContainer}>
           <Users size={16} color={colors.textSecondary} />
@@ -55,12 +69,12 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress }) => {
             {round.players.length} {round.players.length === 1 ? 'player' : 'players'}
           </Text>
         </View>
-        
-        {bestScore && (
+
+        {displayScore && (
           <View style={styles.scoreContainer}>
-            <Text style={styles.scoreLabel}>Best Score:</Text>
+            <Text style={styles.scoreLabel}>{scoreLabel}</Text>
             <Text style={styles.scoreValue}>
-              {bestScore.name}: {bestScore.score}
+              {highlightedScore ? displayScore.score : `${displayScore.name}: ${displayScore.score}`}
             </Text>
           </View>
         )}

@@ -1,17 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
-  Alert, 
-  ScrollView, 
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ScrollView,
   ActivityIndicator,
   TextInput,
   Image,
   LayoutAnimation,
   Platform,
-  UIManager
+  UIManager,
+  Modal
 } from 'react-native';
 import { PanGestureHandler, State, FlatList } from 'react-native-gesture-handler';
 // @ts-ignore - local ambient types provided via declarations
@@ -21,15 +22,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-import { 
-  Camera, 
-  Image as ImageIcon, 
-  X, 
-  Users, 
-  User, 
-  GripVertical, 
-  Plus, 
-  Link as LinkIcon, 
+import {
+  Camera,
+  Image as ImageIcon,
+  X,
+  Users,
+  User,
+  GripVertical,
+  Plus,
+  Link as LinkIcon,
   MapPin,
   ChevronDown,
   Calendar,
@@ -44,8 +45,10 @@ import { useGolfStore } from '@/store/useGolfStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Button } from '@/components/Button';
-import { Hole, ScorecardScanResult, ApiCourseData, Course } from '@/types';
-import { trpc, trpcClient } from '@/lib/trpc';
+import { Hole, ScorecardScanResult, ApiCourseData, Course, Player } from '@/types';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
+import { useAction, useMutation, useQuery } from '@/lib/convex';
 import { searchCourses } from '@/lib/golf-course-api';
 import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/course-helpers';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
@@ -63,6 +66,7 @@ interface DetectedPlayer {
   prevHandicap?: number;
   prevName?: string;
   teeColor?: string;
+  teeGender?: 'M' | 'F';
   scores: {
     holeNumber: number;
     strokes: number;
@@ -81,18 +85,22 @@ const TEE_COLORS = [
   { name: 'Green', color: '#008000' },
 ];
 
+// Maximum number of scorecard images per scan (multi-page scorecards)
+const MAX_IMAGES = 3;
+
 export default function ScanScorecardScreen() {
-  const { courseId, editRoundId, prefilled } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string }>();
+  const { courseId, editRoundId, prefilled, review } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string }>();
   const router = useRouter();
-  const { 
-    players, 
-    courses, 
-    addRound, 
+  const {
+    players,
+    courses,
+    rounds,
+    addRound,
     updateRound,
     addPlayer,
     addCourse,
     updateCourse,
-    scannedData, 
+    scannedData,
     isScanning: storeScanningState,
     remainingScans,
     pendingScanPhotos,
@@ -108,11 +116,25 @@ export default function ScanScorecardScreen() {
     markActiveScanReviewPending,
     markActiveScanReviewed,
     clearActiveScanJob,
+    devMode,
+    setShouldShowScanCourseModal,
+    pendingScanCourseSelection,
+    clearPendingScanCourseSelection,
   } = useGolfStore();
   const [permission, requestPermission] = useCameraPermissions();
+  const profile = useQuery(api.users.getProfile);
+  const roundsSummary = useQuery(
+    api.rounds.listWithSummary,
+    profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
+  ) || [];
+  const userGender = (profile as any)?.gender as "M" | "F" | undefined;
+
+  // Convex actions for course lookup (to check global cache before paid API)
+  const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
+  const upsertCourse = useMutation(api.courses.upsert);
   const [facing, setFacing] = useState<CameraType>('back');
   const photos = pendingScanPhotos;
-  const scanning = storeScanningState || activeScanJob?.status === 'processing';
+  const scanning = storeScanningState;
   const [processingComplete, setProcessingComplete] = useState(false);
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
   const [showPlayerLinking, setShowPlayerLinking] = useState(false);
@@ -120,8 +142,16 @@ export default function ScanScorecardScreen() {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [linkingWasRemoved, setLinkingWasRemoved] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<string | null>(courseId || null);
+  const [prefilledCourseName, setPrefilledCourseName] = useState<string | null>(null);
   const [showCourseSelector, setShowCourseSelector] = useState(false);
   const [showCourseSearchModal, setShowCourseSearchModal] = useState(false);
+  const [coursePickerSource, setCoursePickerSource] = useState<'scan' | 'review' | null>(null);
+  const [selectedTeeName, setSelectedTeeName] = useState<string | undefined>(undefined);
+  const [showTeePicker, setShowTeePicker] = useState(false);
+  const [teePickerPlayerIndex, setTeePickerPlayerIndex] = useState<number | null>(null);
+  const [teePickerPlayerId, setTeePickerPlayerId] = useState<string | null>(null);
+  const [teePickerGenderTab, setTeePickerGenderTab] = useState<'M' | 'F'>('M');
+  const teePickerIndexRef = useRef<number | null>(null);
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
@@ -132,11 +162,88 @@ export default function ScanScorecardScreen() {
   const [isDragging, setIsDragging] = useState(false);
   const [listVersion, setListVersion] = useState(0);
   const cameraRef = useRef<CameraView>(null);
+  const [devSimReady, setDevSimReady] = useState(false);
   const lastProcessedScanId = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const isEditMode = !!editRoundId;
+  const isReviewMode = review === '1' || review === 'true';
   const preDragPlayersRef = useRef<DetectedPlayer[] | null>(null);
   const hasInitializedPrefill = useRef(false);
+  const hasAppliedCourseSelection = useRef(false);
+  const currentUser = React.useMemo(
+    () => players.find((p) => p.isUser) || (profile ? ({ id: profile._id, isUser: true, handicap: (profile as any)?.handicap, name: profile.name } as any) : null),
+    [players, profile]
+  );
+  const currentUserId = currentUser?.id as string | undefined;
+  const currentUserName = (currentUser as any)?.name?.trim()?.toLowerCase?.();
+
+  // Linkable players: mirror the Players tab (ground truth) using the same Convex summary
+  // First pass: extract unique player IDs from rounds
+  const linkablePlayerData = React.useMemo(() => {
+    const map = new Map<string, Player & { latestDate?: string }>();
+    const userIds = new Set<string>();
+    const userNames = new Set<string>();
+    players.forEach((p) => {
+      if (p.isUser) userIds.add(p.id);
+      if (p.isUser && p.name) userNames.add(p.name.trim().toLowerCase());
+    });
+    if (currentUserId) userIds.add(currentUserId);
+    if (currentUserName) userNames.add(currentUserName);
+
+    // Sort rounds by date (newest first) to get most recent handicap
+    const sortedRounds = [...roundsSummary].sort((a: any, b: any) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    sortedRounds.forEach((round: any) => {
+      (round.players || []).forEach((p: any) => {
+        if (!p.playerId) return;
+        if (userIds.has(p.playerId as any)) return; // exclude the signed-in user from link targets
+        const storePlayer = players.find((sp) => sp.id === p.playerId);
+        if (storePlayer?.isUser) return; // extra guard in case ids mismatch
+        if (p.playerName && userNames.has(p.playerName.trim().toLowerCase())) return; // exclude by name match to user
+
+        // Only add if not already present (we process newest rounds first, so first match = most recent)
+        if (!map.has(p.playerId)) {
+          map.set(p.playerId, {
+            id: p.playerId,
+            name: p.playerName,
+            handicap: p.handicapUsed ?? storePlayer?.handicap,  // Fallback to handicapUsed for now
+            isUser: storePlayer?.isUser,
+            latestDate: round.date,
+          } as Player & { latestDate?: string });
+        }
+      });
+    });
+
+    return Array.from(map.values()).filter((p) => !p.isUser && !userIds.has(p.id));
+  }, [roundsSummary, players, currentUserId, currentUserName]);
+
+  // Extract player IDs for batch query (only valid Convex IDs)
+  const linkablePlayerIds = React.useMemo(() => {
+    return linkablePlayerData
+      .map(p => p.id)
+      .filter(id => id && id.length > 0) as any[];
+  }, [linkablePlayerData]);
+
+  // Batch query for calculated Scandicaps - only query if we have player IDs
+  const batchHandicaps = useQuery(
+    api.players.getHandicapsBatch,
+    linkablePlayerIds.length > 0 ? { playerIds: linkablePlayerIds } : "skip"
+  ) as Record<string, { handicap: number | null; roundsPlayed: number }> | undefined;
+
+  // Merge calculated Scandicaps into linkable players
+  const linkablePlayers = React.useMemo(() => {
+    if (!batchHandicaps) return linkablePlayerData;
+
+    return linkablePlayerData.map(player => {
+      const calculated = batchHandicaps[player.id];
+      if (calculated?.handicap !== null && calculated?.handicap !== undefined) {
+        return { ...player, handicap: calculated.handicap };
+      }
+      return player;
+    });
+  }, [linkablePlayerData, batchHandicaps]);
 
   // Stable user id to avoid re-renders and repeated network calls
   const [userId] = useState<string>(() => {
@@ -144,13 +251,37 @@ export default function ScanScorecardScreen() {
     return currentUser?.id || generateUniqueId();
   });
 
-  // tRPC mutations/queries
-  const scanMutation = trpc.scorecard.scanScorecard.useMutation();
-  const startScanMutation = trpc.scorecard.startScanScorecard.useMutation();
-  const getRemainingScansQuery = trpc.scorecard.getRemainingScans.useQuery(
-    { userId },
-    { enabled: !!userId, refetchOnMount: false, refetchOnWindowFocus: false, staleTime: 60_000 }
-  );
+  // Convex actions/mutations
+  const processScanAction = useAction(api.scorecard.processScan);
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+
+  const buildDevSampleResult = (): ScorecardScanResult => ({
+    courseName: 'Dev National - Demo Course',
+    courseNameConfidence: 0.9,
+    date: new Date().toISOString().split('T')[0],
+    dateConfidence: 0.9,
+    overallConfidence: 0.9,
+    players: [
+      {
+        name: 'Miguel',
+        nameConfidence: 0.95,
+        scores: Array.from({ length: 18 }).map((_, idx) => ({
+          hole: idx + 1,
+          score: idx % 3 === 0 ? 5 : 4,
+          confidence: 0.9,
+        })),
+      },
+      {
+        name: 'Alex',
+        nameConfidence: 0.9,
+        scores: Array.from({ length: 18 }).map((_, idx) => ({
+          hole: idx + 1,
+          score: idx % 4 === 0 ? 6 : 5,
+          confidence: 0.85,
+        })),
+      },
+    ],
+  });
 
   // Helper function to get current user ID
   function getCurrentUserId(): string { return userId; }
@@ -159,18 +290,35 @@ export default function ScanScorecardScreen() {
   useEffect(() => {
     if (isEditMode && prefilled && !hasInitializedPrefill.current) {
       try {
-        const data = JSON.parse(prefilled) as { courseId: string | null, players: { id: string, name: string, scores: { holeNumber: number, strokes: number }[]; teeColor?: string }[], date: string, notes: string, scorecardPhotos?: string[] };
+        const data = JSON.parse(prefilled) as {
+          courseId: string | null;
+          courseName?: string | null;
+          players: {
+            id: string;
+            name: string;
+            scores: { holeNumber: number; strokes: number }[];
+            teeColor?: string;
+            handicap?: number;
+            isUser?: boolean;
+          }[];
+          date: string;
+          notes: string;
+          scorecardPhotos?: string[];
+        };
         if (data.courseId) {
           setSelectedCourse(data.courseId);
+          setPrefilledCourseName(data.courseName ?? null);
         }
         setDate(ensureValidDate(data.date));
         setNotes(data.notes || '');
-        const linkedPlayers: DetectedPlayer[] = (data.players || []).map(p => ({
+        const linkedPlayers: DetectedPlayer[] = (data.players || []).map((p) => ({
           id: generateUniqueId(),
           name: p.name,
           linkedPlayerId: p.id,
           teeColor: p.teeColor || 'Blue',
-          scores: p.scores.map(s => ({ holeNumber: s.holeNumber, strokes: s.strokes }))
+          handicap: p.handicap,
+          isUser: !!p.isUser,
+          scores: p.scores.map((s) => ({ holeNumber: s.holeNumber, strokes: s.strokes })),
         }));
         setDetectedPlayers(linkedPlayers);
         // Preserve previously saved photos when editing
@@ -221,11 +369,7 @@ export default function ScanScorecardScreen() {
   }, []);
 
   // Update remaining scans from query
-  useEffect(() => {
-    if (getRemainingScansQuery.data !== undefined) {
-      setRemainingScans(getRemainingScansQuery.data);
-    }
-  }, [getRemainingScansQuery.data]);
+  // TODO: reinstate remaining scans fetch if needed; removed legacy tRPC hook usage.
 
   // Get user location for course matching bias
   useEffect(() => {
@@ -244,6 +388,12 @@ export default function ScanScorecardScreen() {
   useEffect(() => {
     if (isEditMode) return;
 
+    // Wait until course modal is closed before processing results
+    if (showCourseSearchModal) return;
+
+    // Don't reprocess if already complete (prevents overwriting user edits)
+    if (processingComplete) return;
+
     if (activeScanJob?.requiresReview && activeScanJob.result) {
       if (lastProcessedScanId.current !== activeScanJob.id) {
         processAIResults(activeScanJob.result);
@@ -252,7 +402,79 @@ export default function ScanScorecardScreen() {
     } else if (!activeScanJob) {
       lastProcessedScanId.current = null;
     }
-  }, [activeScanJob, isEditMode]);
+  }, [activeScanJob, isEditMode, showCourseSearchModal, processingComplete]);
+
+  // Auto-apply pending course selection from home screen, or open course selector if needed
+  useEffect(() => {
+    if (!isReviewMode || !processingComplete) return;
+
+    // Skip if we've already applied course selection once (prevents repeated overwrites)
+    if (hasAppliedCourseSelection.current) return;
+
+    // If we have a pending course selection from home screen, apply it
+    if (pendingScanCourseSelection) {
+      console.log('[SCAN] Applying pending course selection from home screen:', pendingScanCourseSelection);
+      setSelectedCourse(pendingScanCourseSelection.courseId);
+      setSelectedTeeName(pendingScanCourseSelection.teeName);
+      setIsLocalCourseSelected(true);
+
+      // Apply tee to all players (like handleSelectCourse does)
+      if (pendingScanCourseSelection.teeName) {
+        setDetectedPlayers(prev =>
+          prev.map(p => ({
+            ...p,
+            teeColor: pendingScanCourseSelection.teeName,
+            teeGender: userGender ?? 'M',
+          }))
+        );
+        setListVersion(v => v + 1);
+      }
+
+      // Also persist to activeScanJob so it survives app reload
+      if (activeScanJob) {
+        setActiveScanJob({
+          ...activeScanJob,
+          selectedCourseId: pendingScanCourseSelection.courseId,
+          selectedTeeName: pendingScanCourseSelection.teeName,
+        });
+      }
+
+      hasAppliedCourseSelection.current = true;
+      clearPendingScanCourseSelection(); // Clear after applying
+      return;
+    }
+
+    // If there's a course already selected in the active scan job, apply it
+    if (activeScanJob?.selectedCourseId && !selectedCourse) {
+      console.log('[SCAN] Restoring course selection from activeScanJob:', activeScanJob.selectedCourseId);
+      setSelectedCourse(activeScanJob.selectedCourseId);
+      if (activeScanJob.selectedTeeName) {
+        setSelectedTeeName(activeScanJob.selectedTeeName);
+        // Apply tee to all players
+        setDetectedPlayers(prev =>
+          prev.map(p => ({
+            ...p,
+            teeColor: activeScanJob.selectedTeeName,
+            teeGender: userGender ?? 'M',
+          }))
+        );
+        setListVersion(v => v + 1);
+      }
+      setIsLocalCourseSelected(true);
+      hasAppliedCourseSelection.current = true;
+      return;
+    }
+
+    // Only auto-open course selector if no course selected and modal not already shown
+    if (!selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected) {
+      // Small timeout to ensure transition/mount is done
+      const timer = setTimeout(() => {
+        setShowCourseSearchModal(true);
+        setCoursePickerSource('review');
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isReviewMode, processingComplete, selectedCourse, selectedApiCourse, showCourseSearchModal, isLocalCourseSelected, pendingScanCourseSelection, activeScanJob]);
 
   // Helper function for confidence-based styling
   const getConfidenceStyle = (confidence?: number) => {
@@ -261,18 +483,27 @@ export default function ScanScorecardScreen() {
     }
     return {};
   };
-  
+
   const toggleCameraFacing = () => {
     setFacing(current => (current === 'back' ? 'front' : 'back'));
   };
-  
+
   const takePicture = async () => {
     if (!cameraRef.current) return;
-    
+
+    // Check if we've reached the maximum number of images
+    if (photos.length >= MAX_IMAGES) {
+      Alert.alert(
+        'Maximum Images Reached',
+        `You can upload up to ${MAX_IMAGES} scorecard images per scan. Remove an image to add a new one.`
+      );
+      return;
+    }
+
     try {
       // Actually take a photo using the camera
       const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: true });
-      
+
       if (photo?.base64) {
         setPendingScanPhotos([...photos, `data:image/jpeg;base64,${photo.base64}`]);
       } else if (photo?.uri) {
@@ -283,8 +514,17 @@ export default function ScanScorecardScreen() {
       Alert.alert('Error', 'Failed to take picture. Please try again.');
     }
   };
-  
+
   const pickImage = async () => {
+    // Check if we've reached the maximum number of images
+    if (photos.length >= MAX_IMAGES) {
+      Alert.alert(
+        'Maximum Images Reached',
+        `You can upload up to ${MAX_IMAGES} scorecard images per scan. Remove an image to add a new one.`
+      );
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -292,24 +532,36 @@ export default function ScanScorecardScreen() {
         quality: 1,
         allowsMultipleSelection: true,
         base64: true,
+        selectionLimit: MAX_IMAGES - photos.length, // Limit selection to remaining slots
       });
-      
+
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newPhotos = result.assets.map(asset =>
+        // Only take up to the remaining slots
+        const slotsRemaining = MAX_IMAGES - photos.length;
+        const assetsToAdd = result.assets.slice(0, slotsRemaining);
+        const newPhotos = assetsToAdd.map(asset =>
           asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri
         );
         setPendingScanPhotos([...photos, ...newPhotos]);
+
+        // Warn if some images were not added
+        if (result.assets.length > slotsRemaining) {
+          Alert.alert(
+            'Some Images Skipped',
+            `Only ${slotsRemaining} image(s) could be added. Maximum is ${MAX_IMAGES} per scan.`
+          );
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
-  
+
   const removePhoto = (index: number) => {
     const updatedPhotos = photos.filter((_, i) => i !== index);
     setPendingScanPhotos(updatedPhotos);
-    
+
     // If no photos left, reset processing state
     if (photos.length === 1) {
       setProcessingComplete(false);
@@ -318,7 +570,7 @@ export default function ScanScorecardScreen() {
       setIsLocalCourseSelected(false);
     }
   };
-  
+
   const resetPhotos = () => {
     clearPendingScanPhotos();
     setProcessingComplete(false);
@@ -333,152 +585,189 @@ export default function ScanScorecardScreen() {
       return;
     }
 
-    const startTime = Date.now();
-    console.log('⏱️ TIMING: Process Scorecard started at', new Date().toLocaleTimeString());
-
     setIsScanning(true);
     clearScanData();
-
-    const scanId = generateUniqueId();
-    const timestamp = new Date().toISOString();
-
-    setActiveScanJob({
-      id: scanId,
-      status: 'processing',
-      stage: 'preparing',
-      progress: 0,
-      message: 'Preparing to scan...',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      thumbnailUri: photos[0] || null,
-      requiresReview: false,
-      result: null,
-      autoReviewLaunched: false,
-    });
-
-    if (!isEditMode) {
-      router.replace('/');
-    }
+    setSelectedTeeName(undefined);
 
     const updateJob = (stage: ScanStage, progress: number, message: string) => {
       updateActiveScanJob({ stage, progress, message });
     };
 
     try {
+      if (devMode) {
+        // Dev mode: mirror the real flow but keep everything local.
+        const devJobId = `dev-${generateUniqueId()}`;
+        const timestamp = new Date().toISOString();
+
+        setActiveScanJob({
+          id: devJobId,
+          status: 'processing',
+          stage: 'processing',
+          progress: 30,
+          message: 'Dev mode: ready to simulate AI response',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          thumbnailUri: photos[0] || null,
+          requiresReview: false,
+          result: null,
+          autoReviewLaunched: false,
+        });
+
+        setProcessingComplete(false);
+        setDetectedPlayers([]);
+        setSelectedApiCourse(null);
+        setIsLocalCourseSelected(false);
+        setIsScanning(false);
+        // Open course/tee picker while "analysis" runs in dev.
+        setShowCourseSearchModal(true);
+        setCoursePickerSource('scan');
+        return;
+      }
+
+      const scanId = generateUniqueId();
+      const timestamp = new Date().toISOString();
+
+      setActiveScanJob({
+        id: scanId,
+        status: 'processing',
+        stage: 'preparing',
+        progress: 0,
+        message: 'Preparing to scan...',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        thumbnailUri: photos[0] || null,
+        requiresReview: false,
+        result: null,
+        autoReviewLaunched: false,
+      });
+
       updateJob('preparing', 5, 'Preparing images for analysis...');
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      updateJob('uploading', 10, 'Processing image data...');
+      updateJob('uploading', 10, 'Uploading images...');
+      console.log('[SCAN] Starting image upload...');
 
-      const images: string[] = [];
+      // Upload images to Convex file storage and collect storage IDs
+      const storageIds: Id<"_storage">[] = [];
       for (let i = 0; i < photos.length; i++) {
-        const progress = 10 + Math.round((5 * (i + 1)) / photos.length);
-        updateJob('uploading', progress, `Processing image ${i + 1} of ${photos.length}...`);
+        const progress = 10 + Math.round((10 * (i + 1)) / photos.length);
+        updateJob('uploading', progress, `Uploading image ${i + 1} of ${photos.length}...`);
+        console.log(`[SCAN] Processing image ${i + 1}...`);
 
-        const b64 = await convertImageToBase64(photos[i]);
-        images.push(b64);
+        // Get upload URL from Convex
+        console.log('[SCAN] Getting upload URL...');
+        const uploadUrl = await generateUploadUrl();
+        console.log('[SCAN] Got upload URL');
 
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Convert photo to blob for upload
+        let blob: Blob;
+        const photoUri = photos[i];
+        console.log('[SCAN] Converting to blob, URI type:', photoUri.startsWith('data:') ? 'data:' : 'file:');
+        if (photoUri.startsWith('data:')) {
+          // Base64 data URL - convert to blob
+          const response = await fetch(photoUri);
+          blob = await response.blob();
+        } else {
+          // File URI - read and convert
+          const base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: 'base64' as any } as any);
+          const byteCharacters = atob(base64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let j = 0; j < byteCharacters.length; j++) {
+            byteNumbers[j] = byteCharacters.charCodeAt(j);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          blob = new Blob([byteArray], { type: 'image/jpeg' });
+        }
+        console.log('[SCAN] Blob created, size:', blob.size);
+
+        // Upload to Convex storage
+        console.log('[SCAN] Uploading to Convex storage...');
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': blob.type || 'image/jpeg' },
+          body: blob,
+        });
+        console.log('[SCAN] Upload response status:', uploadResponse.status);
+
+        if (!uploadResponse.ok) {
+          throw new Error(`Failed to upload image ${i + 1}`);
+        }
+
+        const { storageId } = await uploadResponse.json();
+        storageIds.push(storageId as Id<"_storage">);
+        console.log('[SCAN] Got storage ID:', storageId);
+
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      updateJob('analyzing', 20, 'Connecting to AI analysis...');
-      await new Promise(resolve => setTimeout(resolve, 800));
-
+      console.log('[SCAN] All images uploaded, calling processScan...');
       updateJob('analyzing', 25, 'AI is reading your scorecard...');
 
-      const progressSteps = [
-        { progress: 30, message: 'Detecting players and scores...' },
-        { progress: 40, message: 'Analyzing handwriting patterns...' },
-        { progress: 50, message: 'Extracting hole information...' },
-        { progress: 60, message: 'Reading score values...' },
-        { progress: 70, message: 'Analyzing confidence levels...' },
-        { progress: 78, message: 'Cross-referencing data...' },
-        { progress: 85, message: 'Validating extracted data...' },
-        { progress: 90, message: 'Finalizing results...' }
-      ];
+      // Generate job ID now before calling action
+      const clientJobId = generateUniqueId();
 
-      const startJob = await startScanMutation.mutateAsync({ images, userId: getCurrentUserId() });
-      const jobId = startJob.jobId as string;
+      // Set up the scan job BEFORE calling the action
+      // This allows us to show course modal immediately
+      setActiveScanJob({
+        id: clientJobId,
+        status: 'processing',
+        stage: 'processing',
+        progress: 30,
+        message: 'AI is reading your scorecard...',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        thumbnailUri: photos[0] || null,
+        requiresReview: false,
+        result: null,
+        autoReviewLaunched: false,
+      });
 
-      let result: any = null;
-      for (let attempt = 0; attempt < 240; attempt++) {
-        await new Promise(r => setTimeout(r, 2000));
-        const status = await trpcClient.scorecard.getScanStatus.query({ jobId });
-        if (status.status === 'complete') {
-          result = status.result;
-          break;
-        }
-        if (status.status === 'error') {
-          throw new Error(status.error || 'Scan failed');
-        }
-      }
-
-      if (!result) throw new Error('Scan timed out waiting for completion');
-
-      for (const step of progressSteps) {
-        updateJob('analyzing', step.progress, step.message);
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 3000 + 2000));
-      }
-
-      console.log('⏱️ TIMING: Reached 90% at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
-      updateJob('processing', 90, 'Waiting for AI completion...');
-
-      const response = result;
-
-      updateJob('processing', 100, 'Processing complete!');
-
-      console.log('⏱️ TIMING: OpenAI response received at', new Date().toLocaleTimeString(), `(${Math.round((Date.now() - startTime) / 1000)}s total)`);
-      updateJob('complete', 100, 'Scan complete!');
-
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      setRemainingScans(response.remainingScans);
-
-      const handleContinueToReview = () => {
-        setScannedData(response.data);
-        updateActiveScanJob({
-          status: 'complete',
-          stage: 'complete',
-          message: 'Review your round and save when ready.',
-          result: response.data,
-          autoReviewLaunched: true,
+      // Fire the action in background - don't await!
+      // The action will update scan job state and sync results to store
+      processScanAction({ storageIds })
+        .then((result) => {
+          console.log('[SCAN] processScan completed:', result);
+          setRemainingScans(result.scansRemaining ?? remainingScans);
+          // Update scan job with result - this triggers review screen when user closes course modal
+          if (result.result) {
+            updateActiveScanJob({
+              status: 'complete',
+              stage: 'complete',
+              progress: 100,
+              message: 'Ready for review',
+              result: result.result,
+              requiresReview: true,
+            });
+            setScannedData(result.result);
+          }
+        })
+        .catch((error) => {
+          console.error('[SCAN] processScan error:', error);
+          updateActiveScanJob({
+            status: 'error',
+            stage: 'error',
+            message: 'Failed to analyze scorecard. Please try again.',
+            progress: 0,
+          });
         });
-        markActiveScanReviewPending();
-        router.push('/scan-scorecard?review=1');
-      };
 
-      const handleRetake = () => {
-        clearPendingScanPhotos();
-        clearActiveScanJob();
-        if (isMountedRef.current) {
-          setProcessingComplete(false);
-          setDetectedPlayers([]);
-          setSelectedApiCourse(null);
-          setIsLocalCourseSelected(false);
-        }
-        clearScanData();
-        router.push('/scan-scorecard');
-      };
+      // Navigate to home immediately and show course selection modal there
+      setProcessingComplete(false);
+      setDetectedPlayers([]);
+      setSelectedApiCourse(null);
+      setIsLocalCourseSelected(false);
+      setIsScanning(false);
 
-      if (response.data.overallConfidence < 0.6) {
-        Alert.alert(
-          'Low Confidence Detected',
-          `The scan confidence is ${Math.round(response.data.overallConfidence * 100)}%. The extracted data may not be accurate. Would you like to retake the photos or continue with manual editing?`,
-          [
-            {
-              text: 'Retake Photos',
-              style: 'destructive',
-              onPress: handleRetake,
-            },
-            {
-              text: 'Continue & Edit',
-              onPress: handleContinueToReview,
-            }
-          ]
-        );
-      } else {
-        handleContinueToReview();
-      }
+      // Navigate first, then trigger modal with a slight delay to avoid race condition
+      console.log('[SCAN] Navigating to home...');
+      router.replace('/');
+
+      // Small delay to ensure navigation completes before showing modal
+      setTimeout(() => {
+        console.log('[SCAN] Setting shouldShowScanCourseModal to TRUE after delay');
+        setShouldShowScanCourseModal(true);
+      }, 100);
+      return;
 
     } catch (error) {
       console.error('Scan error:', error);
@@ -490,7 +779,7 @@ export default function ScanScorecardScreen() {
       });
 
       Alert.alert(
-        'Scan Failed', 
+        'Scan Failed',
         error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
         [
           {
@@ -511,79 +800,27 @@ export default function ScanScorecardScreen() {
     }
   };
 
-  // Context 1: Smart course pre-selection from AI detection
-  const searchAndSelectCourse = async (courseName: string) => {
-    try {
-      console.log(`🔍 COURSE MATCHING: Searching for "${courseName}"`);
-      
-      // Step 1: Search local courses first (always prefer existing) - LENIENT matching
-      const localMatchResult = matchCourseToLocal(courseName, courses, userLocation, true);
-      
-      if (localMatchResult.match) {
-        console.log(`✅ LOCAL MATCH: Found "${localMatchResult.match.name}" (${localMatchResult.confidence}% confidence) - ${localMatchResult.reason}`);
-        setSelectedCourse(localMatchResult.match.id);
-        setIsLocalCourseSelected(true);
-        setSelectedApiCourse(null);
-        return;
-      }
-      
-      console.log(`🌐 API SEARCH: No local match, searching API for "${courseName}"`);
-      
-      // Step 2: Search API if no local match
-      const apiResults = await searchCourses(courseName);
-      
-      if (apiResults.length === 0) {
-        console.log(`❌ NO MATCH: No courses found for "${courseName}"`);
-        return;
-      }
-      
-      // Find best API match using our robust matching
-      let bestApiMatch = null;
-      let bestScore = 0;
-      
-      for (const apiCourse of apiResults) {
-        const fullApiName = `${apiCourse.club_name} - ${apiCourse.course_name}`;
-        const matchResult = matchCourseToLocal(courseName, [{ 
-          id: 'temp', 
-          name: fullApiName, 
-          location: `${apiCourse.location.city}, ${apiCourse.location.state}`,
-          holes: [],
-          slope: 0,
-          rating: 0
-        }], userLocation, false); // STRICT matching for API search results
-        
-        if (matchResult.confidence > bestScore) {
-          bestScore = matchResult.confidence;
-          bestApiMatch = apiCourse;
-        }
-      }
-      
-      // Only pre-select if we have high confidence (75%+)
-      if (bestApiMatch && bestScore >= 75) {
-        const fullName = `${bestApiMatch.club_name} - ${bestApiMatch.course_name}`;
-        console.log(`✅ API MATCH: Found "${fullName}" (${bestScore}% confidence)`);
-        
-        setSelectedApiCourse({ apiCourse: bestApiMatch });
-        setSelectedCourse(`api_temp_${bestApiMatch.id}`);
-        setIsLocalCourseSelected(false);
-      } else {
-        console.log(`❌ LOW CONFIDENCE: Best API match was ${bestScore}%, not pre-selecting`);
-      }
-      
-    } catch (error) {
-      console.error('Error in course search and selection:', error);
-    }
-  };
-
   const processAIResults = (scanResult: ScorecardScanResult) => {
     const currentUser = players.find(p => p.isUser);
-    
+    const teeFromResult = (scanResult as any).teeName as string | undefined;
+    const teeOverride = teeFromResult || activeScanJob?.selectedTeeName || selectedTeeName;
+
+    // Restore course selection from activeScanJob if present (e.g., after app reload)
+    if (activeScanJob?.selectedCourseId) {
+      console.log('[SCAN] processAIResults: Restoring course from activeScanJob:', activeScanJob.selectedCourseId);
+      setSelectedCourse(activeScanJob.selectedCourseId as string);
+      setIsLocalCourseSelected(true);  // Prevent modal from reopening
+      if (activeScanJob.selectedTeeName) {
+        setSelectedTeeName(activeScanJob.selectedTeeName);
+      }
+    }
+
     // Convert AI results to DetectedPlayer format
     const aiDetectedPlayers: DetectedPlayer[] = scanResult.players.map(player => ({
       id: generateUniqueId(),
       name: player.name,
       nameConfidence: player.nameConfidence,
-      teeColor: 'Blue', // Default tee color, user can change
+      teeColor: 'Blue', // temporary default, overridden below if teeOverride is present
       scores: player.scores
         .filter(score => score.score !== null) // Filter out null scores
         .map(score => ({
@@ -596,30 +833,34 @@ export default function ScanScorecardScreen() {
     // Auto-link players with existing players and mark user
     const linkedPlayers = autoLinkPlayers(aiDetectedPlayers);
 
-    // Context 1: AI course name detection with high confidence
-    if (scanResult.courseName && scanResult.courseNameConfidence >= 0.7) {
-      searchAndSelectCourse(scanResult.courseName);
-    }
+    // If we have a tee chosen from course selection or dev sample, apply it to all players.
+    const playersWithTee = teeOverride
+      ? linkedPlayers.map(p => ({
+        ...p,
+        teeColor: teeOverride,
+        teeGender: userGender ?? 'M',
+      }))
+      : linkedPlayers.map(p => ({ ...p, teeGender: userGender ?? 'M' }));
 
     // Set date - use detected date if valid, otherwise default to today's date
     setDate(ensureValidDate(scanResult.date));
 
-    setDetectedPlayers(linkedPlayers);
+    setDetectedPlayers(playersWithTee);
     setProcessingComplete(true);
   };
-  
+
   // Simple Levenshtein distance function for name matching
   const levenshteinDistance = (str1: string, str2: string): number => {
     const matrix = [];
-    
+
     for (let i = 0; i <= str2.length; i++) {
       matrix[i] = [i];
     }
-    
+
     for (let j = 0; j <= str1.length; j++) {
       matrix[0][j] = j;
     }
-    
+
     for (let i = 1; i <= str2.length; i++) {
       for (let j = 1; j <= str1.length; j++) {
         if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
@@ -633,7 +874,7 @@ export default function ScanScorecardScreen() {
         }
       }
     }
-    
+
     return matrix[str2.length][str1.length];
   };
 
@@ -642,28 +883,41 @@ export default function ScanScorecardScreen() {
     return detectedPlayers.map(player => {
       // Skip if already linked
       if (player.linkedPlayerId) return player;
-      
+
       // Look for exact match first
       const exactMatch = players.find(p => p.name.toLowerCase() === player.name.toLowerCase());
       if (exactMatch) {
+        // If this exact match is the current user, treat as "You" (no Linked badge)
+        const matchesUserById = currentUserId && exactMatch.id === currentUserId;
+        const matchesUserByFlag = exactMatch.isUser;
+        const matchesUserByName = currentUserName && exactMatch.name.toLowerCase() === currentUserName;
+        if (matchesUserById || matchesUserByFlag || matchesUserByName) {
+          const resolvedHandicap =
+            exactMatch.handicap ??
+            (profile as any)?.handicap ??
+            currentUser?.handicap;
+          return {
+            ...player,
+            linkedPlayerId: exactMatch.id,
+            handicap: resolvedHandicap,
+            isUser: true,
+            prevLinkedPlayerId: player.prevLinkedPlayerId,
+            prevHandicap: player.prevHandicap,
+          };
+        }
+
         const updatedPlayer = {
           ...player,
           linkedPlayerId: exactMatch.id,
           handicap: exactMatch.handicap
         };
-        
-        // If this exact match is the current user, mark as user
-        if (exactMatch.isUser) {
-          updatedPlayer.isUser = true;
-        }
-        
         return updatedPlayer;
       }
-      
+
       return player;
     });
   };
-  
+
   const handleEditPlayerName = (index: number, newName: string) => {
     // legacy index-based handler retained for safety; forwards to id-based when possible
     const player = detectedPlayers[index];
@@ -678,34 +932,67 @@ export default function ScanScorecardScreen() {
       const idx = updated.findIndex(p => p.id === playerId);
       if (idx < 0) return prev;
       updated[idx].name = newName;
-      
+
       // Auto-link if exact match found
       const exactMatch = players.find(p => p.name.toLowerCase() === newName.toLowerCase());
       if (exactMatch && !updated[idx].linkedPlayerId) {
-        updated[idx].linkedPlayerId = exactMatch.id;
-        updated[idx].handicap = exactMatch.handicap;
-        if (exactMatch.isUser) {
-          updated.forEach(p => p.isUser = false);
+        const matchesUserById = currentUserId && exactMatch.id === currentUserId;
+        const matchesUserByFlag = exactMatch.isUser;
+        const matchesUserByName = currentUserName && exactMatch.name.toLowerCase() === currentUserName;
+        if (matchesUserById || matchesUserByFlag || matchesUserByName) {
+          // Treat as "You": set isUser, avoid Linked badge
+          updated.forEach(p => { p.isUser = false; });
           updated[idx].isUser = true;
+          updated[idx].linkedPlayerId = exactMatch.id;
+          updated[idx].handicap =
+            exactMatch.handicap ??
+            (profile as any)?.handicap ??
+            currentUser?.handicap;
+          // Preserve prior linkage/handicap for undo
+          if (updated[idx].prevLinkedPlayerId === undefined) {
+            updated[idx].prevLinkedPlayerId = updated[idx].linkedPlayerId;
+          }
+          if (updated[idx].prevHandicap === undefined && updated[idx].handicap !== undefined) {
+            updated[idx].prevHandicap = updated[idx].handicap;
+          }
+        } else {
+          updated[idx].linkedPlayerId = exactMatch.id;
+          updated[idx].handicap = exactMatch.handicap;
+          if (exactMatch.gender === "M" || exactMatch.gender === "F") {
+            updated[idx].teeGender = exactMatch.gender;
+          }
         }
       }
       return updated;
     });
   };
-  
+
   const handleEditPlayerHandicap = (index: number, handicap: string) => {
     const handicapValue = handicap.trim() === '' ? undefined : Number(handicap);
-    
+
     setDetectedPlayers(prev => {
       const updated = [...prev];
-      updated[index] = { 
-        ...updated[index], 
-        handicap: isNaN(Number(handicap)) ? undefined : handicapValue 
+      updated[index] = {
+        ...updated[index],
+        handicap: isNaN(Number(handicap)) ? undefined : handicapValue
       };
       return updated;
     });
   };
-  
+
+  const handleEditPlayerHandicapById = (playerId: string, handicap: string) => {
+    const handicapValue = handicap.trim() === '' ? undefined : Number(handicap);
+    const finalValue = isNaN(Number(handicap)) ? undefined : handicapValue;
+
+    setDetectedPlayers(prev => {
+      const idx = prev.findIndex(p => p.id === playerId);
+      if (idx < 0) return prev;
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], handicap: finalValue };
+      return updated;
+    });
+  };
+
   const handleEditTeeColor = (index: number, teeColor: string) => {
     setDetectedPlayers(prev => {
       const updated = [...prev];
@@ -713,28 +1000,28 @@ export default function ScanScorecardScreen() {
       return updated;
     });
   };
-  
+
   const handleEditScore = (playerIndex: number, holeNumber: number, strokes: number) => {
     setDetectedPlayers(prev => {
       const updated = [...prev];
       const scoreIndex = updated[playerIndex].scores.findIndex(s => s.holeNumber === holeNumber);
-      
+
       if (scoreIndex >= 0) {
         updated[playerIndex].scores[scoreIndex].strokes = strokes;
       }
-      
+
       return updated;
     });
   };
-  
+
   const handleRemovePlayer = (index: number) => {
     Alert.alert(
       "Remove Player",
       "Are you sure you want to remove this player?",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Remove", 
+        {
+          text: "Remove",
           style: "destructive",
           onPress: () => {
             setDetectedPlayers(prev => prev.filter((_, i) => i !== index));
@@ -751,8 +1038,8 @@ export default function ScanScorecardScreen() {
       "Are you sure you want to remove this player?",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Remove", 
+        {
+          text: "Remove",
           style: "destructive",
           onPress: () => {
             setDetectedPlayers(prev => prev.filter(p => p.id !== playerId));
@@ -762,16 +1049,16 @@ export default function ScanScorecardScreen() {
       ]
     );
   };
-  
+
   const handleAddPlayer = () => {
     if (!detectedPlayers.length) return;
-    
+
     // Copy scores structure from first player but set all scores to 0
     const scoreTemplate = detectedPlayers[0].scores.map(s => ({
       holeNumber: s.holeNumber,
       strokes: 0
     }));
-    
+
     setDetectedPlayers(prev => [
       ...prev,
       {
@@ -782,7 +1069,7 @@ export default function ScanScorecardScreen() {
       }
     ]);
   };
-  
+
   const handleLinkPlayer = (index: number) => {
     setSelectedPlayerIndex(index);
     const player = detectedPlayers[index];
@@ -798,7 +1085,7 @@ export default function ScanScorecardScreen() {
     setLinkingWasRemoved(false);
     setShowPlayerLinking(true);
   };
-  
+
   const handleSelectExistingPlayer = (existingPlayerId: string, playerName: string, handicap?: number) => {
     const idx = selectedPlayerId ? detectedPlayers.findIndex(p => p.id === selectedPlayerId) : selectedPlayerIndex ?? -1;
     if (idx === null || idx < 0) return;
@@ -817,12 +1104,12 @@ export default function ScanScorecardScreen() {
       return updated;
     });
     setListVersion(v => v + 1);
-    
+
     setShowPlayerLinking(false);
     setSelectedPlayerIndex(null);
     setSelectedPlayerId(null);
   };
-  
+
   const handleMarkAsUser = (index: number) => {
     setDetectedPlayers(prev => {
       const updated = prev.map(p => ({ ...p, isUser: false }));
@@ -836,6 +1123,10 @@ export default function ScanScorecardScreen() {
   // Mark/unmark as current user by player id (works after reordering and when already linked)
   const handleMarkAsUserById = (playerId: string) => {
     const currentUser = players.find(p => p.isUser);
+    // Get official Scandicap from Convex profile
+    const profileHandicap = (profile as any)?.handicap;
+    const profileName = (profile as any)?.name || currentUser?.name || 'You';
+
     setDetectedPlayers(prev => {
       const updated = prev.map(p => ({ ...p }));
       const idx = updated.findIndex(p => p.id === playerId);
@@ -866,15 +1157,24 @@ export default function ScanScorecardScreen() {
           // Turning on: clear isUser on others and link this to current user
           updated.forEach(p => { p.isUser = false; });
           selected.isUser = true;
-          if (currentUser) {
-            // Save previous linkage/handicap for undo; DO NOT change the name
+
+          // Save previous values for undo
+          if (selected.prevLinkedPlayerId === undefined) {
             selected.prevLinkedPlayerId = selected.linkedPlayerId;
-            if (selected.handicap !== undefined) selected.prevHandicap = selected.handicap;
-            if (selected.prevName === undefined) selected.prevName = selected.name;
-            selected.linkedPlayerId = currentUser.id;
-            selected.handicap = currentUser.handicap;
-            selected.name = currentUser.name;
           }
+          if (selected.prevHandicap === undefined && selected.handicap !== undefined) {
+            selected.prevHandicap = selected.handicap;
+          }
+          if (selected.prevName === undefined) {
+            selected.prevName = selected.name;
+          }
+
+          // Apply user's profile data
+          if (currentUser) {
+            selected.linkedPlayerId = currentUser.id;
+          }
+          selected.name = profileName;
+          selected.handicap = profileHandicap ?? currentUser?.handicap;
         }
         updated[idx] = selected;
       }
@@ -882,12 +1182,12 @@ export default function ScanScorecardScreen() {
     });
     setListVersion(v => v + 1);
   };
-  
+
   const handleReorderPlayers = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
-    
+
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    
+
     setDetectedPlayers(prev => {
       const updated = [...prev];
       const [movedPlayer] = updated.splice(fromIndex, 1);
@@ -895,11 +1195,11 @@ export default function ScanScorecardScreen() {
       return updated;
     });
   };
-  
+
   const startDragging = (index: number) => {
     setDraggingPlayerIndex(index);
   };
-  
+
   const endDragging = () => {
     setDraggingPlayerIndex(null);
   };
@@ -910,59 +1210,145 @@ export default function ScanScorecardScreen() {
     }
     endDragging();
   };
-  
+
   // Helper function to get the display name of the selected course
   const getSelectedCourseName = (): string => {
     if (selectedApiCourse?.apiCourse) {
       const { apiCourse } = selectedApiCourse;
       return `${apiCourse.club_name} - ${apiCourse.course_name}`;
     }
-    
+
     const localCourse = courses.find(c => c.id === selectedCourse);
-    return localCourse?.name || "Select Course";
+    if (localCourse) return localCourse.name;
+    if (selectedCourse && prefilledCourseName) return prefilledCourseName;
+    return "Select Course";
   };
 
   const handleSelectCourse = (course: Course, meta?: { apiCourse?: ApiCourseData; selectedTee?: string }) => {
     setSelectedCourse(course.id);
     setSelectedApiCourse(meta?.apiCourse ? { apiCourse: meta.apiCourse, selectedTee: meta.selectedTee } : null);
+    const teePicked = meta?.selectedTee;
+    if (teePicked) {
+      setSelectedTeeName(teePicked);
+      // When course changes and a tee was picked, overwrite all players with the new tee.
+      setDetectedPlayers(prev =>
+        prev.map(p => ({
+          ...p,
+          teeColor: teePicked,
+          teeGender: userGender ?? 'M', // default to user gender; per-player overrides happen on link
+        }))
+      );
+      setListVersion(v => v + 1);
+    }
     setShowCourseSearchModal(false);
     setActiveTab('details');
+
+    if (activeScanJob) {
+      setActiveScanJob({
+        ...activeScanJob,
+        selectedCourseId: course.id,
+        selectedCourseName: course.name,
+        ...(meta?.selectedTee
+          ? { selectedTeeName: meta.selectedTee, selectedTeeGender: undefined }
+          : {}),
+      } as any);
+    }
+
+    const source = coursePickerSource;
+    setCoursePickerSource(null);
+    if (!isEditMode && source === 'scan') {
+      router.replace('/');
+    }
+  };
+
+  const openTeePicker = (playerId: string, index: number) => {
+    const tees = getAvailableTeeSets();
+    const player = detectedPlayers[index];
+    const defaultGender =
+      player?.teeGender ??
+      (tees.find((t: any) => t.gender === 'M')
+        ? 'M'
+        : tees.find((t: any) => t.gender === 'F')
+          ? 'F'
+          : 'M');
+
+    setTeePickerPlayerIndex(index);
+    teePickerIndexRef.current = index;
+    setTeePickerPlayerId(playerId ?? null);
+    setTeePickerGenderTab(defaultGender);
+    setShowTeePicker(true);
+  };
+
+  const handleSelectTee = (teeName: string, gender?: 'M' | 'F') => {
+    const stateIndex = teePickerPlayerIndex;
+    const refIndex = teePickerIndexRef.current;
+
+    const targetIndex =
+      stateIndex ??
+      refIndex ??
+      (teePickerPlayerId ? detectedPlayers.findIndex(p => p.id === teePickerPlayerId) : -1);
+
+    if (targetIndex === null || targetIndex === undefined || targetIndex < 0) {
+      console.warn('[teePicker] missing target index', { stateIndex, refIndex, playerId: teePickerPlayerId });
+      return;
+    }
+
+    setDetectedPlayers(prev => {
+      const updated = [...prev];
+      if (!updated[targetIndex]) return prev;
+      updated[targetIndex] = { ...updated[targetIndex], teeColor: teeName, teeGender: gender };
+      return updated;
+    });
+    setListVersion(v => v + 1);
+    setShowTeePicker(false);
+    setTeePickerPlayerIndex(null);
+    setTeePickerPlayerId(null);
+    teePickerIndexRef.current = null;
   };
 
   const buildPrefillHoles = (): Hole[] => {
     // For now, since we don't have actual par data from scorecard scanning yet,
     // we'll default to par 4 for all holes. When scorecard scanning is implemented,
     // this should extract the actual par data from the scanned scorecard.
-    return Array.from({ length: 18 }, (_, i) => ({ 
-      number: i + 1, 
-      par: 4, 
-      distance: 0 
+    return Array.from({ length: 18 }, (_, i) => ({
+      number: i + 1,
+      par: 4,
+      distance: 0
     }));
+  };
+
+  const getAvailableTeeSets = () => {
+    const course = selectedCourse ? courses.find(c => c.id === selectedCourse) : null;
+    const teeSets = (course as any)?.teeSets;
+    if (Array.isArray(teeSets) && teeSets.length > 0) {
+      return teeSets;
+    }
+    return [];
   };
 
   const handleAddCourseManually = () => {
     const holesPrefill = buildPrefillHoles();
     router.push({ pathname: '/manual-course-entry', params: { holes: JSON.stringify(holesPrefill) } });
   };
-  
+
   const validateForm = () => {
     if (!selectedCourse) {
       Alert.alert("Error", "Please select a course before continuing");
       return false;
     }
-    
+
     if (detectedPlayers.length === 0) {
       Alert.alert("Error", "No players detected. Please try scanning again or add players manually");
       return false;
     }
-    
+
     // Check if all players have names
     const emptyNamePlayer = detectedPlayers.find(p => !p.name.trim());
     if (emptyNamePlayer) {
       Alert.alert("Error", "All players must have names");
       return false;
     }
-    
+
     // Check if all scores are entered
     for (const player of detectedPlayers) {
       if (player.scores.some(s => s.strokes === 0)) {
@@ -970,15 +1356,15 @@ export default function ScanScorecardScreen() {
         return false;
       }
     }
-    
+
     return true;
   };
-  
+
   const handleSaveRound = async () => {
     if (!validateForm()) {
       return;
     }
-    
+
     // Calculate total scores for each player
     const playersWithTotalScores = detectedPlayers.map(player => {
       const totalScore = player.scores.reduce((sum, score) => sum + score.strokes, 0);
@@ -987,7 +1373,7 @@ export default function ScanScorecardScreen() {
         totalScore
       };
     });
-    
+
     // Ensure course persistence/image when saving
     let finalCourseId = selectedCourse as string;
     let finalCourseName = 'Unknown Course';
@@ -1026,18 +1412,99 @@ export default function ScanScorecardScreen() {
         }
         setIsLocalCourseSelected(true);
       } else {
-        console.log(`➕ SAVE MATCH: Adding new course "${apiCourseName}" to local store`);
+        // Check Convex global cache before calling paid API
+        // This allows reusing course data that other users have already fetched
+        let convexCourse: any = null;
         try {
-          const newLocalCourse = await convertApiCourseToLocal(apiCourse, { selectedTee, fetchImage: true });
-          addCourse(newLocalCourse);
-          finalCourseId = newLocalCourse.id;
-          finalCourseName = newLocalCourse.name;
-          setSelectedCourse(newLocalCourse.id);
+          console.log(`🔍 SAVE: Checking Convex cache for externalId: ${deterministicId}`);
+          convexCourse = await getConvexCourseByExternalId({ externalId: deterministicId });
+          if (convexCourse) {
+            console.log(`✅ SAVE: Found course in Convex cache: ${convexCourse.name}`);
+          }
+        } catch (err) {
+          console.warn('Convex course lookup failed, falling back to API:', err);
+        }
+
+        if (convexCourse) {
+          // Found in Convex - convert to local format and use
+          // externalId is the link to the original API ID for future updates
+          const courseFromConvex: Course = {
+            id: convexCourse.externalId || convexCourse._id,
+            name: convexCourse.name,
+            location: convexCourse.location,
+            holes: convexCourse.holes?.map((h: any) => ({
+              number: h.number,
+              par: h.par,
+              distance: h.yardage || 0,
+              handicap: h.hcp,
+            })) || [],
+            imageUrl: convexCourse.imageUrl,
+            slope: convexCourse.slope,
+            rating: convexCourse.rating,
+            teeSets: convexCourse.teeSets,
+            isApiCourse: true,
+            apiId: convexCourse.externalId ? Number(convexCourse.externalId) : undefined,
+          };
+          addCourse(courseFromConvex); // Add to local Zustand cache
+          finalCourseId = courseFromConvex.id;
+          finalCourseName = courseFromConvex.name;
+          setSelectedCourse(courseFromConvex.id);
           setIsLocalCourseSelected(true);
-        } catch (error) {
-          console.error('Failed to convert API course while saving round:', error);
-          finalCourseName = apiCourseName;
-          finalCourseId = deterministicId;
+          console.log(`📥 SAVE: Added course from Convex cache to local store`);
+        } else {
+          // Not in Convex - call paid API and save to both Convex AND local
+          console.log(`➕ SAVE: Course not cached. Fetching from API: "${apiCourseName}"`);
+          try {
+            const newLocalCourse = await convertApiCourseToLocal(apiCourse, { selectedTee, fetchImage: true });
+            addCourse(newLocalCourse);
+            finalCourseId = newLocalCourse.id;
+            finalCourseName = newLocalCourse.name;
+            setSelectedCourse(newLocalCourse.id);
+            setIsLocalCourseSelected(true);
+
+            // Also save to Convex global cache for other users
+            try {
+              await upsertCourse({
+                externalId: newLocalCourse.id, // This is the API ID, the key link for future updates
+                name: newLocalCourse.name,
+                location: newLocalCourse.location || "Unknown",
+                slope: (newLocalCourse as any).slope,
+                rating: (newLocalCourse as any).rating,
+                teeSets: (newLocalCourse as any).teeSets?.map((t: any) => ({
+                  name: t.name,
+                  rating: t.rating,
+                  slope: t.slope,
+                  gender: t.gender,
+                  frontRating: t.frontRating,
+                  frontSlope: t.frontSlope,
+                  backRating: t.backRating,
+                  backSlope: t.backSlope,
+                  holes: t.holes?.map((h: any, idx: number) => ({
+                    number: h.number ?? idx + 1,
+                    par: h.par,
+                    hcp: h.handicap ?? h.hcp ?? idx + 1,
+                    yardage: h.distance ?? h.yardage,
+                  })),
+                })),
+                holes: newLocalCourse.holes.map((h) => ({
+                  number: h.number,
+                  par: h.par,
+                  hcp: (h as any).handicap ?? (h as any).hcp ?? h.number,
+                  yardage: (h as any).distance ?? (h as any).yardage,
+                })),
+                imageUrl: (newLocalCourse as any).imageUrl !== DEFAULT_COURSE_IMAGE
+                  ? (newLocalCourse as any).imageUrl
+                  : undefined,
+              });
+              console.log(`☁️ SAVE: Cached course to Convex for other users`);
+            } catch (convexErr) {
+              console.warn('Convex upsert failed (non-fatal):', convexErr);
+            }
+          } catch (error) {
+            console.error('Failed to convert API course while saving round:', error);
+            finalCourseName = apiCourseName;
+            finalCourseId = deterministicId;
+          }
         }
       }
 
@@ -1047,30 +1514,76 @@ export default function ScanScorecardScreen() {
       finalCourseName = localCourse?.name || 'Unknown Course';
     }
 
+
+    // Helper to ensure every saved player carries tee info
+    const teeSetsForCourse = getAvailableTeeSets();
+    const resolveTeeForPlayer = (player: any) => {
+      const baseName = player.teeColor || selectedTeeName || undefined;
+      let gender = player.teeGender as "M" | "F" | undefined;
+
+      if (!gender && baseName && Array.isArray(teeSetsForCourse) && teeSetsForCourse.length > 0) {
+        const match = teeSetsForCourse.find(
+          (t: any) =>
+            typeof t.name === "string" &&
+            t.name.toLowerCase() === baseName.toString().toLowerCase()
+        );
+        if (match && (match.gender === "M" || match.gender === "F")) {
+          gender = match.gender as "M" | "F";
+        }
+      }
+
+      return { teeColor: baseName, teeGender: gender };
+    };
+
+    // Helper to check if ID is a valid Convex ID (32 alphanumeric chars)
+    const isConvexId = (id: string | undefined | null) => !!id && /^[a-z0-9]{32}$/i.test(id);
+
     // Create the round object
     const roundId = isEditMode && editRoundId ? editRoundId : generateUniqueId();
-    
+
+    // Find existing round to preserve remoteId if it was synced
+    const existingRound = isEditMode
+      ? rounds.find((r: any) => r.id === editRoundId || r.remoteId === editRoundId)
+      : null;
+
+    // Determine the remoteId:
+    // 1. If existingRound has a remoteId, use it
+    // 2. Else if editRoundId is a valid Convex ID, use it as remoteId (round came from Convex)
+    const resolvedRemoteId = existingRound?.remoteId
+      ?? (isEditMode && isConvexId(editRoundId) ? editRoundId : undefined);
+
     // Determine hole count from detected players' scores
-    const holeCount = detectedPlayers.length > 0 ? 
+    const holeCount = detectedPlayers.length > 0 ?
       Math.max(...detectedPlayers[0].scores.map(score => score.holeNumber)) : 18;
-    
+
     const newRound = {
-      id: roundId,
+      id: existingRound?.id ?? roundId,
+      ...(resolvedRemoteId ? { remoteId: resolvedRemoteId } : {}),
       date,
       courseId: finalCourseId,
       courseName: finalCourseName,
-      players: playersWithTotalScores.map(player => ({
-        playerId: player.linkedPlayerId || player.id,
-        playerName: player.name,
-        scores: player.scores,
-        totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
-        handicapUsed: player.handicap
-      })),
+      players: playersWithTotalScores.map(player => {
+        const teeMeta = resolveTeeForPlayer(player);
+        return {
+          playerId: player.linkedPlayerId || player.id,
+          playerName: player.name,
+          scores: player.scores,
+          totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
+          handicapUsed: player.handicap,
+          // Persist tee selection so Round Details and Convex sync
+          // can show tee name + gender.
+          teeColor: teeMeta.teeColor,
+          teeGender: teeMeta.teeGender,
+          isUser: !!player.isUser,
+        };
+      }),
       notes,
       holeCount: holeCount <= 9 ? 9 : 18,
-      scorecardPhotos: photos
+      scorecardPhotos: photos,
+      // Mark as pending so RoundSyncer will push to Convex (including dev-mode rounds)
+      syncStatus: 'pending' as const,
     };
-    
+
     if (isEditMode) {
       // Ensure any new players are added to the store
       newRound.players.forEach(p => {
@@ -1079,12 +1592,12 @@ export default function ScanScorecardScreen() {
         }
       });
       updateRound(newRound as any);
-      // Replace the summary screen with the updated details to prevent stacking
-      router.replace(`/round/${roundId}`);
+      // Return to the existing Round Details screen without pushing a duplicate
+      router.back();
     } else {
-      // Add the round to the store and navigate to the home page
+      // Add the round to the store and go straight to Round Details
       addRound(newRound as any);
-      router.replace('/');
+      router.replace(`/round/${roundId}`);
     }
 
     markActiveScanReviewed();
@@ -1098,7 +1611,7 @@ export default function ScanScorecardScreen() {
       setIsLocalCourseSelected(false);
     }
   };
-  
+
   if (!permission && !isEditMode) {
     // Camera permissions are still loading
     return (
@@ -1109,13 +1622,13 @@ export default function ScanScorecardScreen() {
       </SafeAreaView>
     );
   }
-  
+
   if (!isEditMode && permission && !permission.granted) {
     // Camera permissions are not granted yet
     return (
       <SafeAreaView style={styles.container}>
-        <Stack.Screen 
-          options={{ 
+        <Stack.Screen
+          options={{
             title: "Scan Scorecard",
             headerStyle: {
               backgroundColor: colors.background,
@@ -1124,25 +1637,25 @@ export default function ScanScorecardScreen() {
               color: colors.text,
             },
             headerTintColor: colors.text,
-          }} 
+          }}
         />
-        
+
         <View style={styles.permissionContainer}>
           <Camera size={60} color={colors.primary} style={styles.permissionIcon} />
           <Text style={styles.permissionTitle}>Camera Access Required</Text>
           <Text style={styles.permissionText}>
             We need camera access to scan your scorecard. Please grant permission to continue.
           </Text>
-          <Button 
-            title="Grant Permission" 
-            onPress={requestPermission} 
+          <Button
+            title="Grant Permission"
+            onPress={requestPermission}
             style={styles.permissionButton}
           />
         </View>
       </SafeAreaView>
     );
   }
-  
+
   if (showPlayerLinking) {
     const selectedLinkedId = (() => {
       if (selectedPlayerId) {
@@ -1181,8 +1694,8 @@ export default function ScanScorecardScreen() {
 
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Stack.Screen 
-          options={{ 
+        <Stack.Screen
+          options={{
             title: "Link to Existing Player",
             headerStyle: {
               backgroundColor: colors.background,
@@ -1192,7 +1705,7 @@ export default function ScanScorecardScreen() {
             },
             headerTintColor: colors.text,
             headerLeft: () => (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => {
                   setShowPlayerLinking(false);
                   setSelectedPlayerIndex(null);
@@ -1207,7 +1720,7 @@ export default function ScanScorecardScreen() {
             ),
             headerRight: () => (
               selectedLinkedId ? (
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={handleUnlinkSelectedPlayer}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   style={styles.headerButton}
@@ -1216,10 +1729,10 @@ export default function ScanScorecardScreen() {
                 </TouchableOpacity>
               ) : null
             )
-          }} 
+          }}
         />
-        
-        <ScrollView 
+
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.contentContainer}
         >
@@ -1232,15 +1745,15 @@ export default function ScanScorecardScreen() {
               })()}
             </Text>
           </Text>
-          
-          {players.length > 0 ? (
-            players
+
+          {linkablePlayers.length > 0 ? (
+            linkablePlayers
               .filter(p => !p.isUser) // hide the current user from merge targets
-              .map(player => {
+              .map((player, idx) => {
                 const isSelected = selectedLinkedId === player.id;
                 return (
                   <TouchableOpacity
-                    key={player.id}
+                    key={player.id || `${player.name}-${idx}`}
                     style={[styles.playerLinkItem, isSelected && styles.playerLinkItemSelected]}
                     onPress={() => handleSelectExistingPlayer(player.id, player.name, player.handicap)}
                   >
@@ -1250,7 +1763,7 @@ export default function ScanScorecardScreen() {
                     <View style={styles.playerLinkInfo}>
                       <Text style={styles.playerLinkName}>{player.name}</Text>
                       {player.handicap !== undefined && (
-                        <Text style={styles.playerLinkHandicap}>Handicap: {player.handicap}</Text>
+                        <Text style={styles.playerLinkHandicap}>Scandicap: {player.handicap}</Text>
                       )}
                     </View>
                     {isSelected ? (
@@ -1281,12 +1794,12 @@ export default function ScanScorecardScreen() {
       </SafeAreaView>
     );
   }
-  
-  if ((photos.length > 0 || isEditMode) && processingComplete) {
+
+  if ((isEditMode || isReviewMode) && processingComplete) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Stack.Screen 
-          options={{ 
+        <Stack.Screen
+          options={{
             title: isEditMode ? "Edit Round" : "Scorecard Results",
             headerStyle: {
               backgroundColor: colors.background,
@@ -1298,7 +1811,7 @@ export default function ScanScorecardScreen() {
             // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
             gestureEnabled: activeTab !== 'players',
             headerLeft: isEditMode ? () => (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => router.replace('/')}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 style={styles.headerButton}
@@ -1307,34 +1820,34 @@ export default function ScanScorecardScreen() {
               </TouchableOpacity>
             ) : undefined,
             headerRight: () => (
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={handleSaveRound}
                 style={styles.headerButton}
               >
                 <Text style={styles.headerButtonText}>Save</Text>
               </TouchableOpacity>
             )
-          }} 
+          }}
         />
-        
+
         <View style={styles.tabContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.tab, activeTab === 'players' && styles.activeTab]}
             onPress={() => setActiveTab('players')}
           >
             <User size={18} color={colors.text} />
             <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[styles.tab, activeTab === 'scores' && styles.activeTab]}
             onPress={() => setActiveTab('scores')}
           >
             <Users size={18} color={colors.text} />
             <Text style={[styles.tabText, activeTab === 'scores' && styles.activeTabText]}>Scores</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={[styles.tab, activeTab === 'details' && styles.activeTab]}
             onPress={() => setActiveTab('details')}
           >
@@ -1342,7 +1855,7 @@ export default function ScanScorecardScreen() {
             <Text style={[styles.tabText, activeTab === 'details' && styles.activeTabText]}>Details</Text>
           </TouchableOpacity>
         </View>
-        
+
         {activeTab === 'players' ? (
           <View pointerEvents="box-none">
             <DraggableFlatList
@@ -1374,7 +1887,7 @@ export default function ScanScorecardScreen() {
                 setIsDragging(false);
               }}
               ListHeaderComponent={
-                <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }] }>
+                <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }]}>
                   <Text style={styles.sectionTitle}>Detected Players</Text>
                   <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
                     <Plus size={16} color={colors.primary} />
@@ -1389,7 +1902,7 @@ export default function ScanScorecardScreen() {
                   <Text style={styles.infoText}>• Edit names by clicking on them and changing the text</Text>
                   <Text style={styles.infoText}>• Link players to existing profiles using the link icon</Text>
                   <Text style={styles.infoText}>• Mark yourself using the user icon</Text>
-                  <Text style={styles.infoText}>• Set handicaps and tee colors for accurate scoring</Text>
+                  <Text style={styles.infoText}>• Set Scandicaps and tee colors for accurate scoring</Text>
                   <Text style={styles.infoText}>• Tap tee color to cycle through available options</Text>
                 </View>
               }
@@ -1399,7 +1912,11 @@ export default function ScanScorecardScreen() {
                   activeOpacity={1}
                   onLongPress={drag}
                   delayLongPress={120}
-                  style={[styles.playerCard, isActive && styles.draggingPlayerCard]}
+                  style={[
+                    styles.playerCard,
+                    player.isUser && styles.userPlayerCard,
+                    isActive && styles.draggingPlayerCard,
+                  ]}
                 >
                   <View style={styles.playerHeaderRow}>
                     <TouchableOpacity style={styles.dragHandle} onLongPress={drag} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
@@ -1420,10 +1937,19 @@ export default function ScanScorecardScreen() {
                         <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>Linked</Text></View>
                       )}
                       <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayerById(player.id)}>
-                        <LinkIcon size={18} color={player.linkedPlayerId ? colors.text : colors.primary} />
+                        <LinkIcon
+                          size={18}
+                          color={
+                            player.isUser
+                              ? colors.primary // keep orange for "You"
+                              : player.linkedPlayerId
+                                ? colors.text
+                                : colors.primary
+                          }
+                        />
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUserById(player.id)}>
-                        <User size={18} color={player.isUser ? colors.success : colors.primary} />
+                        <User size={18} color={player.isUser ? colors.text : colors.primary} />
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.playerAction} onPress={() => handleRemovePlayerById(player.id)}>
                         <X size={18} color={colors.error} />
@@ -1432,28 +1958,28 @@ export default function ScanScorecardScreen() {
                   </View>
                   <View style={styles.playerDetailsRow}>
                     <View style={styles.handicapContainer}>
-                      <Text style={styles.handicapLabel}>Handicap:</Text>
+                      <Text style={styles.handicapLabel}>Scandicap:</Text>
                       <TextInput
-                        style={styles.handicapInput}
+                        style={[styles.handicapInput, player.isUser && styles.handicapInputDisabled]}
                         value={player.handicap !== undefined ? String(player.handicap) : ''}
-                        onChangeText={(text) => handleEditPlayerHandicap(index, text)}
+                        onChangeText={(text) => handleEditPlayerHandicapById(player.id, text)}
                         placeholder="Not set"
                         placeholderTextColor={colors.text}
                         keyboardType="numeric"
+                        editable={!player.isUser}
                       />
                     </View>
                     <View style={styles.teeColorContainer}>
                       <Text style={styles.teeColorLabel}>Tee:</Text>
                       <TouchableOpacity
-                        style={[styles.teeColorSelector, { backgroundColor: TEE_COLORS.find(t => t.name === player.teeColor)?.color || '#FFFFFF' } ]}
-                        onPress={() => {
-                          const currentIndex = TEE_COLORS.findIndex(t => t.name === player.teeColor);
-                          const nextIndex = (currentIndex + 1) % TEE_COLORS.length;
-                          handleEditTeeColor(index, TEE_COLORS[nextIndex].name);
-                        }}
+                        style={styles.teeColorSelector}
+                        onPress={() => openTeePicker(player.id, getIndex ? getIndex() : index)}
+                        activeOpacity={0.9}
                       >
-                        <Text style={[styles.teeColorText, { color: player.teeColor === 'White' ? '#000000' : '#FFFFFF' }]}> 
-                          {player.teeColor || 'Blue'}
+                        <Text
+                          style={styles.teeColorText}
+                        >
+                          {player.teeColor || 'Select'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1464,155 +1990,154 @@ export default function ScanScorecardScreen() {
           </View>
         ) : (
           <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
-          {activeTab === 'scores' && (
-            <View style={styles.tabContent}>
-              <View style={styles.sectionHeaderColumn}>
-                <Text style={styles.sectionTitle}>Scores</Text>
-                <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
-                <View style={styles.retakeRow}>
-                  <RotateCcw size={18} color={colors.text} style={{ marginRight: 10 }} />
-                  <Text style={styles.retakeRowText}>Scores look off? Retake a clearer photo.</Text>
-                  <Button
-                    title="Retake"
-                    variant="outline"
-                    size="small"
-                    onPress={() => {
-                      resetPhotos();
-                      setActiveTab('players');
-                    }}
-                    style={styles.retakeButton}
-                  />
+            {activeTab === 'scores' && (
+              <View style={styles.tabContent}>
+                <View style={styles.sectionHeaderColumn}>
+                  <Text style={styles.sectionTitle}>Scores</Text>
+                  <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
+                  <View style={styles.retakeRow}>
+                    <RotateCcw size={18} color={colors.text} style={{ marginRight: 10 }} />
+                    <Text style={styles.retakeRowText}>Scores look off? Retake a clearer photo.</Text>
+                    <Button
+                      title="Retake"
+                      variant="outline"
+                      size="small"
+                      onPress={() => {
+                        resetPhotos();
+                        setActiveTab('players');
+                      }}
+                      style={styles.retakeButton}
+                    />
+                  </View>
                 </View>
-              </View>
-              
-              <View style={styles.scoresTable}>
-                <View style={styles.scoresTableHeader}>
-                  <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeBandCell, styles.holeHeaderLabel]}>HOLE</Text>
-                  <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeParCell, styles.headerLabel]}>PAR</Text>
-                  {detectedPlayers.map(player => (
-                    <Text 
-                      key={player.id} 
-                      numberOfLines={1}
-                      ellipsizeMode="clip"
-                      style={[styles.scoresTableHeaderCell, styles.playerScoreCell, styles.headerWhiteCell, styles.headerLabel]}
-                      numberOfLines={1}
-                    >
-                      {player.name}
-                      {player.isUser ? " (You)" : ""}
-                    </Text>
-                  ))}
-                </View>
-                
-                {detectedPlayers.length > 0 && detectedPlayers[0].scores.map(score => {
-                  // Find the course to get par for this hole
-                  const course = selectedCourse ? courses.find(c => c.id === selectedCourse) : null;
-                  const hole = course ? course.holes.find(h => h.number === score.holeNumber) : null;
-                  const par = hole ? hole.par : 4; // Default to par 4 if not found
-                  
-                  return (
-                    <View key={score.holeNumber} style={styles.scoresTableRow}>
-                      <Text style={[styles.scoresTableCell, styles.holeBandCell, styles.holeNumberText]}>
-                        {score.holeNumber}
-                      </Text>
-                      
-                      <Text style={[styles.scoresTableCell, styles.holeParCell]}>
-                        {par}
-                      </Text>
-                      
-                      {detectedPlayers.map((player, playerIndex) => {
-                        const playerScore = player.scores.find(s => s.holeNumber === score.holeNumber);
-                        const strokes = playerScore ? playerScore.strokes : 0;
-                        
-                        // Determine score color based on relation to par
-                        let scoreColor = colors.text;
-                        if (strokes > 0) {
-                          if (strokes < par) scoreColor = colors.success;
-                          else if (strokes > par) scoreColor = colors.error;
-                        }
-                        
-                        return (
-                          <TextInput
-                            key={player.id}
-                            style={[
-                              styles.scoresTableCell, 
-                              styles.playerScoreCell, 
-                              styles.scoreInput,
-                              { color: scoreColor },
-                              getConfidenceStyle(playerScore?.confidence)
-                            ]}
-                            value={strokes > 0 ? strokes.toString() : ""}
-                            onChangeText={(text) => {
-                              const newStrokes = parseInt(text, 10);
-                              if (!isNaN(newStrokes)) {
-                                handleEditScore(playerIndex, score.holeNumber, newStrokes);
-                              } else if (text === '') {
-                                handleEditScore(playerIndex, score.holeNumber, 0);
-                              }
-                            }}
-                            keyboardType="number-pad"
-                            maxLength={2}
-                            placeholder="-"
-                            placeholderTextColor={colors.inactive}
-                          />
-                        );
-                      })}
-                    </View>
-                  );
-                })}
 
-                {/* Totals row */}
-                {/* Totals row intentionally removed by design */}
+                <View style={styles.scoresTable}>
+                  <View style={styles.scoresTableHeader}>
+                    <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeBandCell, styles.holeHeaderLabel]}>HOLE</Text>
+                    <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeParCell, styles.headerLabel]}>PAR</Text>
+                    {detectedPlayers.map(player => (
+                      <Text
+                        key={player.id}
+                        numberOfLines={1}
+                        ellipsizeMode="clip"
+                        style={[styles.scoresTableHeaderCell, styles.playerScoreCell, styles.headerWhiteCell, styles.headerLabel]}
+                      >
+                        {player.name}
+                        {player.isUser ? " (You)" : ""}
+                      </Text>
+                    ))}
+                  </View>
+
+                  {detectedPlayers.length > 0 && detectedPlayers[0].scores.map(score => {
+                    // Find the course to get par for this hole
+                    const course = selectedCourse ? courses.find(c => c.id === selectedCourse) : null;
+                    const hole = course ? course.holes.find(h => h.number === score.holeNumber) : null;
+                    const par = hole ? hole.par : 4; // Default to par 4 if not found
+
+                    return (
+                      <View key={score.holeNumber} style={styles.scoresTableRow}>
+                        <Text style={[styles.scoresTableCell, styles.holeBandCell, styles.holeNumberText]}>
+                          {score.holeNumber}
+                        </Text>
+
+                        <Text style={[styles.scoresTableCell, styles.holeParCell]}>
+                          {par}
+                        </Text>
+
+                        {detectedPlayers.map((player, playerIndex) => {
+                          const playerScore = player.scores.find(s => s.holeNumber === score.holeNumber);
+                          const strokes = playerScore ? playerScore.strokes : 0;
+
+                          // Determine score color based on relation to par
+                          let scoreColor = colors.text;
+                          if (strokes > 0) {
+                            if (strokes < par) scoreColor = colors.success;
+                            else if (strokes > par) scoreColor = colors.error;
+                          }
+
+                          return (
+                            <TextInput
+                              key={player.id}
+                              style={[
+                                styles.scoresTableCell,
+                                styles.playerScoreCell,
+                                styles.scoreInput,
+                                { color: scoreColor },
+                                getConfidenceStyle(playerScore?.confidence)
+                              ]}
+                              value={strokes > 0 ? strokes.toString() : ""}
+                              onChangeText={(text) => {
+                                const newStrokes = parseInt(text, 10);
+                                if (!isNaN(newStrokes)) {
+                                  handleEditScore(playerIndex, score.holeNumber, newStrokes);
+                                } else if (text === '') {
+                                  handleEditScore(playerIndex, score.holeNumber, 0);
+                                }
+                              }}
+                              keyboardType="number-pad"
+                              maxLength={2}
+                              placeholder="-"
+                              placeholderTextColor={colors.inactive}
+                            />
+                          );
+                        })}
+                      </View>
+                    );
+                  })}
+
+                  {/* Totals row */}
+                  {/* Totals row intentionally removed by design */}
+                </View>
               </View>
-            </View>
-          )}
-          
-          {activeTab === 'details' && (
-            <View style={styles.tabContent}>
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>Course</Text>
-                <TouchableOpacity 
-                  style={styles.courseSelector}
-                  onPress={() => setShowCourseSearchModal(true)}
-                >
-                  <Text style={selectedCourse ? styles.selectedCourseText : styles.placeholderText}>
-                    {selectedCourse 
-                      ? getSelectedCourseName() 
-                      : "Search for a course"}
-                  </Text>
-                  <ChevronDown size={20} color={colors.text} />
-                </TouchableOpacity>
-              </View>
-              
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>Date</Text>
-                <View style={styles.dateContainer}>
-                  <Calendar size={20} color={colors.text} style={styles.dateIcon} />
+            )}
+
+            {activeTab === 'details' && (
+              <View style={styles.tabContent}>
+                <View style={styles.sectionContainer}>
+                  <Text style={styles.sectionTitle}>Course</Text>
+                  <TouchableOpacity
+                    style={styles.courseSelector}
+                    onPress={() => setShowCourseSearchModal(true)}
+                  >
+                    <Text style={selectedCourse ? styles.selectedCourseText : styles.placeholderText}>
+                      {selectedCourse
+                        ? getSelectedCourseName()
+                        : "Search for a course"}
+                    </Text>
+                    <ChevronDown size={20} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.sectionContainer}>
+                  <Text style={styles.sectionTitle}>Date</Text>
+                  <View style={styles.dateContainer}>
+                    <Calendar size={20} color={colors.text} style={styles.dateIcon} />
+                    <TextInput
+                      style={styles.dateInput}
+                      value={date || new Date().toISOString().split('T')[0]}
+                      onChangeText={(value) => setDate(value || new Date().toISOString().split('T')[0])}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.sectionContainer}>
+                  <Text style={styles.sectionTitle}>Notes</Text>
                   <TextInput
-                    style={styles.dateInput}
-                    value={date || new Date().toISOString().split('T')[0]}
-                    onChangeText={(value) => setDate(value || new Date().toISOString().split('T')[0])}
-                    placeholder="YYYY-MM-DD"
+                    style={styles.notesInput}
+                    value={notes}
+                    onChangeText={setNotes}
+                    placeholder="Add notes about this round..."
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
                   />
                 </View>
               </View>
-              
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionTitle}>Notes</Text>
-                <TextInput
-                  style={styles.notesInput}
-                  value={notes}
-                  onChangeText={setNotes}
-                  placeholder="Add notes about this round..."
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
-              </View>
-            </View>
-          )}
+            )}
           </ScrollView>
         )}
-        
+
         <View style={styles.bottomBar}>
           <Button
             title="Save Round"
@@ -1620,22 +2145,105 @@ export default function ScanScorecardScreen() {
             style={styles.saveButton}
           />
         </View>
-        
-        <CourseSearchModal
-          visible={showCourseSearchModal}
-          onClose={() => setShowCourseSearchModal(false)}
-          onSelectCourse={handleSelectCourse}
-          onAddManualCourse={handleAddCourseManually}
-          showMyCoursesTab={true}
-        />
+
+        <Modal
+          visible={showTeePicker}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowTeePicker(false)}
+        >
+          <TouchableOpacity
+            style={styles.sheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowTeePicker(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={styles.sheetContainer}
+              onPress={() => { }}
+            >
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Select a Tee</Text>
+                <View style={styles.sheetTabs}>
+                  <TouchableOpacity
+                    style={[styles.sheetTab, teePickerGenderTab === 'M' && styles.sheetTabActive]}
+                    onPress={() => setTeePickerGenderTab('M')}
+                  >
+                    <Text style={[styles.sheetTabText, teePickerGenderTab === 'M' && styles.sheetTabTextActive]}>Men</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.sheetTab, teePickerGenderTab === 'F' && styles.sheetTabActive]}
+                    onPress={() => setTeePickerGenderTab('F')}
+                  >
+                    <Text style={[styles.sheetTabText, teePickerGenderTab === 'F' && styles.sheetTabTextActive]}>Women</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView style={styles.sheetList} contentContainerStyle={styles.sheetListContent}>
+                {getAvailableTeeSets()
+                  .filter((t: any) => !t.gender || t.gender === teePickerGenderTab)
+                  .map((tee: any) => (
+                    <TouchableOpacity
+                      key={`${tee.gender ?? 'U'}-${tee.name}`}
+                      style={styles.teeOptionRow}
+                      onPress={() => handleSelectTee(tee.name, (tee.gender as 'M' | 'F') || teePickerGenderTab)}
+                    >
+                      <View>
+                        <Text style={styles.teeOptionName}>{tee.name}</Text>
+                        {tee.rating || tee.slope ? (
+                          <Text style={styles.teeOptionGender}>
+                            {tee.rating ? `${tee.rating}` : '--'}/{tee.slope ? `${tee.slope}` : '--'}
+                          </Text>
+                        ) : (
+                          <Text style={styles.teeOptionGender}>
+                            {tee.gender === 'F' ? 'Women' : 'Men'}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={styles.radioOuter}>
+                        <View
+                          style={
+                            (() => {
+                              const p = detectedPlayers[teePickerPlayerIndex ?? 0];
+                              const matchesName =
+                                p?.teeColor &&
+                                p.teeColor.toString().toLowerCase() === tee.name.toString().toLowerCase();
+                              const matchesGender =
+                                (p?.teeGender ?? teePickerGenderTab) === (tee.gender || teePickerGenderTab);
+                              return matchesName && matchesGender ? styles.radioInnerActive : styles.radioInner;
+                            })()
+                          }
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                {getAvailableTeeSets().length === 0 && (
+                  <Text style={styles.emptyTeeText}>No tee data available for this course.</Text>
+                )}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {showCourseSearchModal && (
+          <CourseSearchModal
+            visible={showCourseSearchModal}
+            testID="scan-review-course-modal"
+            onClose={() => setShowCourseSearchModal(false)}
+            onSelectCourse={handleSelectCourse}
+            onAddManualCourse={handleAddCourseManually}
+            showMyCoursesTab={true}
+          />
+        )}
       </SafeAreaView>
     );
   }
-  
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen 
-        options={{ 
+      <Stack.Screen
+        options={{
           title: "Scan Scorecard",
           headerStyle: {
             backgroundColor: colors.background,
@@ -1644,25 +2252,25 @@ export default function ScanScorecardScreen() {
             color: colors.text,
           },
           headerTintColor: colors.text,
-        }} 
+        }}
       />
-      
+
       {photos.length > 0 ? (
         <View style={styles.previewContainer}>
-          <ScrollView 
-            horizontal 
-            pagingEnabled 
+          <ScrollView
+            horizontal
+            pagingEnabled
             showsHorizontalScrollIndicator={false}
             style={styles.photosScrollView}
           >
             {photos.map((photo, index) => (
               <View key={index} style={styles.photoContainer}>
-                <Image 
-                  source={{ uri: photo }} 
+                <Image
+                  source={{ uri: photo }}
                   style={styles.previewImage}
                   resizeMode="contain"
                 />
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.removePhotoButton}
                   onPress={() => removePhoto(index)}
                 >
@@ -1671,13 +2279,13 @@ export default function ScanScorecardScreen() {
               </View>
             ))}
           </ScrollView>
-          
+
           <View style={styles.photoIndicator}>
             <Text style={styles.photoIndicatorText}>
               {photos.length} photo{photos.length > 1 ? 's' : ''} selected
             </Text>
           </View>
-          
+
           <View style={styles.previewActions}>
             <Button
               title="Add More"
@@ -1685,7 +2293,7 @@ export default function ScanScorecardScreen() {
               variant="outline"
               style={styles.previewButton}
             />
-            
+
             <Button
               title="Take Another"
               onPress={takePicture}
@@ -1693,12 +2301,12 @@ export default function ScanScorecardScreen() {
               style={styles.previewButton}
               disabled={Platform.OS === 'web'}
             />
-            
+
             <Button
               title={scanning ? "Processing..." : "Process Scorecard"}
               onPress={processScorecard}
               disabled={scanning}
-              loading={scanning}  
+              loading={scanning}
               style={styles.previewButton}
             />
           </View>
@@ -1713,45 +2321,49 @@ export default function ScanScorecardScreen() {
         </View>
       ) : (
         <>
-          <View style={styles.cameraContainer}>
-            {Platform.OS !== 'web' ? (
-              <CameraView
-                style={styles.camera}
-                facing={facing}
-                ref={cameraRef}
-              >
-                <View style={styles.overlay}>
-                  <View style={styles.scanFrame} />
+          {!showCourseSearchModal || coursePickerSource !== 'scan' ? (
+            <View style={styles.cameraContainer}>
+              {Platform.OS !== 'web' ? (
+                <CameraView
+                  style={styles.camera}
+                  facing={facing}
+                  ref={cameraRef}
+                >
+                  <View style={styles.overlay}>
+                    <View style={styles.scanFrame} />
+                  </View>
+                </CameraView>
+              ) : (
+                <View style={styles.webFallback}>
+                  <Camera size={60} color={colors.primary} />
+                  <Text style={styles.webFallbackText}>
+                    Camera is not available on web. Please use the upload button below.
+                  </Text>
                 </View>
-              </CameraView>
-            ) : (
-              <View style={styles.webFallback}>
-                <Camera size={60} color={colors.primary} />
-                <Text style={styles.webFallbackText}>
-                  Camera is not available on web. Please use the upload button below.
-                </Text>
-              </View>
-            )}
-          </View>
-          
+              )}
+            </View>
+          ) : (
+            <View style={[styles.cameraContainer, { backgroundColor: colors.background }]} />
+          )}
+
           <View style={styles.controls}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.controlButton}
               onPress={pickImage}
             >
               <ImageIcon size={24} color={colors.text} />
               <Text style={styles.controlText}>Upload</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.captureButton}
               onPress={takePicture}
               disabled={Platform.OS === 'web'}
             >
               <View style={styles.captureButtonInner} />
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.controlButton}
               onPress={toggleCameraFacing}
               disabled={Platform.OS === 'web'}
@@ -1760,7 +2372,7 @@ export default function ScanScorecardScreen() {
               <Text style={[styles.controlText, Platform.OS === 'web' && styles.disabledText]}>Flip</Text>
             </TouchableOpacity>
           </View>
-          
+
           <View style={styles.instructions}>
             <Text style={styles.instructionsTitle}>How to scan:</Text>
             <Text style={styles.instructionsText}>
@@ -1777,6 +2389,16 @@ export default function ScanScorecardScreen() {
             </Text>
           </View>
         </>
+      )}
+      {showCourseSearchModal && (
+        <CourseSearchModal
+          visible={showCourseSearchModal}
+          testID="scan-camera-course-modal"
+          onClose={() => setShowCourseSearchModal(false)}
+          onSelectCourse={handleSelectCourse}
+          onAddManualCourse={handleAddCourseManually}
+          showMyCoursesTab={true}
+        />
       )}
     </SafeAreaView>
   );
@@ -2080,6 +2702,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  userPlayerCard: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}01`,
+  },
   draggingPlayerCard: {
     borderColor: colors.primary,
     backgroundColor: `${colors.primary}10`,
@@ -2156,6 +2783,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
   },
+  handicapInputDisabled: {
+    backgroundColor: '#f5f5f5',
+    color: colors.textSecondary,
+  },
   teeColorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2171,12 +2802,15 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    minWidth: 60,
+    minWidth: 80,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
   },
   teeColorText: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
   },
   userBadge: {
     backgroundColor: colors.primary,
@@ -2590,5 +3224,108 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  sheetContainer: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    maxHeight: '70%',
+    height: '54%',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 8,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  sheetTabs: {
+    flexDirection: 'row',
+    backgroundColor: `${colors.text}10`,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: `${colors.text}15`,
+  },
+  sheetTab: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+  },
+  sheetTabActive: {
+    backgroundColor: colors.card,
+  },
+  sheetTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  sheetTabTextActive: {
+    color: colors.text,
+  },
+  sheetList: {
+    flexGrow: 0,
+  },
+  sheetListContent: {
+    paddingBottom: 16,
+  },
+  teeOptionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  teeOptionName: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  teeOptionGender: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  emptyTeeText: {
+    textAlign: 'center',
+    color: colors.textSecondary,
+    paddingVertical: 12,
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'transparent',
+  },
+  radioInnerActive: {
+    backgroundColor: colors.primary,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
 });

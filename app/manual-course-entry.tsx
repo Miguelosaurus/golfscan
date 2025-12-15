@@ -16,14 +16,19 @@ import { Button } from '@/components/Button';
 import { Course, Hole } from '@/types';
 import { generateUniqueId } from '@/utils/helpers';
 import { Plus, Minus } from 'lucide-react-native';
+import { useMutation } from '@/lib/convex';
+import { api } from '@/convex/_generated/api';
 
 export default function ManualCourseEntryScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { addCourse } = useGolfStore();
+  const upsertCourse = useMutation(api.courses.upsert);
   
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
+  const [courseRatingInput, setCourseRatingInput] = useState('');
+  const [slopeRatingInput, setSlopeRatingInput] = useState('');
   const [holes, setHoles] = useState<Hole[]>(() => {
     if (params.holes) {
       try {
@@ -81,24 +86,59 @@ export default function ManualCourseEntryScreen() {
       Alert.alert("Error", "Please enter a course name");
       return false;
     }
-    
     if (!location.trim()) {
       Alert.alert("Error", "Please enter a location");
       return false;
     }
-    
+    if (courseRatingInput.trim().length && isNaN(Number(courseRatingInput.trim()))) {
+      Alert.alert("Error", "Course rating must be a number");
+      return false;
+    }
+    if (slopeRatingInput.trim().length && (isNaN(Number(slopeRatingInput.trim())) || !Number.isFinite(Number(slopeRatingInput.trim())))) {
+      Alert.alert("Error", "Slope rating must be a number");
+      return false;
+    }
     return true;
   };
   
-  const handleSaveCourse = () => {
+  const handleSaveCourse = async () => {
     if (!validateForm()) return;
-    
+
+    const externalId = `manual-${Date.now()}`;
+    const nowHoles = holes.map((hole, idx) => ({
+      number: hole.number,
+      par: hole.par,
+      hcp: idx + 1,
+      yardage: hole.distance || undefined,
+    }));
+
+    const courseRating = courseRatingInput.trim().length ? Number(courseRatingInput.trim()) : undefined;
+    const slopeRating = slopeRatingInput.trim().length ? Number(slopeRatingInput.trim()) : undefined;
+
+    let convexId: string | null = null;
+    try {
+      convexId = await upsertCourse({
+        externalId,
+        name: name.trim(),
+        location: location.trim(),
+        slope: slopeRating,
+        rating: courseRating,
+        teeSets: undefined,
+        holes: nowHoles,
+        imageUrl: "https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80"
+      }) as unknown as string;
+    } catch (e) {
+      // fall back to local-only if convex write fails
+    }
+
     const newCourse: Course = {
-      id: generateUniqueId(),
+      id: convexId ?? generateUniqueId(),
       name: name.trim(),
       location: location.trim(),
       holes,
-      imageUrl: "https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80"
+      imageUrl: "https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80",
+      rating: courseRating,
+      slope: slopeRating,
     };
     
     addCourse(newCourse);
@@ -133,6 +173,26 @@ export default function ManualCourseEntryScreen() {
             onChangeText={setLocation}
             placeholder="City, State"
             placeholderTextColor={colors.textSecondary}
+          />
+
+          <Text style={styles.inputLabel}>Course Rating (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={courseRatingInput}
+            onChangeText={setCourseRatingInput}
+            placeholder="e.g. 72.1"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="decimal-pad"
+          />
+
+          <Text style={styles.inputLabel}>Slope Rating (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={slopeRatingInput}
+            onChangeText={setSlopeRatingInput}
+            placeholder="e.g. 125"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="number-pad"
           />
         </View>
         
