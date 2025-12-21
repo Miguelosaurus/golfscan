@@ -13,15 +13,19 @@ import type * as backfillDifferentials from "../backfillDifferentials.js";
 import type * as courseImages from "../courseImages.js";
 import type * as courses from "../courses.js";
 import type * as files from "../files.js";
+import type * as gameSessions from "../gameSessions.js";
 import type * as golfCourse from "../golfCourse.js";
 import type * as handicap from "../handicap.js";
 import type * as http from "../http.js";
 import type * as lib_authUtils from "../lib/authUtils.js";
+import type * as lib_gameSettlement from "../lib/gameSettlement.js";
 import type * as lib_handicapUtils from "../lib/handicapUtils.js";
 import type * as lib_playerUtils from "../lib/playerUtils.js";
+import type * as lib_strokeAllocation from "../lib/strokeAllocation.js";
 import type * as players from "../players.js";
 import type * as rounds from "../rounds.js";
 import type * as scorecard from "../scorecard.js";
+import type * as stats from "../stats.js";
 import type * as users from "../users.js";
 
 import type {
@@ -36,15 +40,19 @@ declare const fullApi: ApiFromModules<{
   courseImages: typeof courseImages;
   courses: typeof courses;
   files: typeof files;
+  gameSessions: typeof gameSessions;
   golfCourse: typeof golfCourse;
   handicap: typeof handicap;
   http: typeof http;
   "lib/authUtils": typeof lib_authUtils;
+  "lib/gameSettlement": typeof lib_gameSettlement;
   "lib/handicapUtils": typeof lib_handicapUtils;
   "lib/playerUtils": typeof lib_playerUtils;
+  "lib/strokeAllocation": typeof lib_strokeAllocation;
   players: typeof players;
   rounds: typeof rounds;
   scorecard: typeof scorecard;
+  stats: typeof stats;
   users: typeof users;
 }>;
 

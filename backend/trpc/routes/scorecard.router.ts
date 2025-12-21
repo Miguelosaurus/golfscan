@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { GoogleGenAI, MediaResolution, type Part, type Content } from '@google/genai';
-import { GoogleAIFileManager } from '@google/genai/server';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -17,19 +16,19 @@ const DAILY_SCAN_LIMIT = 50;
 const checkAndIncrementDailyScans = async (userId: string): Promise<number> => {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
+
   const userScanData = userScans.get(userId);
-  
+
   if (!userScanData || userScanData.lastReset < today) {
     // Reset daily counter
     userScans.set(userId, { count: 1, lastReset: today });
     return DAILY_SCAN_LIMIT - 1;
   }
-  
+
   if (userScanData.count >= DAILY_SCAN_LIMIT) {
     throw new Error(`Daily scan limit of ${DAILY_SCAN_LIMIT} reached. Try again tomorrow.`);
   }
-  
+
   userScanData.count += 1;
   return DAILY_SCAN_LIMIT - userScanData.count;
 };
@@ -78,19 +77,19 @@ const fuzzyMatchCourse = async (courseName: string): Promise<any> => {
 
 const calculateOverallConfidence = (data: ScorecardScanResult): number => {
   const confidences: number[] = [];
-  
+
   if (data.courseNameConfidence !== undefined) confidences.push(data.courseNameConfidence);
   if (data.dateConfidence !== undefined) confidences.push(data.dateConfidence);
-  
+
   data.players.forEach(player => {
     if (player.nameConfidence !== undefined) confidences.push(player.nameConfidence);
     player.scores.forEach(score => {
       if (score.confidence !== undefined) confidences.push(score.confidence);
     });
   });
-  
-  return confidences.length > 0 
-    ? confidences.reduce((sum, conf) => sum + conf, 0) / confidences.length 
+
+  return confidences.length > 0
+    ? confidences.reduce((sum, conf) => sum + conf, 0) / confidences.length
     : 0;
 };
 
@@ -107,7 +106,7 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
 
     // Rate limiting check
     const remainingScans = await checkAndIncrementDailyScans(input.userId);
-    
+
     // Validate inputs
     if ((!input.images || input.images.length === 0) && (!input.files || input.files.length === 0)) {
       throw new Error('No images provided for scanning');
@@ -126,7 +125,7 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
     };
 
     // Upload images to Gemini Files API to avoid massive base64 payloads
-    const fileManager = new GoogleAIFileManager(process.env.GOOGLE_API_KEY!);
+    const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
     const uploadedFiles: Array<{ uri: string; mimeType: string; localPath: string }> = [];
     try {
       const uploadStart = Date.now();
@@ -137,8 +136,14 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
           const filename = `scorecard-${Date.now()}-${i}.${mimeType.split('/')[1] || 'jpg'}`;
           const localPath = path.join(tmpdir(), filename);
           writeFileSync(localPath, Buffer.from(data, 'base64'));
-          const upload = await fileManager.uploadFile(localPath, { mimeType, displayName: filename });
-          uploadedFiles.push({ uri: upload.file.uri, mimeType, localPath });
+
+          const upload = await genAI.files.upload({
+            file: localPath,
+            config: { mimeType, displayName: filename }
+          });
+
+          if (!upload.uri) throw new Error('Failed to upload file');
+          uploadedFiles.push({ uri: upload.uri, mimeType, localPath });
         }
       }
 
@@ -146,18 +151,24 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
         for (let i = 0; i < input.files.length; i++) {
           const f = input.files[i];
           const filename = path.basename(f.path);
-          const upload = await fileManager.uploadFile(f.path, { mimeType: f.mimeType, displayName: filename });
-          uploadedFiles.push({ uri: upload.file.uri, mimeType: f.mimeType, localPath: f.path });
+
+          const upload = await genAI.files.upload({
+            file: f.path,
+            config: { mimeType: f.mimeType, displayName: filename }
+          });
+
+          if (!upload.uri) throw new Error('Failed to upload file');
+          uploadedFiles.push({ uri: upload.uri, mimeType: f.mimeType, localPath: f.path });
         }
       }
 
       const uploadElapsed = Date.now() - uploadStart;
       console.log(`[SCAN] upload end ${new Date().toLocaleTimeString()} | ${uploadElapsed}ms | files=${uploadedFiles.length}`);
 
-      const genAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY! });
+      // genAI instance already created above
 
       // Build parts with prompt + file references
-      const parts: Part[] = [ { text: SCORECARD_PROMPT } ];
+      const parts: Part[] = [{ text: SCORECARD_PROMPT }];
       for (const f of uploadedFiles) {
         parts.push({ fileData: { fileUri: f.uri, mimeType: f.mimeType } as any });
       }
@@ -167,7 +178,7 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
       console.log(`[SCAN] ai call start ${new Date(aiStart).toLocaleTimeString()}`);
       const result = await genAI.models.generateContent({
         model: 'gemini-3-pro-preview',
-        contents: [ userContent ],
+        contents: [userContent],
         config: {
           temperature: 1,
           maxOutputTokens: 5000,
@@ -210,7 +221,7 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
         } as any,
       });
 
-      const gemResponse = await result.response;
+      const gemResponse = result;
       const aiElapsed = Date.now() - aiStart;
       console.log(`[SCAN] ai call end ${new Date().toLocaleTimeString()} | ${aiElapsed}ms`);
       const usage = gemResponse.usageMetadata;
@@ -224,13 +235,13 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
       }
 
       // Parse response
-      const rawContent = gemResponse.text();
-      
+      const rawContent = gemResponse.text;
+
       if (!rawContent) {
         console.error('❌ No content found in Gemini response');
         try {
           console.error('📊 Full response structure:', JSON.stringify(gemResponse, null, 2));
-        } catch {}
+        } catch { }
         throw new Error('No response content from Gemini');
       }
 
@@ -275,11 +286,11 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
 
       // Calculate overall confidence
       parsedJson.overallConfidence = calculateOverallConfidence(parsedJson);
-      
+
       // Course matching if course name detected with high confidence
       if (parsedJson.courseName && parsedJson.courseNameConfidence >= 0.7) {
         const matchedCourse = await fuzzyMatchCourse(parsedJson.courseName);
-        
+
         if (matchedCourse) {
           parsedJson.courseName = matchedCourse.course_name || matchedCourse.club_name;
         } else {
@@ -296,16 +307,16 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
     } finally {
       // Cleanup local temp files
       for (const f of uploadedFiles) {
-        try { unlinkSync(f.localPath); } catch {}
+        try { unlinkSync(f.localPath); } catch { }
       }
       const routeElapsed = Date.now() - routeStart;
       console.log(`[SCAN] finally total ${routeElapsed}ms`);
     }
-    
+
   } catch (error: unknown) {
     console.error('❌ Scorecard scan error:', error);
-    
-    
+
+
     if (error instanceof Error) {
       throw new Error(error.message);
     }
@@ -361,10 +372,10 @@ export const scorecardRouter = router({
     }),
 
   scanScorecard: publicProcedure
-    .input(z.object({ 
+    .input(z.object({
       images: z.array(z.string()).min(1).max(5).optional(), // base64 data URLs
       files: z.array(z.object({ path: z.string(), mimeType: z.string().default('image/jpeg') })).min(1).max(5).optional(),
-      userId: z.string() 
+      userId: z.string()
     }))
     .mutation(async ({ input }) => {
       return scanScorecardImpl(input);
@@ -375,13 +386,13 @@ export const scorecardRouter = router({
     .query(async ({ input }) => {
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
+
       const userScanData = userScans.get(input.userId);
-      
+
       if (!userScanData || userScanData.lastReset < today) {
         return DAILY_SCAN_LIMIT;
       }
-      
+
       return DAILY_SCAN_LIMIT - userScanData.count;
     }),
 }); 

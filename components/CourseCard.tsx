@@ -1,36 +1,42 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Course } from '@/types';
 import { colors } from '@/constants/colors';
 import { MapPin } from 'lucide-react-native';
+import { useCourseImage } from '@/hooks/useCourseImage';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 
 interface CourseCardProps {
   course: Course;
+  /** Optional: The image URL from Convex (base64 or regular URL) */
+  convexImageUrl?: string | null;
   onPress: (course: Course) => void;
 }
 
-export const CourseCard: React.FC<CourseCardProps> = ({ course, onPress }) => {
+export const CourseCard: React.FC<CourseCardProps> = ({ course, convexImageUrl, onPress }) => {
   const totalPar = course.holes.reduce((sum, hole) => sum + hole.par, 0);
-  const [imageUri, setImageUri] = useState(course.imageUrl || DEFAULT_COURSE_IMAGE);
+  const [hasError, setHasError] = useState(false);
 
-  useEffect(() => {
-    setImageUri(course.imageUrl || DEFAULT_COURSE_IMAGE);
-  }, [course.imageUrl]);
+  // Use the hook which handles local cache → Convex → default fallback
+  const imageUri = useCourseImage({
+    courseId: course.id,
+    convexImageUrl: convexImageUrl,
+    localImageUrl: course.imageUrl,
+  });
 
   return (
-    <TouchableOpacity 
+    <TouchableOpacity
       style={styles.container}
       onPress={() => onPress(course)}
       activeOpacity={0.7}
     >
       <View style={styles.imageContainer}>
-        {imageUri ? (
-          <Image 
-            source={{ uri: imageUri }} 
+        {imageUri && !hasError ? (
+          <Image
+            source={{ uri: imageUri }}
             style={styles.image}
             resizeMode="cover"
-            onError={() => setImageUri(DEFAULT_COURSE_IMAGE)}
+            onError={() => setHasError(true)}
           />
         ) : (
           <View style={styles.placeholderImage}>
@@ -38,21 +44,21 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, onPress }) => {
           </View>
         )}
       </View>
-      
+
       <View style={styles.infoContainer}>
         <Text style={styles.name} numberOfLines={1}>{course.name}</Text>
-        
+
         <View style={styles.locationContainer}>
           <MapPin size={14} color={colors.textSecondary} />
           <Text style={styles.location} numberOfLines={1}>{course.location}</Text>
         </View>
-        
+
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Holes</Text>
             <Text style={styles.statValue}>{course.holes.length}</Text>
           </View>
-          
+
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Par</Text>
             <Text style={styles.statValue}>{totalPar}</Text>
@@ -62,6 +68,7 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, onPress }) => {
     </TouchableOpacity>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {

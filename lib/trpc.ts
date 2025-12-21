@@ -29,18 +29,18 @@ export const trpcClient = trpc.createClient({
           console.log(
             `tRPC HTTP start ${new Date(startedAt).toLocaleTimeString()} | timeout=${timeoutMs}ms | url=${typeof input === 'string' ? input : (input as Request).url}`
           );
-        } catch {}
+        } catch { }
         const id = setTimeout(() => controller.abort(), timeoutMs);
-        return fetch(input, { ...init, signal: controller.signal })
+        return fetch(input as any, { ...init, signal: controller.signal as any })
           .then((res) => {
             const elapsed = Date.now() - startedAt;
-            try { console.log(`tRPC HTTP end ${new Date().toLocaleTimeString()} | ${res.status} | ${elapsed}ms`); } catch {}
+            try { console.log(`tRPC HTTP end ${new Date().toLocaleTimeString()} | ${res.status} | ${elapsed}ms`); } catch { }
             return res;
           })
           .catch((err) => {
             const elapsed = Date.now() - startedAt;
             const aborted = (controller.signal as any)?.aborted;
-            try { console.error(`tRPC HTTP error | aborted=${aborted} | ${elapsed}ms |`, err?.message || err); } catch {}
+            try { console.error(`tRPC HTTP error | aborted=${aborted} | ${elapsed}ms |`, err?.message || err); } catch { }
             throw err;
           })
           .finally(() => clearTimeout(id));

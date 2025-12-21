@@ -92,19 +92,14 @@ export const rebuildHistory = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const clerkId = getClerkIdFromIdentity(identity);
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    if (!clerkId) throw new Error("Missing Clerk ID");
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+
     if (!user) throw new Error("User not found");
 
     // Find self player
@@ -229,20 +224,14 @@ export const seedHandicap = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const clerkId = getClerkIdFromIdentity(identity);
+    if (!clerkId) throw new Error("Missing Clerk ID");
 
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
     if (!user) throw new Error("User not found");
 
     // Find or create the self player for this user
@@ -392,19 +381,14 @@ export const clearSeededRounds = mutation({
     if (!identity) throw new Error("Not authenticated");
 
     const clerkId = getClerkIdFromIdentity(identity);
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    if (!clerkId) throw new Error("Missing Clerk ID");
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+
     if (!user) throw new Error("User not found");
 
     // Find self player
@@ -486,12 +470,13 @@ export const getDetails = query({
     const scores = await ctx.db
       .query("scores")
       .withIndex("by_player", (q) => q.eq("playerId", selfPlayer._id))
-      .order("desc")
       .take(50);
 
-    const scored = scores.filter(
-      (s) => typeof s.handicapDifferential === "number"
-    );
+    // Sort by createdAt descending (most recent first) - Convex's .order("desc") 
+    // doesn't order by date, so we must sort after fetching
+    const scored = scores
+      .filter((s) => typeof s.handicapDifferential === "number")
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
     if (!scored.length) {
       return {
@@ -509,7 +494,7 @@ export const getDetails = query({
     const usedIdSet = new Set(
       usedIndices
         .map((idx) => limited[idx]?._id)
-        .filter((id): id is string => !!id)
+        .filter((id) => !!id)
     );
 
     const roundsCount = diffs.length;
@@ -519,20 +504,22 @@ export const getDetails = query({
     const roundCache = new Map<string, any>();
     const courseCache = new Map<string, any>();
 
-    const loadRound = async (roundId: string) => {
-      let r = roundCache.get(roundId);
+    const loadRound = async (roundId: any) => {
+      const key = String(roundId);
+      let r = roundCache.get(key);
       if (!r) {
         r = await ctx.db.get(roundId);
-        roundCache.set(roundId, r);
+        roundCache.set(key, r);
       }
       return r;
     };
 
-    const loadCourse = async (courseId: string) => {
-      let c = courseCache.get(courseId);
+    const loadCourse = async (courseId: any) => {
+      const key = String(courseId);
+      let c = courseCache.get(key);
       if (!c) {
         c = await ctx.db.get(courseId);
-        courseCache.set(courseId, c);
+        courseCache.set(key, c);
       }
       return c;
     };

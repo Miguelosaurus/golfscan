@@ -16,11 +16,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/constants/colors";
 import { Button } from "@/components/Button";
 import { getScoreDifferential, getScoreLabel, calculateNetScore } from "@/utils/helpers";
-import { Calendar, MapPin, Award, Target, Zap, TrendingDown, Edit3, Trash2 } from "lucide-react-native";
+import { Calendar, MapPin, Award, Target, Zap, TrendingDown, Edit3, Trash2, ChevronLeft } from "lucide-react-native";
 import { useMutation, useQuery } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useGolfStore } from "@/store/useGolfStore";
+import { SettlementSummary } from "@/components/SettlementSummary";
 
 type PlayerScore = {
   playerId: string;
@@ -61,6 +62,13 @@ export default function RoundDetailsScreen() {
 
   const round = (roundFromConvex || localRound) as any;
   const deleteRound = useMutation(api.rounds.deleteRound);
+  const profile = useQuery(api.users.getProfile);
+
+  // Query for linked game session (if this round has settlement data)
+  const linkedSession = useQuery(
+    api.gameSessions.getByLinkedRound,
+    convexRoundId ? { roundId: convexRoundId as Id<"rounds"> } : "skip"
+  ) as any;
 
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
   const [activePhoto, setActivePhoto] = useState<string | null>(null);
@@ -95,9 +103,42 @@ export default function RoundDetailsScreen() {
     };
   }, [round, courseFromStore]);
 
+  // Determine the current user's name for settlement matching
+  const mySettlementName = useMemo(() => {
+    if (!linkedSession?.participants) return 'Me';
+
+    // 1. Try to match by User ID (most robust for synced rounds)
+    if (profile?._id) {
+      const match = linkedSession.participants.find((p: any) => p.userId === profile._id);
+      if (match) return match.name;
+    }
+
+    // 2. Try to match by local/convex round player linkage (isUser flag + playerId)
+    const match = linkedSession.participants.find((p: any) =>
+      round?.players?.some((rp: any) => rp.isUser && rp.playerId === p.playerId)
+    );
+    if (match) return match.name;
+
+    // 3. Try to match by Profile Name (fallback if IDs missing)
+    if (profile?.name) {
+      const nameMatch = linkedSession.participants.find((p: any) => p.name === profile.name);
+      if (nameMatch) return nameMatch.name;
+    }
+
+    // 3. Fallback to basic name matching from round players
+    return round?.players?.find((p: any) => p.isUser)?.playerName || 'Me';
+  }, [linkedSession, round, profile]);
+
+  // Log for debugging balance issues
+  useEffect(() => {
+    if (linkedSession?.settlement?.calculated) {
+      console.log('[RoundDetails] Settlement Name:', mySettlementName, 'ProfileId:', profile?._id);
+    }
+  }, [mySettlementName, linkedSession, profile]);
+
   // Compute par adjusted for 9 vs 18 holes based on round holeCount.
-  const coursePar18 = course.holes.reduce((sum, h) => sum + (h.par ?? 4), 0);
-  const coursePar9 = course.holes.slice(0, 9).reduce((sum, h) => sum + (h.par ?? 4), 0);
+  const coursePar18 = course.holes.reduce((sum: number, h: { par?: number }) => sum + (h.par ?? 4), 0);
+  const coursePar9 = course.holes.slice(0, 9).reduce((sum: number, h: { par?: number }) => sum + (h.par ?? 4), 0);
   const roundHoleCount =
     (round && (round as any).holeCount) ??
     (round?.players && round.players[0]?.scores
@@ -145,6 +186,19 @@ export default function RoundDetailsScreen() {
 
   const getWinner = (players: PlayerScore[]) => {
     if (players.length <= 1) return null;
+
+    // For match play games, determine winner from settlement (who receives money)
+    if (linkedSession?.gameType === 'match_play' && linkedSession?.settlement?.transactions?.length) {
+      // The player receiving money is the winner
+      const winningTransaction = linkedSession.settlement.transactions.find((tx: any) => tx.amountCents > 0);
+      if (winningTransaction) {
+        const winnerParticipant = linkedSession.participants?.find((p: any) => p.playerId === winningTransaction.toPlayerId);
+        const winnerPlayer = players.find(p => p.playerName === winnerParticipant?.name);
+        if (winnerPlayer) return { ...winnerPlayer, isMatchPlayWinner: true };
+      }
+    }
+
+    // Default: calculate by net score (for stroke play)
     const withHcp = players.filter((p) => p.handicapUsed !== undefined);
     if (withHcp.length) {
       const withNet = withHcp.map((p) => ({
@@ -176,7 +230,7 @@ export default function RoundDetailsScreen() {
       const scoreByPar = { par3: 0, par4: 0, par5: 0 };
 
       player.scores.forEach((score) => {
-        const hole = course.holes.find((h) => h.number === score.holeNumber);
+        const hole = course.holes.find((h: { number: number }) => h.number === score.holeNumber);
         if (!hole) return;
         const relativeToPar = score.strokes - (hole.par ?? 4);
 
@@ -442,6 +496,11 @@ export default function RoundDetailsScreen() {
           headerStyle: { backgroundColor: colors.background },
           headerTitleStyle: { color: colors.text },
           headerTintColor: colors.text,
+          headerLeft: () => (
+            <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 0, paddingRight: 16 }} hitSlop={16}>
+              <ChevronLeft size={28} color={colors.primary} />
+            </TouchableOpacity>
+          ),
           headerRight: () => (
             <View style={styles.headerActions}>
               <TouchableOpacity onPress={handleEditRound} style={styles.headerActionButton} hitSlop={8}>
@@ -493,24 +552,102 @@ export default function RoundDetailsScreen() {
               <Text style={styles.winnerTitle}>Winner</Text>
             </View>
             <Text style={styles.winnerName}>{winner.playerName}</Text>
-            {winner.handicapUsed !== undefined ? (
-              <View>
+            {/* Game-specific personalized description */}
+            {(() => {
+              // For linked session games, build personalized description
+              if (linkedSession?.gameType === 'match_play' && linkedSession?.settlement?.transactions?.length) {
+                // Parse hole score from transaction reason: "Lost Match Play (5-3)"
+                const tx = linkedSession.settlement.transactions[0];
+                const match = tx?.reason?.match(/\((\d+)-(\d+)\)/);
+                if (match) {
+                  const loserName = linkedSession.participants?.find((p: any) => p.playerId === tx.fromPlayerId)?.name || 'Opponent';
+                  const winnerHoles = parseInt(match[1], 10);
+                  const loserHoles = parseInt(match[2], 10);
+                  const tiedHoles = roundHoleCount - winnerHoles - loserHoles;
+                  return (
+                    <Text style={styles.winnerScore}>
+                      Won {winnerHoles} holes vs {loserName}'s {loserHoles}{tiedHoles > 0 ? ` (${tiedHoles} tied)` : ''}
+                    </Text>
+                  );
+                }
+                return <Text style={styles.winnerScore}>Won the match</Text>;
+              }
+
+              if (linkedSession?.gameType === 'skins' && linkedSession?.settlement?.transactions?.length) {
+                // Count skins won from transaction reasons
+                const tx = linkedSession.settlement.transactions.find((t: any) => t.toPlayerId && t.reason?.includes('skin'));
+                const skinsMatch = tx?.reason?.match(/(\d+)\s*skin/);
+                const skinsWon = skinsMatch ? parseInt(skinsMatch[1], 10) : null;
+                return (
+                  <Text style={styles.winnerScore}>
+                    {skinsWon ? `Collected ${skinsWon} skin${skinsWon > 1 ? 's' : ''}` : 'Most skins won'}
+                  </Text>
+                );
+              }
+
+              if (linkedSession?.gameType === 'nassau') {
+                // Show which segments won
+                const txReasons = linkedSession.settlement.transactions?.map((t: any) => t.reason) || [];
+                const segments = [];
+                if (txReasons.some((r: string) => r?.includes('Front'))) segments.push('Front 9');
+                if (txReasons.some((r: string) => r?.includes('Back'))) segments.push('Back 9');
+                if (txReasons.some((r: string) => r?.includes('Overall'))) segments.push('Overall');
+                return (
+                  <Text style={styles.winnerScore}>
+                    {segments.length > 0 ? `Won ${segments.join(', ')}` : 'Nassau winner'}
+                  </Text>
+                );
+              }
+
+              // Default stroke play description
+              if (winner.handicapUsed !== undefined) {
+                const netScore = winner.totalScore - winner.handicapUsed;
+                const differential = getScoreDifferential(netScore, totalPar);
+                const loser = round.players?.find((p: any) => p.playerId !== winner.playerId);
+                const loserNet = loser && loser.handicapUsed !== undefined
+                  ? loser.totalScore - loser.handicapUsed
+                  : null;
+
+                const relativeToPar = winner.totalScore - totalPar;
+                const parText = relativeToPar === 0 ? 'Even Par' :
+                  relativeToPar > 0 ? `${relativeToPar} Over Par` :
+                    `${Math.abs(relativeToPar)} Under Par`;
+
+                return (
+                  <View>
+                    <Text style={styles.winnerScore}>
+                      Gross Score: {winner.totalScore} ({parText})
+                    </Text>
+                    <Text style={styles.winnerNetScore}>
+                      Net Score: {netScore} (Handicap: {winner.handicapUsed})
+                    </Text>
+                  </View>
+                );
+              }
+
+              return (
                 <Text style={styles.winnerScore}>
-                  Gross Score: {winner.totalScore}
-                  {totalPar > 0 &&
-                    ` (${getScoreLabel(getScoreDifferential(winner.totalScore, totalPar))})`}
+                  Shot {winner.totalScore} ({getScoreLabel(getScoreDifferential(winner.totalScore, totalPar))})
                 </Text>
-                <Text style={styles.winnerNetScore}>
-                  Net Score: {winner.totalScore - winner.handicapUsed} (Handicap: {winner.handicapUsed})
-                </Text>
-              </View>
-            ) : (
-              <Text style={styles.winnerScore}>
-                Score: {winner.totalScore}
-                {totalPar > 0 &&
-                  ` (${getScoreLabel(getScoreDifferential(winner.totalScore, totalPar))})`}
-              </Text>
-            )}
+              );
+            })()}
+          </View>
+        )}
+
+        {/* Settlement Summary for game sessions - positioned right below winner */}
+        {linkedSession?.settlement?.calculated && linkedSession.settlement.transactions?.length > 0 && (
+          <View style={{ marginHorizontal: 0, marginTop: 8, marginBottom: 16 }}>
+
+            <SettlementSummary
+              gameType={linkedSession.gameType}
+              myPlayerName={mySettlementName}
+              transactions={linkedSession.settlement.transactions.map((tx: any) => ({
+                fromPlayerName: linkedSession.participants?.find((p: any) => p.playerId === tx.fromPlayerId)?.name || 'Unknown',
+                toPlayerName: linkedSession.participants?.find((p: any) => p.playerId === tx.toPlayerId)?.name || 'Unknown',
+                amountCents: tx.amountCents,
+                reason: tx.reason,
+              }))}
+            />
           </View>
         )}
 
@@ -721,8 +858,8 @@ export default function RoundDetailsScreen() {
             </View>
 
             <View style={styles.holeScores}>
-              {round.players[index].scores.map((score) => {
-                const hole = course.holes.find((h) => h.number === score.holeNumber);
+              {round.players[index].scores.map((score: { holeNumber: number; strokes: number }) => {
+                const hole = course.holes.find((h: { number: number; par?: number }) => h.number === score.holeNumber);
                 const relativeToPar = hole ? score.strokes - (hole.par ?? 4) : 0;
 
                 return (
@@ -786,7 +923,7 @@ export default function RoundDetailsScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
-    </SafeAreaView>
+    </SafeAreaView >
   );
 }
 

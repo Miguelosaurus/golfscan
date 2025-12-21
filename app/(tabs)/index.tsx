@@ -27,6 +27,8 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
+import { SessionBanner } from '@/components/SessionBanner';
+import { useCourseImage } from '@/hooks/useCourseImage';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -35,7 +37,6 @@ export default function HomeScreen() {
     courses,
     addCourse,
     players,
-    updatePlayer,
     activeScanJob,
     clearActiveScanJob,
     setActiveScanJob,
@@ -72,8 +73,8 @@ export default function HomeScreen() {
         courseId: selectedScanCourse.id,
         teeName: selectedScanCourse.teeName,
       });
-      // Navigate to review
-      router.push('/scan-scorecard?review=1');
+      // Navigate to the scan review sheet
+      router.push('/scan-review');
       // Clear local selection
       setSelectedScanCourse(null);
     }
@@ -112,6 +113,10 @@ export default function HomeScreen() {
     api.rounds.listWithSummary,
     profile?._id ? { hostId: profile._id as Id<'users'> } : 'skip'
   ) as Round[] | undefined;
+
+  // Active game session
+  const activeSession = useQuery(api.gameSessions.getActive) as any;
+  const cancelSession = useMutation(api.gameSessions.cancel);
 
   // Keep Convex user profile in sync with Clerk when Clerk has a real name.
   // Show the setup modal only for "new" users (no meaningful name yet and no
@@ -200,11 +205,16 @@ export default function HomeScreen() {
         .filter(Boolean) as { round: Round; playerData: any; course: any }[]
     ) : 0;
 
-  // Handicap: use the server-side Scandicap index from the user profile.
+  // Handicap: use the CALCULATED Scandicap index (same as Scandicap details page)
+  // This is the ground truth that incorporates real rounds + seeded rounds via WHS algorithm
+  const handicapDetails = useQuery(
+    api.handicap.getDetails,
+    profile?._id ? { userId: profile._id as any } : "skip"
+  );
   const userHandicapValue =
-    typeof profile?.handicap === 'number'
-      ? profile.handicap
-      : 0;
+    typeof handicapDetails?.currentHandicap === 'number'
+      ? handicapDetails.currentHandicap
+      : (typeof profile?.handicap === 'number' ? profile.handicap : 0);
   const displayName = profile?.name ?? currentUser?.name ?? 'Golf Player';
   const avatarUrl = profile?.avatarUrl ?? currentUser?.photoUrl;
   const canSaveProfileName = profileNameInput.trim().length > 0;
@@ -377,7 +387,7 @@ export default function HomeScreen() {
         router.push('/scan-scorecard');
         return;
       }
-      router.push('/scan-scorecard?review=1');
+      router.push('/scan-review');
     };
 
     const isDevJob =
@@ -406,7 +416,7 @@ export default function HomeScreen() {
       setScannedData(sample as any);
       markActiveScanReviewPending();
       setIsScanning(false);
-      router.push('/scan-scorecard?review=1');
+      router.push('/scan-review');
     };
 
     const handleDevDiscardScan = () => {
@@ -418,7 +428,11 @@ export default function HomeScreen() {
 
     return (
       <TouchableOpacity
-        style={[styles.scanCard, isProcessing && styles.scanCardDisabled]}
+        style={[
+          styles.scanCard,
+          isProcessing && styles.scanCardDisabled,
+          activeSession && styles.scanCardSession
+        ]}
         activeOpacity={0.85}
         onPress={handlePress}
         disabled={cardDisabled}
@@ -533,15 +547,13 @@ export default function HomeScreen() {
       (courseExternalId && courses.find((c) => c.id === courseExternalId)) ||
       courses.find((c) => c.id === item.courseId);
     const userPlayer = findUserPlayer(item) || item.players[0];
-    const [imageUri, setImageUri] = React.useState(
-      course?.imageUrl || remoteCourseImage || DEFAULT_COURSE_IMAGE
-    );
 
-    React.useEffect(() => {
-      setImageUri(
-        course?.imageUrl || remoteCourseImage || DEFAULT_COURSE_IMAGE
-      );
-    }, [course?.imageUrl, remoteCourseImage]);
+    // Use the image caching hook for consistent behavior
+    const imageUri = useCourseImage({
+      courseId: courseExternalId || item.courseId,
+      convexImageUrl: remoteCourseImage,
+      localImageUrl: course?.imageUrl,
+    });
 
     return (
       <TouchableOpacity
@@ -725,6 +737,9 @@ export default function HomeScreen() {
 
       <View style={styles.roundsSection}>
         <Text style={styles.sectionTitle}>My rounds</Text>
+
+
+
         {isRoundsLoading ? (
           <HomeSkeleton />
         ) : recentRounds.length > 0 ? (
@@ -734,14 +749,58 @@ export default function HomeScreen() {
             keyExtractor={item => item.id}
             contentContainerStyle={styles.roundsList}
             showsVerticalScrollIndicator={false}
-            ListHeaderComponent={hasActiveScanCard ? renderActiveScanCard : null}
-            ListHeaderComponentStyle={hasActiveScanCard ? styles.scanCardHeader : undefined}
+            ListHeaderComponent={() => (
+              <View style={styles.scanCardHeader}>
+                {activeSession && !hasActiveScanCard && (
+                  <View style={{ marginBottom: 12 }}>
+                    <SessionBanner
+                      sessionId={activeSession._id}
+                      courseName={activeSession.course?.name || 'Unknown Course'}
+                      gameType={activeSession.gameType}
+                      playerCount={activeSession.participants?.length || 0}
+                      status={activeSession.status}
+                      onResume={() => router.push(`/active-session?sessionId=${activeSession._id}`)}
+                      onDismiss={async () => {
+                        try {
+                          await cancelSession({ sessionId: activeSession._id });
+                        } catch (error) {
+                          console.error('Failed to cancel session:', error);
+                        }
+                      }}
+                    />
+                  </View>
+                )}
+                {hasActiveScanCard && renderActiveScanCard()}
+              </View>
+            )}
+            ListHeaderComponentStyle={null}
           />
         ) : (
           <View style={styles.emptyWrapper}>
-            {hasActiveScanCard ? (
-              <View style={styles.scanCardHeader}>{renderActiveScanCard()}</View>
-            ) : (
+            <View style={styles.scanCardHeader}>
+              {activeSession && !hasActiveScanCard && (
+                <View style={{ marginBottom: 12 }}>
+                  <SessionBanner
+                    sessionId={activeSession._id}
+                    courseName={activeSession.course?.name || 'Unknown Course'}
+                    gameType={activeSession.gameType}
+                    playerCount={activeSession.participants?.length || 0}
+                    status={activeSession.status}
+                    onResume={() => router.push(`/active-session?sessionId=${activeSession._id}`)}
+                    onDismiss={async () => {
+                      try {
+                        await cancelSession({ sessionId: activeSession._id });
+                      } catch (error) {
+                        console.error('Failed to cancel session:', error);
+                      }
+                    }}
+                  />
+                </View>
+              )}
+              {hasActiveScanCard && renderActiveScanCard()}
+            </View>
+
+            {(!hasActiveScanCard && !activeSession) && (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyTitle}>No rounds yet</Text>
                 <Text style={styles.emptyMessage}>
@@ -959,8 +1018,6 @@ const styles = StyleSheet.create({
     width: 84,
     height: 84,
     borderRadius: 42,
-    borderWidth: 2,
-    borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1123,6 +1180,11 @@ const styles = StyleSheet.create({
   },
   scanCardDisabled: {
     opacity: 0.85,
+  },
+  scanCardSession: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    backgroundColor: 'rgba(0, 122, 102, 0.05)',
   },
   scanCardImageWrapper: {
     width: 80,
@@ -1442,6 +1504,11 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: colors.primary,
+    marginLeft: 8,
+    marginRight: 8,
+  },
+  cancelButton: {
+    backgroundColor: colors.background,
     marginLeft: 8,
     marginRight: 8,
   },

@@ -1,4 +1,4 @@
-import { Course, PlayerRound, Round } from '@/types';
+import { Course, Hole, PlayerRound, Round } from '@/types';
 import { getEighteenHoleEquivalentScore } from '@/utils/helpers';
 
 export interface PerformanceByPar {
@@ -29,7 +29,14 @@ export interface ScoreTrendData {
 interface PlayerScopedOptions {
   playerId: string;
   rounds: Round[];
+  courses?: Course[];
+  courseId?: string;
 }
+
+const getCourseForRound = (courses: Course[] | undefined, round: Round): Course | undefined => {
+  if (!courses) return undefined;
+  return courses.find((c) => c.id === round.courseId);
+};
 
 const getPlayerRoundData = (round: Round, playerId: string): PlayerRound | undefined => {
   // Prefer an exact id match when available
@@ -95,7 +102,7 @@ export const calculatePerformanceByDifficulty = ({
     if (!course) return;
 
     player.scores.forEach(score => {
-      const hole = course.holes.find(h => h.number === score.holeNumber);
+      const hole = course.holes.find((h: Hole) => h.number === score.holeNumber);
       if (!hole || !hole.handicap) return;
 
       const relativeToPar = score.strokes - hole.par;
@@ -144,7 +151,7 @@ export const calculateBlowUpRate = ({
 
     let countedRound = false;
     player.scores.forEach(score => {
-      const hole = course.holes.find(h => h.number === score.holeNumber);
+      const hole = course.holes.find((h: Hole) => h.number === score.holeNumber);
       if (!hole) return;
 
       countedRound = true;

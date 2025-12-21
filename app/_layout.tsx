@@ -12,8 +12,10 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useAction } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { useGolfStore } from "@/store/useGolfStore";
+import { Id } from "@/convex/_generated/dataModel";
 import { Alert, ImageBackground, StyleSheet } from "react-native";
 import { DEFAULT_COURSE_IMAGE } from "@/constants/images";
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
@@ -80,12 +82,15 @@ function ActiveScanPoller() {
       });
       markActiveScanReviewPending();
       setIsScanning(false);
-      router.push("/scan-scorecard?review=1");
+      // router.push("/scan-scorecard?review=1");
+      console.log('[ActiveScanPoller] Job complete, but auto-nav disabled for debugging');
     }
   }, [jobId, jobStatus, jobResult]);
 
   return null;
 }
+
+const isConvexId = (value: string | undefined | null) => /^[a-z0-9]{32}$/i.test(value ?? "");
 
 function RoundSyncer() {
   const { rounds, courses, updateRound, updateCourse, deleteRound: deleteLocalRound } = useGolfStore();
@@ -96,13 +101,42 @@ function RoundSyncer() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
 
+  // Sync Unsplash placeholder images with real images from Convex
+  useEffect(() => {
+    (async () => {
+      for (const course of courses) {
+        // If course has Unsplash image (default), try to fetch real one
+        if (course.imageUrl?.includes('unsplash.com') || course.imageUrl === DEFAULT_COURSE_IMAGE) {
+          // If we have a convex ID, or at least a name
+          const convexId = isConvexId(course.id) ? (course.id as Id<"courses">) : undefined;
+
+          if (convexId) {
+            try {
+              const img = await getOrCreateCourseImage({
+                courseId: convexId,
+                courseName: course.name,
+                locationText: course.location,
+              });
+              if (img?.url && img.url !== course.imageUrl) {
+                console.log('[ImageSync] Replacing Unsplash image for', course.name);
+                updateCourse({ ...course, imageUrl: img.url } as any);
+              }
+            } catch (e) {
+              console.warn("[ImageSync] Failed to fetch image for", course.name, e);
+            }
+          }
+        }
+      }
+    })();
+  }, [courses, getOrCreateCourseImage, updateCourse]);
+
   // Retry unsynced rounds periodically so they recover automatically when
   // connectivity comes back (e.g., server was down at save time).
   useEffect(() => {
     const interval = setInterval(() => setRetryTick((t) => t + 1), 15000);
     return () => clearInterval(interval);
   }, []);
-  const isConvexId = (value: string | undefined | null) => /^[a-z0-9]{32}$/i.test(value ?? "");
+
   const profile = useQuery(api.users.getProfile);
   const convexRounds =
     useQuery(
@@ -295,6 +329,9 @@ function RoundSyncer() {
 }
 
 export default function RootLayout() {
+  // Note: Global orientation lock removed to allow scan-scorecard to control rotation
+  // Individual screens can lock to portrait if needed
+
   return (
     <ClerkProvider
       publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
@@ -322,7 +359,11 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="round/[id]"
-              options={{ title: "Round Details", animation: "slide_from_right" }}
+              options={{
+                title: "Round Details",
+                presentation: "fullScreenModal",
+                animation: "slide_from_bottom"
+              }}
             />
             <Stack.Screen
               name="player/[id]"
@@ -338,7 +379,27 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="scan-scorecard"
-              options={{ title: "Scan Scorecard", presentation: "modal" }}
+              options={{
+                title: "Scan Scorecard",
+                presentation: "fullScreenModal",
+                animation: "slide_from_bottom",
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="scan-review"
+              options={{
+                title: "Scorecard Results",
+                // Review UI should be an iOS-style sheet/card overlay.
+                presentation: "formSheet",
+                sheetGrabberVisible: true,
+                sheetAllowedDetents: [1.0],
+                sheetInitialDetentIndex: 0,
+              }}
+            />
+            <Stack.Screen
+              name="active-session"
+              options={{ title: "Active Session", animation: "slide_from_right" }}
             />
             <Stack.Screen
               name="scandicap-details"

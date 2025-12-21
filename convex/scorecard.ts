@@ -207,15 +207,21 @@ export const processScan = action({
         },
       });
 
+      // Get user's preferred AI model (default to Pro)
+      const preferredModel = user.preferredAiModel || "gemini-3-pro-preview";
+
+      // Flash uses medium thinking, Pro uses low
+      const thinkingLevel = preferredModel === "gemini-3-flash-preview" ? "medium" : "low";
+
       const aiResponse = await genAI.models.generateContent({
-        model: "gemini-3-pro-preview",
+        model: preferredModel,
         contents: [{ role: "user", parts }],
         config: {
           temperature: 1,
           maxOutputTokens: 5000,
           responseMimeType: "application/json",
           responseSchema: SCORECARD_SCHEMA as any,
-          thinkingConfig: { thinkingLevel: "low" },
+          thinkingConfig: { thinkingLevel },
           mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
         } as any,
       });
@@ -363,7 +369,7 @@ export const createScanJob = mutation({
   args: {
     job: v.object({
       userId: v.id("users"),
-      status: v.string(),
+      status: v.union(v.literal("pending"), v.literal("processing"), v.literal("complete"), v.literal("failed")),
       progress: v.number(),
       message: v.string(),
       imageCount: v.number(),
@@ -382,7 +388,7 @@ export const updateScanJob = mutation({
   args: {
     jobId: v.id("scanJobs"),
     patch: v.object({
-      status: v.optional(v.string()),
+      status: v.optional(v.union(v.literal("pending"), v.literal("processing"), v.literal("complete"), v.literal("failed"))),
       progress: v.optional(v.number()),
       message: v.optional(v.string()),
       rawResult: v.optional(v.string()),

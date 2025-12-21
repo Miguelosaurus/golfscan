@@ -20,7 +20,7 @@ import { HeadToHeadCard } from "@/components/HeadToHeadCard";
 import { Round } from "@/types";
 import { calculateAverageScoreWithHoleAdjustment } from "@/utils/helpers";
 import { ScoreTrendData } from "@/utils/stats";
-import { TrendingUp, Calendar, Info } from "lucide-react-native";
+import { TrendingUp, Calendar, Info, DollarSign } from "lucide-react-native";
 import { PieChart } from "react-native-gifted-charts";
 import { useQuery } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
@@ -88,6 +88,21 @@ export default function PlayerProfileScreen() {
       : "skip"
   );
 
+  const wagerStats = useQuery(
+    api.stats.getWagerStats,
+    stats?.isSelf && id
+      ? { playerId: id as Id<"players"> }
+      : "skip"
+  );
+
+  // Query head-to-head wager stats
+  const wagerH2H = useQuery(
+    api.stats.getHeadToHeadStats,
+    selfPlayerId && id && !stats?.isSelf
+      ? { myPlayerId: selfPlayerId as Id<"players">, otherPlayerId: id as Id<"players"> }
+      : "skip"
+  );
+
   const playerRounds: Round[] = useMemo(
     () =>
       hostRounds.filter((r: any) =>
@@ -113,13 +128,13 @@ export default function PlayerProfileScreen() {
       { label: "Doubles", value: stats.doubleBogeys, color: "#F44336" },
       { label: "Worse", value: stats.worseThanDouble, color: "#B71C1C" },
     ];
-  const hasScoreDistribution = !!scoreDistributionEntries?.some((item) => item.value > 0);
+  const hasScoreDistribution = !!scoreDistributionEntries?.some((item: { value: number }) => item.value > 0);
   const pieRadius = Math.max(Math.min((windowWidth - 96) / 2.2, 130), 90);
-  const totalScores = scoreDistributionEntries?.reduce((sum, item) => sum + item.value, 0) ?? 0;
+  const totalScores = scoreDistributionEntries?.reduce((sum: number, item: { value: number }) => sum + item.value, 0) ?? 0;
   const pieChartData =
     scoreDistributionEntries
-      ?.filter((item) => item.value > 0)
-      .map((item) => ({
+      ?.filter((item: { label: string; value: number; color: string }) => item.value > 0)
+      .map((item: { label: string; value: number; color: string }) => ({
         value: item.value,
         color: item.color,
         text: totalScores ? `${Math.round((item.value / totalScores) * 100)}%` : "0%",
@@ -265,6 +280,66 @@ export default function PlayerProfileScreen() {
               )}
             </View>
 
+
+            {/* Total Wager Stats - Only for Self */}
+            {stats?.isSelf && wagerStats && wagerStats.gamesPlayed > 0 && (
+              <View style={[styles.statsContainer, { marginTop: 0 }]}>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E8F5E9', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                    <DollarSign size={24} color="#2E7D32" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, color: colors.textSecondary }}>Net Earnings</Text>
+                    <Text style={{ fontSize: 24, fontWeight: '700', color: wagerStats.netBalanceCents >= 0 ? '#2E7D32' : '#C62828' }}>
+                      {wagerStats.netBalanceCents >= 0 ? '+' : '-'}${Math.abs(wagerStats.netBalanceCents / 100).toFixed(2)}
+                    </Text>
+                    <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary, marginRight: 8 }}>Won: <Text style={{ color: '#2E7D32', fontWeight: '600' }}>${(wagerStats.totalWonCents / 100).toFixed(2)}</Text></Text>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>Lost: <Text style={{ color: '#C62828', fontWeight: '600' }}>${(wagerStats.totalLostCents / 100).toFixed(2)}</Text></Text>
+                    </View>
+
+                    {(wagerStats.bestWin || wagerStats.biggestDonor) && (
+                      <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#E0E0E0' }}>
+                        {wagerStats.bestWin && (
+                          <TouchableOpacity onPress={() => wagerStats.bestWin && router.push(`/round/${wagerStats.bestWin.roundId}`)} activeOpacity={0.7} style={{ marginBottom: 4 }}>
+                            <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+                              🏆 Best Win: <Text style={{ color: '#2E7D32', fontWeight: '600' }}>${(wagerStats.bestWin.amountCents / 100).toFixed(0)}</Text>
+                              <Text style={{ fontSize: 11 }}> ({new Date(wagerStats.bestWin.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})</Text>
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        {wagerStats.biggestDonor && (
+                          <TouchableOpacity onPress={() => wagerStats.biggestDonor && router.push(`/player/${wagerStats.biggestDonor.playerId}`)} activeOpacity={0.7}>
+                            <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+                              💸 Your ATM: <Text style={{ color: colors.text, fontWeight: '600' }}>{wagerStats.biggestDonor.name}</Text>
+                              <Text style={{ color: '#2E7D32', fontWeight: '600' }}> (+${(wagerStats.biggestDonor.amountCents / 100).toFixed(0)})</Text>
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Head-to-Head Wager Stats - Only if interaction exists */}
+            {wagerH2H && wagerH2H.gamesPlayed > 0 && (
+              <View style={[styles.statsContainer, { marginTop: 0, justifyContent: 'center' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E8F5E9', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                    <DollarSign size={24} color="#2E7D32" />
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 13, color: colors.textSecondary }}>Wager History</Text>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: wagerH2H.netBalanceCents >= 0 ? '#2E7D32' : '#C62828' }}>
+                      {wagerH2H.netBalanceCents >= 0 ? 'You won' : 'You lost'} ${Math.abs(wagerH2H.netBalanceCents / 100).toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
             {/* Head-to-Head Card - Only shown when viewing another player */}
             {!stats?.isSelf && headToHead && (
               <HeadToHeadCard
@@ -355,7 +430,7 @@ export default function PlayerProfileScreen() {
                     />
                   </View>
                   <View style={styles.pieLegend}>
-                    {scoreDistributionEntries?.map((entry) => (
+                    {scoreDistributionEntries?.map((entry: { label: string; value: number; color: string }) => (
                       <View key={entry.label} style={styles.pieLegendItem}>
                         <View style={[styles.pieLegendDot, { backgroundColor: entry.color }]} />
                         <Text style={styles.pieLegendLabel}>{entry.label}</Text>
@@ -386,7 +461,7 @@ export default function PlayerProfileScreen() {
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </SafeAreaView >
   );
 }
 

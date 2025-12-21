@@ -1,4 +1,4 @@
-import { createTRPCRouter } from "./create-context";
+import { createTRPCRouter } from "./create.context";
 import hiRoute from "./routes/example/hi/route";
 
 export const appRouter = createTRPCRouter({

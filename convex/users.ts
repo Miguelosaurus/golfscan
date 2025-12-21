@@ -19,20 +19,12 @@ export const getProfile = query({
     const clerkId = getClerkIdFromIdentity(identity);
     if (!clerkId) return null;
 
-    // Prefer lookup by canonical Clerk id, with a legacy fallback to tokenIdentifier
-    let user = await ctx.db
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
       .unique();
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
-
-    if (!user) return null;
     return user;
   },
 });
@@ -115,27 +107,16 @@ export const updateProfile = mutation({
     }
 
     const clerkId = getClerkIdFromIdentity(identity);
-
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
-
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-      if (user && clerkId) {
-        await ctx.db.patch(user._id, {
-          clerkId,
-          tokenIdentifier: identity.tokenIdentifier,
-          updatedAt: Date.now(),
-        });
-      }
+    if (!clerkId) {
+      throw new Error("Missing Clerk ID");
     }
+
+    // Lookup by Clerk ID (required for all users)
+    let user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+
 
     const now = Date.now();
     const desiredName = args.name?.trim();
@@ -148,6 +129,7 @@ export const updateProfile = mutation({
     // If user record doesn't exist yet (e.g., first-time login from Apple), create it.
     if (!user) {
       const insertedId = await ctx.db.insert("users", {
+        clerkId,
         tokenIdentifier: identity.tokenIdentifier,
         name: fallbackName,
         email: identity.email ?? "",
@@ -163,6 +145,7 @@ export const updateProfile = mutation({
       await ensureSelfPlayer(ctx, insertedId, fallbackName, now, args.gender);
       return {
         _id: insertedId,
+        clerkId,
         tokenIdentifier: identity.tokenIdentifier,
         name: fallbackName,
         email: identity.email ?? "",
@@ -232,6 +215,34 @@ export const updateHandicap = mutation({
     const now = Date.now();
     await ctx.db.patch(user._id, { handicap: args.handicap, updatedAt: now });
     return { ...user, handicap: args.handicap, updatedAt: now };
+  },
+});
+
+export const setPreferredAiModel = mutation({
+  args: {
+    model: v.union(
+      v.literal("gemini-3-pro-preview"),
+      v.literal("gemini-3-flash-preview")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const clerkId = getClerkIdFromIdentity(identity);
+    const user = clerkId
+      ? await ctx.db
+        .query("users")
+        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+        .unique()
+      : null;
+    if (!user) throw new Error("User not found");
+
+    await ctx.db.patch(user._id, {
+      preferredAiModel: args.model,
+      updatedAt: Date.now(),
+    });
+    return { ...user, preferredAiModel: args.model };
   },
 });
 

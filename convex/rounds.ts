@@ -139,21 +139,14 @@ export const saveRound = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
     const clerkId = getClerkIdFromIdentity(identity);
+    if (!clerkId) throw new Error("Missing Clerk ID");
 
-    // Prefer lookup by Clerk id; fall back to tokenIdentifier for legacy users.
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
     if (!user) throw new Error("User not found; call syncUser first");
 
     const course = await ctx.db.get(args.courseId);
@@ -295,13 +288,19 @@ export const saveRound = mutation({
         handicapDifferential = scaled;
       }
 
+      // Calculate course handicap from handicap index using slope
+      // Course Handicap = Handicap Index × (Slope / 113)
+      const courseHandicap = player.handicap !== undefined && slopeUsed
+        ? Math.round(player.handicap * (slopeUsed / 113))
+        : player.handicap;
+
       await ctx.db.insert("scores", {
         roundId,
         playerId,
         courseId: args.courseId,
         grossScore: stats.grossScore,
-        netScore: player.handicap !== undefined ? stats.grossScore - player.handicap : undefined,
-        handicapUsed: player.handicap ?? undefined,
+        netScore: courseHandicap !== undefined ? stats.grossScore - courseHandicap : undefined,
+        handicapUsed: courseHandicap ?? undefined,
         holeCount,
         teeName: player.teeName ?? undefined,
         // Track gender alongside tee when provided (helps downstream tee selection)
@@ -375,19 +374,13 @@ export const updateRound = mutation({
     if (!round) throw new Error("Round not found");
 
     const clerkId = getClerkIdFromIdentity(identity);
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    if (!clerkId) throw new Error("Missing Clerk ID");
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
 
     if (!user || round.hostId !== user._id) throw new Error("Not authorized");
 
@@ -528,13 +521,19 @@ export const updateRound = mutation({
         handicapDifferential = rawDiff * (scaleTo18 || 1);
       }
 
+      // Calculate course handicap from handicap index using slope
+      // Course Handicap = Handicap Index × (Slope / 113)
+      const courseHandicap = player.handicap !== undefined && slopeUsed
+        ? Math.round(player.handicap * (slopeUsed / 113))
+        : player.handicap;
+
       await ctx.db.insert("scores", {
         roundId: args.roundId,
         playerId,
         courseId: args.courseId,
         grossScore: stats.grossScore,
-        netScore: player.handicap !== undefined ? stats.grossScore - player.handicap : undefined,
-        handicapUsed: player.handicap ?? undefined,
+        netScore: courseHandicap !== undefined ? stats.grossScore - courseHandicap : undefined,
+        handicapUsed: courseHandicap ?? undefined,
         holeCount: args.holeCount,
         teeName: player.teeName ?? undefined,
         teeGender: player.teeGender ?? undefined,
@@ -567,32 +566,69 @@ export const deleteRound = mutation({
     if (!round) return;
 
     const clerkId = getClerkIdFromIdentity(identity);
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    if (!clerkId) throw new Error("Missing Clerk ID");
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+
     if (!user || round.hostId !== user._id) throw new Error("Not authorized");
 
     const scores = await ctx.db
       .query("scores")
       .withIndex("by_round", (q) => q.eq("roundId", args.roundId))
       .collect();
+
+    // Track affected playerIds before deleting scores
+    const affectedPlayerIds = new Set(scores.map(s => s.playerId));
+
     for (const s of scores) {
       await ctx.db.delete(s._id);
     }
     await ctx.db.delete(args.roundId);
 
+    // Scan for and delete any linked game sessions
+    const userSessions = await ctx.db
+      .query("gameSessions")
+      .withIndex("by_host", (q) => q.eq("hostId", user._id))
+      .collect();
+
+    for (const session of userSessions) {
+      if (session.linkedRoundId === args.roundId) {
+        await ctx.db.delete(session._id);
+      }
+    }
+
+    // Cleanup orphaned players: delete if no remaining scores AND not isSelf
+    for (const playerId of affectedPlayerIds) {
+      const remainingScores = await ctx.db
+        .query("scores")
+        .withIndex("by_player", (q) => q.eq("playerId", playerId))
+        .first();
+
+      if (!remainingScores) {
+        const player = await ctx.db.get(playerId);
+        if (player && !player.isSelf) {
+          await ctx.db.delete(playerId);
+        }
+      }
+    }
+
+    // Cleanup orphaned scanJob: if this round had a scanJobId and no other round uses it
+    if (round.scanJobId) {
+      const otherRoundWithSameScan = await ctx.db
+        .query("rounds")
+        .filter((q) => q.eq(q.field("scanJobId"), round.scanJobId))
+        .first();
+
+      if (!otherRoundWithSameScan) {
+        await ctx.db.delete(round.scanJobId);
+      }
+    }
+
     // After deleting a round, recompute the host user's handicap and rebuild history
-    // so the dashboard, chart, and stats stay in sync
     await ctx.runMutation("handicap:rebuildHistory" as any, {});
   },
 });

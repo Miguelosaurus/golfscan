@@ -47,15 +47,6 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const { getFrequentCourses, getCourseById, addCourse, updateCourse, courses, rounds } = useGolfStore();
   const router = useRouter();
 
-  // Debug: log visibility with instance ID
-  console.log(`[CourseSearchModal] ${testID || 'unknown'} visible:`, visible);
-
-  // Debug: log when Modal should be showing
-  useEffect(() => {
-    if (visible) {
-      console.log(`[CourseSearchModal] ${testID || 'unknown'} MODAL SHOULD BE VISIBLE NOW`);
-    }
-  }, [visible, testID]);
 
   // Use Convex rounds data (same as history tab) for My Courses
   const profile = useQuery(api.users.getProfile);
@@ -67,6 +58,8 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const searchAction = useAction(api.golfCourse.search);
   const searchConvexCourses = useAction(api.courses.searchByNameAction);
   const upsertCourse = useMutation(api.courses.upsert);
+  const setImageUrl = useMutation(api.courses.setImageUrl);
+  const getOrCreateCourseImage = useAction(api.courseImages.getOrCreate);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]); // Changed from ApiCourse[] to any[]
   const [loading, setLoading] = useState(false);
@@ -106,6 +99,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
           imageUrl: storeCourse?.imageUrl ?? (round.courseImageUrl as string | undefined),
           slope: storeCourse?.slope,
           rating: storeCourse?.rating,
+          teeSets: storeCourse?.teeSets,
         });
       }
     });
@@ -271,16 +265,50 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     const isFromConvexCache = apiCourse._fromConvexCache === true;
     const convexCourse = apiCourse._convexCourse;
 
-    const teeOptions = getTeeBoxOptions(apiCourse);
-    const hasMultipleTees = teeOptions.length > 1;
+    // Check for tees in both API format and Convex cache format
+    const apiTeeOptions = getTeeBoxOptions(apiCourse);
+    const convexTeeSets = convexCourse?.teeSets || [];
+
+    // Use API tee options if available, otherwise use Convex teeSets
+    const hasMultipleTees = apiTeeOptions.length > 0 || convexTeeSets.length > 1;
 
     if (hasMultipleTees) {
-      setSelectedCourse(apiCourse);
+      // If from Convex cache, add the teeSets to the course for tee picker
+      if (isFromConvexCache && convexTeeSets.length > 0 && apiTeeOptions.length === 0) {
+        // Convert Convex teeSets to a format the tee picker understands
+        setSelectedCourse({
+          ...apiCourse,
+          tees: convexTeeSets.map((t: any) => ({
+            name: t.name,
+            gender: t.gender,
+            rating: t.rating,
+            slope: t.slope,
+          })),
+          _isLocalCourse: true,
+          _localCourse: {
+            id: convexCourse.externalId || convexCourse._id,
+            name: convexCourse.name,
+            location: convexCourse.location,
+            holes: convexCourse.holes?.map((h: any) => ({
+              number: h.number,
+              par: h.par,
+              distance: h.yardage || 0,
+              handicap: h.hcp,
+            })) || [],
+            imageUrl: convexCourse.imageUrl,
+            slope: convexCourse.slope,
+            rating: convexCourse.rating,
+            teeSets: convexTeeSets,
+          },
+        });
+      } else {
+        setSelectedCourse(apiCourse);
+      }
       setShowTeeSelection(true);
       return;
     }
 
-    const teeName = teeOptions[0]?.name;
+    const teeName = apiTeeOptions[0]?.name;
     const deterministicId = isFromConvexCache && convexCourse
       ? convexCourse.externalId || convexCourse._id
       : getDeterministicCourseId(apiCourse, teeName);
@@ -311,10 +339,12 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         if (!getCourseById(courseToUse.id)) {
           addCourse(courseToUse);
         }
-        onSelectCourse(courseToUse);
+        // Don't auto-select tee - let user pick in players step
+        onSelectCourse(courseToUse, {});
       } else if (existingCourse) {
         courseToUse = existingCourse;
-        onSelectCourse(existingCourse);
+        // Don't auto-select tee - let user pick in players step
+        onSelectCourse(existingCourse, {});
       } else {
         const course = await convertApiCourseToLocal(apiCourse, { selectedTee: teeName });
         courseToUse = course;
@@ -387,7 +417,8 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const handleSelectFrequentCourse = (courseId: string) => {
     const course = getCourseById(courseId);
     if (course) {
-      onSelectCourse(course);
+      // Don't auto-select tee - let user pick in players step
+      onSelectCourse(course, {});
       handleClose();
     }
   };
@@ -395,6 +426,17 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   const handleSelectTee = async (teeName: string) => {
     if (!selectedCourse) return;
 
+    // Handle local course from My Courses tab
+    if (selectedCourse._isLocalCourse && selectedCourse._localCourse) {
+      const localCourse = selectedCourse._localCourse;
+      onSelectCourse(localCourse, { selectedTee: teeName });
+      setSearchQuery('');
+      setSearchResults([]);
+      setSelectedCourse(null);
+      setShowTeeSelection(false);
+      onClose();
+      return;
+    }
 
     setSelectingCourse(true);
     try {
@@ -547,8 +589,30 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         <CourseCard
           course={item}
           onPress={(course) => {
-            onSelectCourse(course);
-            handleClose();
+            // Check if course has multiple tees - show tee picker same as API search flow
+            const teeSets = course.teeSets ?? [];
+            if (teeSets.length > 1) {
+              // Convert local course to API-like format for tee selection
+              setSelectedCourse({
+                ...course,
+                id: course.id,
+                name: course.name,
+                tees: teeSets.map((t: any) => ({
+                  name: t.name,
+                  gender: t.gender,
+                  rating: t.rating,
+                  slope: t.slope,
+                })),
+                _isLocalCourse: true,
+                _localCourse: course,
+              });
+              setShowTeeSelection(true);
+            } else {
+              // Only one tee or no tees - use it directly
+              const firstTeeName = teeSets[0]?.name;
+              onSelectCourse(course, { selectedTee: firstTeeName });
+              handleClose();
+            }
           }}
         />
       </View>
@@ -704,13 +768,22 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         ) : (
           <View style={styles.teeSelectionContainer}>
             <Text style={styles.selectedCourseName}>
-              {selectedCourse ? getCourseDisplayName(selectedCourse) : ''}
+              {selectedCourse?._isLocalCourse
+                ? selectedCourse.name
+                : (selectedCourse ? getCourseDisplayName(selectedCourse) : '')}
             </Text>
             <Text style={styles.teeSelectionSubtitle}>Choose your tee box:</Text>
 
             <View style={styles.teeOptionsContainer}>
-              {selectedCourse && getTeeBoxOptions(selectedCourse).map((option, index) =>
-                renderTeeOption(option.name, index)
+              {selectedCourse && (selectedCourse._isLocalCourse
+                ? // Local course: use teeSets from tees array we set
+                (selectedCourse.tees || []).map((tee: any, index: number) =>
+                  renderTeeOption(tee.name, index)
+                )
+                : // API course: use getTeeBoxOptions
+                getTeeBoxOptions(selectedCourse).map((option, index) =>
+                  renderTeeOption(option.name, index)
+                )
               )}
             </View>
           </View>

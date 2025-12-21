@@ -1,24 +1,51 @@
-import React from "react";
+import React, { useState } from "react";
 import { Tabs, useRouter } from "expo-router";
 import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { Home, History, Camera } from "lucide-react-native";
 import { colors } from "@/constants/colors";
+import { PreRoundFlowModal } from "@/components/PreRoundFlowModal";
+import { useQuery } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 
 function ScanButton() {
   const router = useRouter();
-  
+  const [showModal, setShowModal] = useState(false);
+
+  // Check for active game session
+  const activeSession = useQuery(api.gameSessions.getActive) as any;
+
+  const handlePress = () => {
+    console.log('[ScanButton] handlePress - activeSession:', activeSession, 'status:', activeSession?.status);
+    console.log('[ScanButton] handlePress - activeSession:', activeSession, 'status:', activeSession?.status);
+
+    // Always go to scan card, passing session if active
+    if (activeSession && (activeSession.status === 'active' || activeSession.status === 'pending')) {
+      router.push(`/scan-scorecard?sessionId=${activeSession._id}`);
+    } else {
+      router.push('/scan-scorecard');
+    }
+  };
+
   return (
-    <TouchableOpacity 
-      style={styles.scanButton}
-      onPress={() => router.push('/scan-scorecard')}
-      activeOpacity={0.8}
-    >
-      <View style={styles.scanButtonInner}>
-        <Camera size={36} color="#FFFFFF" />
-      </View>
-    </TouchableOpacity>
+    <>
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={handlePress}
+        activeOpacity={0.8}
+      >
+        <View style={styles.scanButtonInner}>
+          <Camera size={36} color="#FFFFFF" />
+        </View>
+      </TouchableOpacity>
+
+      <PreRoundFlowModal
+        visible={showModal}
+        onClose={() => setShowModal(false)}
+      />
+    </>
   );
 }
+
 
 export default function TabLayout() {
   return (

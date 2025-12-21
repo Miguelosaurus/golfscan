@@ -18,22 +18,11 @@ export const syncUser = mutation({
     const tokenIdentifier = identity.tokenIdentifier;
     const now = Date.now();
 
-    // 1) Prefer lookup by canonical Clerk id
-    let existing = await ctx.db
+    // Lookup by Clerk ID (required for all users)
+    const existing = await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
       .unique();
-
-    // 2) Legacy migration: if not found, fall back to tokenIdentifier and attach clerkId
-    if (!existing) {
-      existing = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", tokenIdentifier))
-        .unique();
-      if (existing) {
-        await ctx.db.patch(existing._id, { clerkId, tokenIdentifier, updatedAt: now });
-      }
-    }
 
     if (existing) {
       const updates: Record<string, unknown> = { updatedAt: now };
@@ -58,6 +47,7 @@ export const syncUser = mutation({
       "New Golfer";
 
     const userId = await ctx.db.insert("users", {
+      clerkId,
       tokenIdentifier,
       name: fallbackName,
       email: identity.email ?? "",

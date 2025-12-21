@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   TouchableOpacity,
   Alert,
   TextInput,
@@ -16,9 +16,9 @@ import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
 import { Button } from '@/components/Button';
 import { ActivityCalendar } from '@/components/ActivityCalendar';
-import { 
-  User, 
-  Edit3, 
+import {
+  User,
+  Edit3,
   Camera,
   Link as LinkIcon,
   ChevronRight
@@ -40,15 +40,15 @@ export default function ProfileScreen() {
   const [editHandicap, setEditHandicap] = useState('');
   const [ghinNumber, setGhinNumber] = useState('');
   const { user, isLoaded: isUserLoaded } = useUser();
-  
+
   const currentUser = players.find(p => p.isUser);
   const displayName = profile?.name ?? currentUser?.name ?? 'Golf Player';
-  
+
   const handleEditProfile = () => {
     setEditName(displayName || '');
     setShowEditModal(true);
   };
-  
+
   const handleSaveProfile = async () => {
     if (!editName.trim()) {
       Alert.alert('Error', 'Please enter a valid name');
@@ -78,21 +78,21 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Could not update your profile. Please try again.');
       return;
     }
-    
+
     setShowEditModal(false);
     Alert.alert('Success', 'Profile updated successfully');
   };
-  
+
   const handleEditHandicap = () => {
     setEditHandicap(currentUser?.handicap?.toString() || '');
     setShowHandicapModal(true);
   };
-  
+
   const updateHandicapMutation = useMutation(api.users.updateHandicap);
 
   const handleSaveHandicap = async () => {
     if (!currentUser && !profile) return;
-    
+
     const newHandicap = parseFloat(editHandicap);
     if (isNaN(newHandicap)) {
       Alert.alert('Error', 'Please enter a valid handicap');
@@ -113,18 +113,18 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Could not update handicap. Please try again.');
     }
   };
-  
+
   const handleGhinLink = () => {
     setGhinNumber('');
     setShowGhinModal(true);
   };
-  
+
   const handleSaveGhin = () => {
     if (!ghinNumber.trim()) {
       Alert.alert('Error', 'Please enter a valid GHIN number');
       return;
     }
-    
+
     // Simulate GHIN linking
     Alert.alert(
       'GHIN Linked',
@@ -137,7 +137,7 @@ export default function ProfileScreen() {
       ]
     );
   };
-  
+
   const handleChangePhoto = async () => {
     Alert.alert(
       'Change Profile Photo',
@@ -185,11 +185,11 @@ export default function ProfileScreen() {
       ]
     );
   };
-  
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen 
-        options={{ 
+      <Stack.Screen
+        options={{
           title: "Profile",
           headerStyle: {
             backgroundColor: colors.background,
@@ -198,10 +198,10 @@ export default function ProfileScreen() {
             color: colors.text,
           },
           headerTintColor: colors.text,
-        }} 
+        }}
       />
-      
-      <ScrollView 
+
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
@@ -220,12 +220,14 @@ export default function ProfileScreen() {
           <Text style={styles.userName}>{displayName}</Text>
           <Text style={styles.userInfo}>Member since June 2025</Text>
         </View>
-        
+
         <ActivityCalendar />
-        
+
+        {/* Wager Stats Card Removed */}
+
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Profile Information</Text>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleEditProfile}>
             <User size={20} color={colors.text} />
             <View style={styles.menuItemContent}>
@@ -234,7 +236,7 @@ export default function ProfileScreen() {
             </View>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleEditHandicap}>
             <Edit3 size={20} color={colors.text} />
             <View style={styles.menuItemContent}>
@@ -245,7 +247,7 @@ export default function ProfileScreen() {
             </View>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleGhinLink}>
             <LinkIcon size={20} color={colors.text} />
             <View style={styles.menuItemContent}>
@@ -256,7 +258,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
-      
+
       {/* Edit Profile Modal */}
       <Modal
         visible={showEditModal}
@@ -267,7 +269,7 @@ export default function ProfileScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Edit Profile</Text>
-            
+
             <Text style={styles.inputLabel}>Name</Text>
             <TextInput
               style={styles.input}
@@ -275,16 +277,16 @@ export default function ProfileScreen() {
               onChangeText={setEditName}
               placeholder="Enter your name"
             />
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowEditModal(false)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={handleSaveProfile}
               >
@@ -294,7 +296,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-      
+
       {/* Edit Handicap Modal */}
       <Modal
         visible={showHandicapModal}
@@ -305,7 +307,7 @@ export default function ProfileScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Edit Handicap</Text>
-            
+
             <Text style={styles.inputLabel}>Handicap Index</Text>
             <TextInput
               style={styles.input}
@@ -314,20 +316,20 @@ export default function ProfileScreen() {
               placeholder="Enter handicap"
               keyboardType="decimal-pad"
             />
-            
+
             <Text style={styles.note}>
               Enter your current handicap index. This will be used for net score calculations.
             </Text>
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowHandicapModal(false)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={handleSaveHandicap}
               >
@@ -337,7 +339,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-      
+
       {/* GHIN Link Modal */}
       <Modal
         visible={showGhinModal}
@@ -348,7 +350,7 @@ export default function ProfileScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Link GHIN Account</Text>
-            
+
             <Text style={styles.inputLabel}>GHIN Number</Text>
             <TextInput
               style={styles.input}
@@ -357,20 +359,20 @@ export default function ProfileScreen() {
               placeholder="Enter your GHIN number"
               keyboardType="number-pad"
             />
-            
+
             <Text style={styles.note}>
               Link your GHIN account to automatically sync your official handicap index. Your GHIN number can be found on your membership card or in the GHIN app.
             </Text>
-            
+
             <View style={styles.modalButtons}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setShowGhinModal(false)}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
                 onPress={handleSaveGhin}
               >

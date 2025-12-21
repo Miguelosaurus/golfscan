@@ -1,9 +1,9 @@
 import React from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
   TouchableOpacity,
   Alert,
   Linking,
@@ -13,11 +13,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { colors } from '@/constants/colors';
 import { Button } from '@/components/Button';
-import { 
-  HelpCircle, 
-  Globe, 
-  FileText, 
-  Shield, 
+import {
+  HelpCircle,
+  Globe,
+  FileText,
+  Shield,
   LogOut,
   ChevronRight,
   Bell,
@@ -25,7 +25,7 @@ import {
   Smartphone
 } from 'lucide-react-native';
 import { useAuth, useUser } from '@clerk/clerk-expo';
-import { useQuery } from '@/lib/convex';
+import { useQuery, useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { useGolfStore } from '@/store/useGolfStore';
 
@@ -34,6 +34,7 @@ export default function SettingsScreen() {
   const { signOut, isSignedIn } = useAuth();
   const { user } = useUser();
   const profile = useQuery(api.users.getProfile);
+  const setPreferredAiModel = useMutation(api.users.setPreferredAiModel);
   const devMode = useGolfStore((s) => s.devMode);
   const setDevMode = useGolfStore((s) => s.setDevMode);
 
@@ -47,7 +48,7 @@ export default function SettingsScreen() {
     user?.primaryEmailAddress?.emailAddress ||
     'Signed in with Clerk';
   const initial = displayName?.charAt(0) || 'S';
-  
+
   const handleHelp = () => {
     Alert.alert(
       'Help & Support',
@@ -59,7 +60,7 @@ export default function SettingsScreen() {
       ]
     );
   };
-  
+
   const handleLanguage = () => {
     Alert.alert(
       'Language',
@@ -72,7 +73,7 @@ export default function SettingsScreen() {
       ]
     );
   };
-  
+
   const handleNotifications = () => {
     Alert.alert(
       'Notifications',
@@ -85,7 +86,7 @@ export default function SettingsScreen() {
       ]
     );
   };
-  
+
   const handleTheme = () => {
     Alert.alert(
       'Theme',
@@ -98,7 +99,7 @@ export default function SettingsScreen() {
       ]
     );
   };
-  
+
   const handleTerms = () => {
     Alert.alert(
       'Terms & Conditions',
@@ -109,7 +110,7 @@ export default function SettingsScreen() {
       ]
     );
   };
-  
+
   const handlePrivacy = () => {
     Alert.alert(
       'Privacy Policy',
@@ -120,7 +121,7 @@ export default function SettingsScreen() {
       ]
     );
   };
-  
+
   const handleAbout = () => {
     Alert.alert(
       'About ScanCaddie',
@@ -132,7 +133,7 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
       [{ text: 'OK' }]
     );
   };
-  
+
   const handleLogout = () => {
     if (!isSignedIn) {
       Alert.alert("Not signed in", "You are not currently signed in.");
@@ -157,17 +158,17 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
                 // inside the signed-in tab flow.
                 router.replace("/");
               })
-              .catch(() => {});
+              .catch(() => { });
           }
         }
       ]
     );
   };
-  
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen 
-        options={{ 
+      <Stack.Screen
+        options={{
           title: "Settings",
           headerStyle: {
             backgroundColor: colors.background,
@@ -176,10 +177,10 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
             color: colors.text,
           },
           headerTintColor: colors.text,
-        }} 
+        }}
       />
-      
-      <ScrollView 
+
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
@@ -201,19 +202,19 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
 
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Preferences</Text>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleNotifications}>
             <Bell size={20} color={colors.text} />
             <Text style={styles.menuItemText}>Notifications</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleTheme}>
             <Moon size={20} color={colors.text} />
             <Text style={styles.menuItemText}>Theme</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleLanguage}>
             <Globe size={20} color={colors.text} />
             <Text style={styles.menuItemText}>Language</Text>
@@ -223,8 +224,8 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
 
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Developer</Text>
-          
-          <View style={[styles.menuItem, styles.menuItemNoBorder]}>
+
+          <View style={[styles.menuItem]}>
             <Smartphone size={20} color={colors.text} />
             <View style={styles.menuItemDevTextWrap}>
               <Text style={styles.menuItemText}>Dev Mode</Text>
@@ -237,47 +238,93 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
               thumbColor={devMode ? colors.primary : '#f4f3f4'}
             />
           </View>
+
+          <View style={[styles.menuItem, styles.menuItemNoBorder]}>
+            <Moon size={20} color={colors.text} />
+            <View style={styles.menuItemDevTextWrap}>
+              <Text style={styles.menuItemText}>AI Model</Text>
+              <Text style={styles.menuItemSubtext}>
+                {profile?.preferredAiModel === 'gemini-3-flash-preview'
+                  ? 'Gemini 3 Flash (faster)'
+                  : 'Gemini 3 Pro (best quality)'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modelPickerButton}
+              onPress={() => {
+                Alert.alert(
+                  'Select AI Model',
+                  'Choose the model for scorecard scanning',
+                  [
+                    {
+                      text: 'Gemini 3 Pro (best quality)',
+                      onPress: async () => {
+                        try {
+                          await setPreferredAiModel({ model: 'gemini-3-pro-preview' });
+                        } catch (e) {
+                          console.error('Failed to set model:', e);
+                        }
+                      },
+                    },
+                    {
+                      text: 'Gemini 3 Flash (faster)',
+                      onPress: async () => {
+                        try {
+                          await setPreferredAiModel({ model: 'gemini-3-flash-preview' });
+                        } catch (e) {
+                          console.error('Failed to set model:', e);
+                        }
+                      },
+                    },
+                    { text: 'Cancel', style: 'cancel' },
+                  ]
+                );
+              }}
+            >
+              <Text style={styles.modelPickerText}>Change</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        
+
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Support</Text>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleHelp}>
             <HelpCircle size={20} color={colors.text} />
             <Text style={styles.menuItemText}>Help & Support</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleAbout}>
             <Smartphone size={20} color={colors.text} />
             <Text style={styles.menuItemText}>About</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
-        
+
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Legal</Text>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handleTerms}>
             <FileText size={20} color={colors.text} />
             <Text style={styles.menuItemText}>Terms & Conditions</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.menuItem} onPress={handlePrivacy}>
             <Shield size={20} color={colors.text} />
             <Text style={styles.menuItemText}>Privacy Policy</Text>
             <ChevronRight size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
-        
+
         <Button
           title={isSignedIn ? "Logout" : "Sign in"}
           onPress={isSignedIn ? handleLogout : () => router.push('/')}
           variant="outline"
           style={styles.logoutButton}
         />
-        
+
         <View style={styles.versionContainer}>
           <Text style={styles.versionText}>ScanCaddie v1.0.0</Text>
         </View>
@@ -374,5 +421,16 @@ const styles = StyleSheet.create({
   versionText: {
     fontSize: 14,
     color: colors.text,
+  },
+  modelPickerButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  modelPickerText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

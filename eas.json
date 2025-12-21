@@ -1,0 +1,30 @@
+{
+    "cli": {
+        "version": ">= 10.0.0"
+    },
+    "build": {
+        "development": {
+            "developmentClient": true,
+            "distribution": "internal"
+        },
+        "staging": {
+            "distribution": "store",
+            "env": {
+                "EXPO_PUBLIC_CONVEX_URL": "https://next-oriole-469.convex.cloud",
+                "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cG9zc2libGUtamF3ZmlzaC02MS5jbGVyay5hY2NvdW50cy5kZXYk"
+            }
+        },
+        "production": {
+            "distribution": "store"
+        }
+    },
+    "submit": {
+        "production": {
+            "ios": {
+                "appleId": "YOUR_APPLE_ID_EMAIL@gmail.com",
+                "ascAppId": "PLACEHOLDER",
+                "appleTeamId": "PLACEHOLDER"
+            }
+        }
+    }
+}

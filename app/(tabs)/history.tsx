@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  FlatList, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
   TouchableOpacity,
   TextInput,
   Image,
@@ -111,9 +111,9 @@ export default function HistoryScreen() {
   };
 
   const filteredRounds = roundsData
-    .filter(round => 
+    .filter(round =>
       round.courseName.toLowerCase().includes(roundsSearchQuery.toLowerCase()) ||
-      round.players.some(player => 
+      round.players.some(player =>
         player.playerName.toLowerCase().includes(roundsSearchQuery.toLowerCase())
       )
     )
@@ -133,12 +133,13 @@ export default function HistoryScreen() {
 
       const id = storeCourse?.id ?? externalId ?? (r.courseId as string);
 
+      // Use Convex imageUrl first (source of truth), fallback to local store
       map.set(key, {
         id,
         name: r.courseName,
         location: storeCourse?.location ?? 'Unknown location',
         holes: storeCourse?.holes ?? [],
-        imageUrl: storeCourse?.imageUrl ?? (r.courseImageUrl as string | undefined),
+        imageUrl: (r.courseImageUrl as string | undefined) ?? storeCourse?.imageUrl,
         slope: storeCourse?.slope,
         rating: storeCourse?.rating,
       });
@@ -146,14 +147,14 @@ export default function HistoryScreen() {
     return Array.from(map.values());
   }, [roundsData, courses]);
 
-  const filteredCourses = derivedCourses.filter(course => 
+  const filteredCourses = derivedCourses.filter(course =>
     course.name.toLowerCase().includes(coursesSearchQuery.toLowerCase()) ||
     course.location.toLowerCase().includes(coursesSearchQuery.toLowerCase())
   );
-  
+
   const getUniquePlayers = (): PlayerSummary[] => {
     const playerMap = new Map<string, PlayerSummary>();
-    
+
     roundsData.forEach(round => {
       round.players.forEach(player => {
         // Compute 18-hole equivalent score for this round/player
@@ -169,10 +170,10 @@ export default function HistoryScreen() {
           : 36;
         const eighteenEq = isNineHole
           ? convertNineHoleToEighteenEquivalent(
-              player.totalScore,
-              player.handicapUsed ?? undefined,
-              coursePar9
-            )
+            player.totalScore,
+            player.handicapUsed ?? undefined,
+            coursePar9
+          )
           : player.totalScore;
 
         const existing = playerMap.get(player.playerId);
@@ -187,7 +188,7 @@ export default function HistoryScreen() {
         });
       });
     });
-    
+
     const summaries = Array.from(playerMap.values());
 
     // Fallback: if no player is flagged as the current user, try to infer from profile name
@@ -209,7 +210,7 @@ export default function HistoryScreen() {
       return a.name.localeCompare(b.name);
     });
   };
-  
+
   const uniquePlayers = getUniquePlayers();
 
   const filteredPlayers = uniquePlayers.filter(playerSummary =>
@@ -223,20 +224,20 @@ export default function HistoryScreen() {
     filteredPlayers.length > 0 || !selfPlayer
       ? filteredPlayers
       : [
-          {
-            id: selfPlayer._id as any,
-            name: selfPlayer.name || profile?.name || 'You',
-            roundsPlayed: 0,
-            totalScore: 0,
-            isUser: true,
-            handicap: (selfPlayer as any).handicap ?? (profile as any)?.handicap,
-          },
-        ];
-  
+        {
+          id: selfPlayer._id as any,
+          name: selfPlayer.name || profile?.name || 'You',
+          roundsPlayed: 0,
+          totalScore: 0,
+          isUser: true,
+          handicap: (selfPlayer as any).handicap ?? (profile as any)?.handicap,
+        },
+      ];
+
   const navigateToRoundDetails = (roundId: string) => {
     router.push(`/round/${roundId}`);
   };
-  
+
   const navigateToPlayerDetails = (playerId: string) => {
     router.push(`/player/${playerId}`);
   };
@@ -248,28 +249,28 @@ export default function HistoryScreen() {
   const navigateToAddCourse = () => {
     router.push('/new-course');
   };
-  
+
   const navigateToScanScorecard = () => {
     router.push('/scan-scorecard');
   };
-  
+
   const toggleSelectMode = () => {
     setIsSelectMode(!isSelectMode);
     setSelectedPlayerIds([]);
   };
-  
+
   const togglePlayerSelection = (playerId: string) => {
-    setSelectedPlayerIds(prev => 
-      prev.includes(playerId) 
+    setSelectedPlayerIds(prev =>
+      prev.includes(playerId)
         ? prev.filter(id => id !== playerId)
         : [...prev, playerId]
     );
   };
-  
+
   const handleMergePlayers = () => {
     Alert.alert('Not available', 'Player merge is not available in the cloud version yet.');
   };
-  
+
   const renderRoundItem = ({ item }: { item: Round }) => (
     <RoundCard round={item} onPress={() => navigateToRoundDetails(item.id)} />
   );
@@ -277,7 +278,7 @@ export default function HistoryScreen() {
   const renderCourseItem = ({ item }: { item: Course }) => (
     <CourseCard course={item} onPress={navigateToCourseDetails} />
   );
-  
+
   const renderPlayerItem = ({ item }: { item: PlayerSummary }) => {
     const player = undefined as unknown as Player | undefined;
     const name = player?.name || item.name;
@@ -285,11 +286,11 @@ export default function HistoryScreen() {
     const isSelected = selectedPlayerIds.includes(item.id);
     const avg =
       item.roundsPlayed > 0 ? Math.round(item.totalScore / item.roundsPlayed) : undefined;
-    
+
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[
-          styles.playerCard, 
+          styles.playerCard,
           item.isUser && styles.userPlayerCard,
           isSelected && styles.selectedPlayerCard
         ]}
@@ -306,7 +307,7 @@ export default function HistoryScreen() {
             {isSelected && <Check size={20} color={colors.background} />}
           </View>
         )}
-        
+
         <View style={[styles.playerAvatar, item.isUser && styles.userPlayerAvatar]}>
           {photoUrl ? (
             <Image source={{ uri: photoUrl }} style={{ width: 50, height: 50, borderRadius: 25 }} />
@@ -452,19 +453,19 @@ export default function HistoryScreen() {
         return null;
     }
   };
-  
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.tabContainer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'rounds' && styles.activeTab]}
           onPress={() => setActiveTab('rounds')}
         >
           <History size={18} color={colors.text} />
           <Text style={[styles.tabText, activeTab === 'rounds' && styles.activeTabText]}>Rounds</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'players' && styles.activeTab]}
           onPress={() => setActiveTab('players')}
         >
@@ -472,7 +473,7 @@ export default function HistoryScreen() {
           <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.tab, activeTab === 'courses' && styles.activeTab]}
           onPress={() => setActiveTab('courses')}
         >
@@ -480,7 +481,7 @@ export default function HistoryScreen() {
           <Text style={[styles.tabText, activeTab === 'courses' && styles.activeTabText]}>Courses</Text>
         </TouchableOpacity>
       </View>
-      
+
       <View style={styles.searchContainer}>
         <Search size={20} color={colors.textSecondary} style={styles.searchIcon} />
         <TextInput
@@ -491,8 +492,8 @@ export default function HistoryScreen() {
             activeTab === 'rounds'
               ? roundsSearchQuery
               : activeTab === 'players'
-              ? playersSearchQuery
-              : coursesSearchQuery
+                ? playersSearchQuery
+                : coursesSearchQuery
           }
           onChangeText={(text) => {
             if (activeTab === 'rounds') setRoundsSearchQuery(text);
@@ -501,22 +502,22 @@ export default function HistoryScreen() {
           }}
         />
         {activeTab === 'rounds' && (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.manageInlineButton}
             onPress={() => setShowDateFilter(true)}
           >
             <CalendarIcon size={16} color={colors.primary} />
             <Text style={styles.manageInlineButtonText}>
               {datePreset === 'all' ? 'Dates' :
-               datePreset === 'week' ? 'This week' :
-               datePreset === 'month' ? 'This month' :
-               datePreset === 'year' ? 'This year' :
-               datePreset === 'last30' ? 'Last 30d' : 'Custom'}
+                datePreset === 'week' ? 'This week' :
+                  datePreset === 'month' ? 'This month' :
+                    datePreset === 'year' ? 'This year' :
+                      datePreset === 'last30' ? 'Last 30d' : 'Custom'}
             </Text>
           </TouchableOpacity>
         )}
         {activeTab === 'players' && getUniquePlayers().length > 1 && (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.manageInlineButton, isSelectMode && styles.manageInlineButtonActive]}
             onPress={toggleSelectMode}
           >
@@ -527,7 +528,7 @@ export default function HistoryScreen() {
           </TouchableOpacity>
         )}
         {activeTab === 'players' && isSelectMode && (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.manageInlineButton, styles.mergeInlineButton, selectedPlayerIds.length < 2 && styles.disabledButton]}
             onPress={handleMergePlayers}
             disabled={selectedPlayerIds.length < 2}
@@ -539,7 +540,7 @@ export default function HistoryScreen() {
           </TouchableOpacity>
         )}
       </View>
-      
+
       <FlatList
         data={getData()}
         renderItem={renderItem}
@@ -554,7 +555,7 @@ export default function HistoryScreen() {
           <View style={styles.dateModal}>
             <Text style={styles.dateModalTitle}>Filter by date</Text>
             <View style={styles.datePresetRow}>
-              {['all','week','month','year','last30','custom'].map(p => (
+              {['all', 'week', 'month', 'year', 'last30', 'custom'].map(p => (
                 <TouchableOpacity
                   key={p}
                   style={[styles.presetChip, datePreset === p && styles.presetChipActive]}

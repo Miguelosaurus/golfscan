@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { calculateHandicapFromDiffs } from "./lib/handicapUtils";
 import { getClerkIdFromIdentity } from "./lib/authUtils";
@@ -30,19 +30,14 @@ export const getSelf = query({
     if (!identity) return null;
 
     const clerkId = getClerkIdFromIdentity(identity);
-    let user = clerkId
-      ? await ctx.db
-        .query("users")
-        .withIndex("by_clerkId", (q: any) => q.eq("clerkId", clerkId))
-        .unique()
-      : null;
+    if (!clerkId) return null;
 
-    if (!user) {
-      user = await ctx.db
-        .query("users")
-        .withIndex("by_token", (q: any) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-        .unique();
-    }
+    // Lookup by Clerk ID (required for all users)
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q: any) => q.eq("clerkId", clerkId))
+      .unique();
+
     if (!user) return null;
 
     const ownerPlayers = await ctx.db
@@ -52,6 +47,74 @@ export const getSelf = query({
 
     const selfPlayer = ownerPlayers.find((p: any) => p.isSelf);
     return selfPlayer ?? null;
+  },
+});
+
+/**
+ * Get all players owned by the current user
+ */
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const clerkId = getClerkIdFromIdentity(identity);
+    if (!clerkId) return [];
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q: any) => q.eq("clerkId", clerkId))
+      .unique();
+
+    if (!user) return [];
+
+    return ctx.db
+      .query("players")
+      .withIndex("by_owner", (q: any) => q.eq("ownerId", user._id))
+      .collect();
+  },
+});
+
+/**
+ * Get players who have actually played rounds (have scores)
+ * This matches what the history players tab shows
+ */
+export const listWithRounds = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const clerkId = getClerkIdFromIdentity(identity);
+    if (!clerkId) return [];
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q: any) => q.eq("clerkId", clerkId))
+      .unique();
+
+    if (!user) return [];
+
+    // Get all owned players
+    const allPlayers = await ctx.db
+      .query("players")
+      .withIndex("by_owner", (q: any) => q.eq("ownerId", user._id))
+      .collect();
+
+    // Filter to only players who have at least one score
+    const playersWithRounds = [];
+    for (const player of allPlayers) {
+      const hasScore = await ctx.db
+        .query("scores")
+        .withIndex("by_player", (q: any) => q.eq("playerId", player._id))
+        .first();
+      if (hasScore) {
+        playersWithRounds.push(player);
+      }
+    }
+
+    return playersWithRounds;
   },
 });
 
@@ -498,5 +561,89 @@ export const getHeadToHead = query({
       theirPlayerName: theirPlayer?.name ?? "Player",
       recentRounds,
     };
+  },
+});
+
+/**
+ * Add an alias to a player's profile (for scorecard name matching)
+ */
+export const addAlias = mutation({
+  args: {
+    playerId: v.id("players"),
+    alias: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      throw new Error("Player not found");
+    }
+
+    // Get existing aliases or empty array
+    const existingAliases = player.aliases ?? [];
+
+    // Normalize alias for comparison
+    const normalizedAlias = args.alias.toLowerCase().trim();
+
+    // Don't add if it's the same as the player name
+    if (player.name.toLowerCase().trim() === normalizedAlias) {
+      return { success: true, message: "Alias matches player name" };
+    }
+
+    // Don't add if already exists
+    if (existingAliases.some(a => a.toLowerCase().trim() === normalizedAlias)) {
+      return { success: true, message: "Alias already exists" };
+    }
+
+    // Add the new alias
+    await ctx.db.patch(args.playerId, {
+      aliases: [...existingAliases, args.alias.trim()],
+      updatedAt: Date.now(),
+    });
+
+    return { success: true, message: "Alias added" };
+  },
+});
+
+/**
+ * Create a new player owned by the current user
+ */
+export const create = mutation({
+  args: {
+    name: v.string(),
+    handicap: v.optional(v.number()),
+    gender: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const clerkId = getClerkIdFromIdentity(identity);
+    if (!clerkId) {
+      throw new Error("Missing Clerk ID");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q: any) => q.eq("clerkId", clerkId))
+      .unique();
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const now = Date.now();
+    const playerId = await ctx.db.insert("players", {
+      ownerId: user._id,
+      name: args.name.trim(),
+      handicap: args.handicap,
+      isSelf: false,
+      gender: args.gender,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return playerId;
   },
 });
