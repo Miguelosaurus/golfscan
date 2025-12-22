@@ -483,7 +483,7 @@ export default function RoundDetailsScreen() {
     const editId = localRound?.id ?? id;
 
     router.push({
-      pathname: "/scan-scorecard",
+      pathname: "/scan-review",
       params: { editRoundId: editId as string, prefilled, courseId: round.courseId },
     });
   };

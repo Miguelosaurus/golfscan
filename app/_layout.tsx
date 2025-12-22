@@ -81,7 +81,7 @@ function ActiveScanPoller() {
       });
       markActiveScanReviewPending();
       setIsScanning(false);
-      router.push("/scan-scorecard?review=1");
+      router.push("/scan-review");
     }
   }, [jobId, jobStatus, jobResult]);
 
@@ -375,6 +375,10 @@ export default function RootLayout() {
             <Stack.Screen
               name="scan-scorecard"
               options={{ title: "Scan Scorecard", presentation: "modal" }}
+            />
+            <Stack.Screen
+              name="scan-review"
+              options={{ title: "Review Scorecard", presentation: "modal" }}
             />
             <Stack.Screen
               name="active-session"
