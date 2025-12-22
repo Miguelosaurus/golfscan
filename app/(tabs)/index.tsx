@@ -73,8 +73,8 @@ export default function HomeScreen() {
         courseId: selectedScanCourse.id,
         teeName: selectedScanCourse.teeName,
       });
-      // Navigate to the scan review sheet
-      router.push('/scan-review');
+      // Navigate to review
+      router.push('/scan-scorecard?review=1');
       // Clear local selection
       setSelectedScanCourse(null);
     }
@@ -387,7 +387,7 @@ export default function HomeScreen() {
         router.push('/scan-scorecard');
         return;
       }
-      router.push('/scan-review');
+      router.push('/scan-scorecard?review=1');
     };
 
     const isDevJob =
@@ -416,7 +416,7 @@ export default function HomeScreen() {
       setScannedData(sample as any);
       markActiveScanReviewPending();
       setIsScanning(false);
-      router.push('/scan-review');
+      router.push('/scan-scorecard?review=1');
     };
 
     const handleDevDiscardScan = () => {

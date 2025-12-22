@@ -1,5 +1,6 @@
-import { View } from 'react-native';
+import { Redirect } from 'expo-router';
 
+// This is a placeholder file since we handle scan navigation in the tab button
 export default function ScanScreen() {
-  return <View style={{ flex: 1, backgroundColor: '#000' }} />;
+  return <Redirect href="/scan-scorecard" />;
 }

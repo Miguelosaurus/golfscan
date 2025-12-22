@@ -15,7 +15,6 @@ import { useGolfStore } from "@/store/useGolfStore";
 import { Id } from "@/convex/_generated/dataModel";
 import { Alert, ImageBackground, StyleSheet } from "react-native";
 import { DEFAULT_COURSE_IMAGE } from "@/constants/images";
-import * as ScreenOrientation from 'expo-screen-orientation';
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
@@ -82,8 +81,7 @@ function ActiveScanPoller() {
       });
       markActiveScanReviewPending();
       setIsScanning(false);
-      // router.push("/scan-scorecard?review=1");
-      console.log('[ActiveScanPoller] Job complete, but auto-nav disabled for debugging');
+      router.push("/scan-scorecard?review=1");
     }
   }, [jobId, jobStatus, jobResult]);
 
@@ -329,9 +327,6 @@ function RoundSyncer() {
 }
 
 export default function RootLayout() {
-  // Note: Global orientation lock removed to allow scan-scorecard to control rotation
-  // Individual screens can lock to portrait if needed
-
   return (
     <ClerkProvider
       publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
@@ -379,23 +374,7 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="scan-scorecard"
-              options={{
-                title: "Scan Scorecard",
-                presentation: "fullScreenModal",
-                animation: "slide_from_bottom",
-                headerShown: false,
-              }}
-            />
-            <Stack.Screen
-              name="scan-review"
-              options={{
-                title: "Scorecard Results",
-                // Review UI should be an iOS-style sheet/card overlay.
-                presentation: "formSheet",
-                sheetGrabberVisible: true,
-                sheetAllowedDetents: [1.0],
-                sheetInitialDetentIndex: 0,
-              }}
+              options={{ title: "Scan Scorecard", presentation: "modal" }}
             />
             <Stack.Screen
               name="active-session"

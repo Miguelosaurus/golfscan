@@ -16,13 +16,14 @@ function ScanButton() {
 
   const handlePress = () => {
     console.log('[ScanButton] handlePress - activeSession:', activeSession, 'status:', activeSession?.status);
-    console.log('[ScanButton] handlePress - activeSession:', activeSession, 'status:', activeSession?.status);
-
-    // Always go to scan card, passing session if active
     if (activeSession && (activeSession.status === 'active' || activeSession.status === 'pending')) {
+      // Active session exists - skip modal and go directly to scan with session context
+      console.log('[ScanButton] Skipping modal, going to scan with session:', activeSession._id);
       router.push(`/scan-scorecard?sessionId=${activeSession._id}`);
     } else {
-      router.push('/scan-scorecard');
+      // No active session - show the normal pre-round flow modal
+      console.log('[ScanButton] No active session, showing PreRoundFlowModal');
+      setShowModal(true);
     }
   };
 

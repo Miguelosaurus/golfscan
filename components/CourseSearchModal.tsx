@@ -265,50 +265,16 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     const isFromConvexCache = apiCourse._fromConvexCache === true;
     const convexCourse = apiCourse._convexCourse;
 
-    // Check for tees in both API format and Convex cache format
-    const apiTeeOptions = getTeeBoxOptions(apiCourse);
-    const convexTeeSets = convexCourse?.teeSets || [];
-
-    // Use API tee options if available, otherwise use Convex teeSets
-    const hasMultipleTees = apiTeeOptions.length > 0 || convexTeeSets.length > 1;
+    const teeOptions = getTeeBoxOptions(apiCourse);
+    const hasMultipleTees = teeOptions.length > 0;
 
     if (hasMultipleTees) {
-      // If from Convex cache, add the teeSets to the course for tee picker
-      if (isFromConvexCache && convexTeeSets.length > 0 && apiTeeOptions.length === 0) {
-        // Convert Convex teeSets to a format the tee picker understands
-        setSelectedCourse({
-          ...apiCourse,
-          tees: convexTeeSets.map((t: any) => ({
-            name: t.name,
-            gender: t.gender,
-            rating: t.rating,
-            slope: t.slope,
-          })),
-          _isLocalCourse: true,
-          _localCourse: {
-            id: convexCourse.externalId || convexCourse._id,
-            name: convexCourse.name,
-            location: convexCourse.location,
-            holes: convexCourse.holes?.map((h: any) => ({
-              number: h.number,
-              par: h.par,
-              distance: h.yardage || 0,
-              handicap: h.hcp,
-            })) || [],
-            imageUrl: convexCourse.imageUrl,
-            slope: convexCourse.slope,
-            rating: convexCourse.rating,
-            teeSets: convexTeeSets,
-          },
-        });
-      } else {
-        setSelectedCourse(apiCourse);
-      }
+      setSelectedCourse(apiCourse);
       setShowTeeSelection(true);
       return;
     }
 
-    const teeName = apiTeeOptions[0]?.name;
+    const teeName = teeOptions[0]?.name;
     const deterministicId = isFromConvexCache && convexCourse
       ? convexCourse.externalId || convexCourse._id
       : getDeterministicCourseId(apiCourse, teeName);
