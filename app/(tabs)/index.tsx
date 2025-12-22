@@ -74,7 +74,7 @@ export default function HomeScreen() {
         teeName: selectedScanCourse.teeName,
       });
       // Navigate to review
-      router.push('/scan-scorecard?review=1');
+      router.push('/scan-review');
       // Clear local selection
       setSelectedScanCourse(null);
     }
@@ -387,7 +387,7 @@ export default function HomeScreen() {
         router.push('/scan-scorecard');
         return;
       }
-      router.push('/scan-scorecard?review=1');
+      router.push('/scan-review');
     };
 
     const isDevJob =
@@ -416,7 +416,7 @@ export default function HomeScreen() {
       setScannedData(sample as any);
       markActiveScanReviewPending();
       setIsScanning(false);
-      router.push('/scan-scorecard?review=1');
+      router.push('/scan-review');
     };
 
     const handleDevDiscardScan = () => {
@@ -963,6 +963,8 @@ export default function HomeScreen() {
           setShouldShowScanCourseModal(false);
         }}
         onSelectCourse={(course, meta) => {
+          console.log('[HOME] onSelectCourse callback, course:', course?.name, 'meta:', meta);
+          console.log('[HOME] selectedTee from meta:', meta?.selectedTee);
           // Store course id and tee name for navigation
           setSelectedScanCourse({
             id: course.id,

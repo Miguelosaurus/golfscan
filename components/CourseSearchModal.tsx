@@ -259,17 +259,54 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   };
 
   const handleSelectApiCourse = async (apiCourse: any) => { // Changed from ApiCourse to any
+
     if (selectingCourse) return;
 
     // Check if this course came from Convex cache
     const isFromConvexCache = apiCourse._fromConvexCache === true;
     const convexCourse = apiCourse._convexCourse;
 
-    const teeOptions = getTeeBoxOptions(apiCourse);
-    const hasMultipleTees = teeOptions.length > 0;
+
+    // For Convex cached courses, check teeSets array
+    // For API courses, use getTeeBoxOptions
+    let teeOptions: any[] = [];
+    let hasMultipleTees = false;
+
+    if (isFromConvexCache && convexCourse?.teeSets) {
+      // Convex cache format: teeSets is an array
+      teeOptions = convexCourse.teeSets.map((t: any) => ({ name: t.name, teeBox: t }));
+      hasMultipleTees = convexCourse.teeSets.length > 1;
+
+    } else {
+      // API format: use getTeeBoxOptions
+      teeOptions = getTeeBoxOptions(apiCourse);
+      hasMultipleTees = teeOptions.length > 0;
+
+    }
+
 
     if (hasMultipleTees) {
-      setSelectedCourse(apiCourse);
+
+      // For Convex cache, add the teeSets to the apiCourse for the picker
+      if (isFromConvexCache && convexCourse?.teeSets) {
+        setSelectedCourse({
+          ...apiCourse,
+          tees: convexCourse.teeSets.map((t: any) => ({
+            name: t.name,
+            gender: t.gender,
+            rating: t.rating,
+            slope: t.slope,
+          })),
+          _isLocalCourse: true,
+          _localCourse: {
+            id: convexCourse.externalId || convexCourse._id,
+            name: convexCourse.name,
+            teeSets: convexCourse.teeSets,
+          },
+        });
+      } else {
+        setSelectedCourse(apiCourse);
+      }
       setShowTeeSelection(true);
       return;
     }
@@ -305,12 +342,12 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         if (!getCourseById(courseToUse.id)) {
           addCourse(courseToUse);
         }
-        // Don't auto-select tee - let user pick in players step
-        onSelectCourse(courseToUse, {});
+        // Use first/only tee if available
+        onSelectCourse(courseToUse, { selectedTee: teeName });
       } else if (existingCourse) {
         courseToUse = existingCourse;
-        // Don't auto-select tee - let user pick in players step
-        onSelectCourse(existingCourse, {});
+        // Use first/only tee if available
+        onSelectCourse(existingCourse, { selectedTee: teeName });
       } else {
         const course = await convertApiCourseToLocal(apiCourse, { selectedTee: teeName });
         courseToUse = course;
@@ -381,11 +418,37 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   };
 
   const handleSelectFrequentCourse = (courseId: string) => {
+
     const course = getCourseById(courseId);
+
     if (course) {
-      // Don't auto-select tee - let user pick in players step
-      onSelectCourse(course, {});
-      handleClose();
+      // Check if course has multiple tees - show tee picker same as renderLocalCourse
+      const teeSets = (course as any).teeSets ?? [];
+
+      if (teeSets.length > 1) {
+        // Convert to format expected by tee selection
+        setSelectedCourse({
+          ...course,
+          id: course.id,
+          name: course.name,
+          tees: teeSets.map((t: any) => ({
+            name: t.name,
+            gender: t.gender,
+            rating: t.rating,
+            slope: t.slope,
+          })),
+          _isLocalCourse: true,
+          _localCourse: course,
+        });
+
+        setShowTeeSelection(true);
+      } else {
+        // Only one tee or no tees - use it directly
+        const firstTeeName = teeSets[0]?.name;
+
+        onSelectCourse(course, { selectedTee: firstTeeName });
+        handleClose();
+      }
     }
   };
 
@@ -555,8 +618,10 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         <CourseCard
           course={item}
           onPress={(course) => {
+
             // Check if course has multiple tees - show tee picker same as API search flow
             const teeSets = course.teeSets ?? [];
+
             if (teeSets.length > 1) {
               // Convert local course to API-like format for tee selection
               setSelectedCourse({

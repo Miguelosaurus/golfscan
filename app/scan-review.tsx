@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,17 +14,13 @@ import {
   UIManager,
   Modal
 } from 'react-native';
-import { PanGestureHandler, State, FlatList } from 'react-native-gesture-handler';
+import { FlatList } from 'react-native-gesture-handler';
 // @ts-ignore - local ambient types provided via declarations
 import DraggableFlatList from 'react-native-draggable-flatlist';
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import {
-  Camera,
-  Image as ImageIcon,
   X,
   Users,
   User,
@@ -36,9 +32,9 @@ import {
   Calendar,
   Trash2,
   Flag,
-  RotateCcw
+  RotateCcw,
+  Check
 } from 'lucide-react-native';
-import { Check } from 'lucide-react-native';
 import { colors } from '@/constants/colors';
 import { generateUniqueId, ensureValidDate } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
@@ -91,21 +87,6 @@ const MAX_IMAGES = 3;
 export default function ScanScorecardScreen() {
   const { courseId, editRoundId, prefilled, review } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string }>();
   const router = useRouter();
-
-  // SEATBELT: Redirect legacy review URLs to the new /scan-review route
-  useEffect(() => {
-    if (review === '1' || review === 'true' || editRoundId) {
-      // Build new URL with same params (minus 'review')
-      const params = new URLSearchParams();
-      if (editRoundId) params.set('editRoundId', editRoundId);
-      if (prefilled) params.set('prefilled', prefilled);
-      if (courseId) params.set('courseId', courseId);
-
-      const queryString = params.toString();
-      router.replace(`/scan-review${queryString ? '?' + queryString : ''}` as any);
-    }
-  }, [review, editRoundId, prefilled, courseId, router]);
-
   const {
     players,
     courses,
@@ -116,13 +97,8 @@ export default function ScanScorecardScreen() {
     addCourse,
     updateCourse,
     scannedData,
-    isScanning: storeScanningState,
-    remainingScans,
     pendingScanPhotos,
     activeScanJob,
-    setScannedData,
-    setIsScanning,
-    setRemainingScans,
     clearScanData,
     setPendingScanPhotos,
     clearPendingScanPhotos,
@@ -132,24 +108,23 @@ export default function ScanScorecardScreen() {
     markActiveScanReviewed,
     clearActiveScanJob,
     devMode,
-    setShouldShowScanCourseModal,
     pendingScanCourseSelection,
     clearPendingScanCourseSelection,
   } = useGolfStore();
-  const [permission, requestPermission] = useCameraPermissions();
   const profile = useQuery(api.users.getProfile);
   const roundsSummary = useQuery(
     api.rounds.listWithSummary,
     profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
   ) || [];
+  // Get all Convex players for auto-link matching (includes aliases)
+  const convexPlayers = useQuery(api.players.list) || [];
   const userGender = (profile as any)?.gender as "M" | "F" | undefined;
 
   // Convex actions for course lookup (to check global cache before paid API)
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
   const upsertCourse = useMutation(api.courses.upsert);
-  const [facing, setFacing] = useState<CameraType>('back');
+  const addPlayerAlias = useMutation(api.players.addAlias);
   const photos = pendingScanPhotos;
-  const scanning = storeScanningState;
   const [processingComplete, setProcessingComplete] = useState(false);
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
   const [showPlayerLinking, setShowPlayerLinking] = useState(false);
@@ -176,12 +151,12 @@ export default function ScanScorecardScreen() {
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [listVersion, setListVersion] = useState(0);
-  const cameraRef = useRef<CameraView>(null);
   const [devSimReady, setDevSimReady] = useState(false);
   const lastProcessedScanId = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const isEditMode = !!editRoundId;
-  const isReviewMode = review === '1' || review === 'true';
+  // Review mode = NOT edit mode (if we're here and not editing, we're reviewing)
+  const isReviewMode = !isEditMode;
   const preDragPlayersRef = useRef<DetectedPlayer[] | null>(null);
   const hasInitializedPrefill = useRef(false);
   const hasAppliedCourseSelection = useRef(false);
@@ -265,10 +240,6 @@ export default function ScanScorecardScreen() {
     const currentUser = players.find(p => p.isUser);
     return currentUser?.id || generateUniqueId();
   });
-
-  // Convex actions/mutations
-  const processScanAction = useAction(api.scorecard.processScan);
-  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 
   const buildDevSampleResult = (): ScorecardScanResult => ({
     courseName: 'Dev National - Demo Course',
@@ -499,321 +470,18 @@ export default function ScanScorecardScreen() {
     return {};
   };
 
-  const toggleCameraFacing = () => {
-    setFacing(current => (current === 'back' ? 'front' : 'back'));
-  };
-
-  const takePicture = async () => {
-    if (!cameraRef.current) return;
-
-    // Check if we've reached the maximum number of images
-    if (photos.length >= MAX_IMAGES) {
-      Alert.alert(
-        'Maximum Images Reached',
-        `You can upload up to ${MAX_IMAGES} scorecard images per scan. Remove an image to add a new one.`
-      );
-      return;
-    }
-
-    try {
-      // Actually take a photo using the camera
-      const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: true });
-
-      if (photo?.base64) {
-        setPendingScanPhotos([...photos, `data:image/jpeg;base64,${photo.base64}`]);
-      } else if (photo?.uri) {
-        setPendingScanPhotos([...photos, photo.uri]);
-      }
-    } catch (error) {
-      console.error('Error taking picture:', error);
-      Alert.alert('Error', 'Failed to take picture. Please try again.');
-    }
-  };
-
-  const pickImage = async () => {
-    // Check if we've reached the maximum number of images
-    if (photos.length >= MAX_IMAGES) {
-      Alert.alert(
-        'Maximum Images Reached',
-        `You can upload up to ${MAX_IMAGES} scorecard images per scan. Remove an image to add a new one.`
-      );
-      return;
-    }
-
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 1,
-        allowsMultipleSelection: true,
-        base64: true,
-        selectionLimit: MAX_IMAGES - photos.length, // Limit selection to remaining slots
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        // Only take up to the remaining slots
-        const slotsRemaining = MAX_IMAGES - photos.length;
-        const assetsToAdd = result.assets.slice(0, slotsRemaining);
-        const newPhotos = assetsToAdd.map(asset =>
-          asset.base64 ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}` : asset.uri
-        );
-        setPendingScanPhotos([...photos, ...newPhotos]);
-
-        // Warn if some images were not added
-        if (result.assets.length > slotsRemaining) {
-          Alert.alert(
-            'Some Images Skipped',
-            `Only ${slotsRemaining} image(s) could be added. Maximum is ${MAX_IMAGES} per scan.`
-          );
-        }
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
-    }
-  };
-
-  const removePhoto = (index: number) => {
-    const updatedPhotos = photos.filter((_, i) => i !== index);
-    setPendingScanPhotos(updatedPhotos);
-
-    // If no photos left, reset processing state
-    if (photos.length === 1) {
-      setProcessingComplete(false);
-      setDetectedPlayers([]);
-      setSelectedApiCourse(null);
-      setIsLocalCourseSelected(false);
-    }
-  };
-
-  const resetPhotos = () => {
+  // Handle retake - navigate back to camera with full state cleanup
+  const handleRetake = () => {
+    // Clear ALL scan-related state to prevent auto-reopen loops
     clearPendingScanPhotos();
-    setProcessingComplete(false);
-    setDetectedPlayers([]);
-    setSelectedApiCourse(null);
-    setIsLocalCourseSelected(false);
-  };
-
-  const processScorecard = async () => {
-    if (photos.length === 0) {
-      Alert.alert('Error', 'Please take or select at least one photo first.');
-      return;
-    }
-
-    setIsScanning(true);
+    clearPendingScanCourseSelection();
     clearScanData();
-    setSelectedTeeName(undefined);
+    clearActiveScanJob();  // CRITICAL: prevents auto-nav back to review
 
-    const updateJob = (stage: ScanStage, progress: number, message: string) => {
-      updateActiveScanJob({ stage, progress, message });
-    };
-
-    try {
-      if (devMode) {
-        // Dev mode: mirror the real flow but keep everything local.
-        const devJobId = `dev-${generateUniqueId()}`;
-        const timestamp = new Date().toISOString();
-
-        setActiveScanJob({
-          id: devJobId,
-          status: 'processing',
-          stage: 'processing',
-          progress: 30,
-          message: 'Dev mode: ready to simulate AI response',
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          thumbnailUri: photos[0] || null,
-          requiresReview: false,
-          result: null,
-          autoReviewLaunched: false,
-        });
-
-        setProcessingComplete(false);
-        setDetectedPlayers([]);
-        setSelectedApiCourse(null);
-        setIsLocalCourseSelected(false);
-        setIsScanning(false);
-        // Open course/tee picker while "analysis" runs in dev.
-        setShowCourseSearchModal(true);
-        setCoursePickerSource('scan');
-        return;
-      }
-
-      const scanId = generateUniqueId();
-      const timestamp = new Date().toISOString();
-
-      setActiveScanJob({
-        id: scanId,
-        status: 'processing',
-        stage: 'preparing',
-        progress: 0,
-        message: 'Preparing to scan...',
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        thumbnailUri: photos[0] || null,
-        requiresReview: false,
-        result: null,
-        autoReviewLaunched: false,
-      });
-
-      updateJob('preparing', 5, 'Preparing images for analysis...');
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      updateJob('uploading', 10, 'Uploading images...');
-      console.log('[SCAN] Starting image upload...');
-
-      // Upload images to Convex file storage and collect storage IDs
-      const storageIds: Id<"_storage">[] = [];
-      for (let i = 0; i < photos.length; i++) {
-        const progress = 10 + Math.round((10 * (i + 1)) / photos.length);
-        updateJob('uploading', progress, `Uploading image ${i + 1} of ${photos.length}...`);
-        console.log(`[SCAN] Processing image ${i + 1}...`);
-
-        // Get upload URL from Convex
-        console.log('[SCAN] Getting upload URL...');
-        const uploadUrl = await generateUploadUrl();
-        console.log('[SCAN] Got upload URL');
-
-        // Convert photo to blob for upload
-        let blob: Blob;
-        const photoUri = photos[i];
-        console.log('[SCAN] Converting to blob, URI type:', photoUri.startsWith('data:') ? 'data:' : 'file:');
-        if (photoUri.startsWith('data:')) {
-          // Base64 data URL - convert to blob
-          const response = await fetch(photoUri);
-          blob = await response.blob();
-        } else {
-          // File URI - read and convert
-          const base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: 'base64' as any } as any);
-          const byteCharacters = atob(base64);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let j = 0; j < byteCharacters.length; j++) {
-            byteNumbers[j] = byteCharacters.charCodeAt(j);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
-          blob = new Blob([byteArray], { type: 'image/jpeg' });
-        }
-        console.log('[SCAN] Blob created, size:', blob.size);
-
-        // Upload to Convex storage
-        console.log('[SCAN] Uploading to Convex storage...');
-        const uploadResponse = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': blob.type || 'image/jpeg' },
-          body: blob,
-        });
-        console.log('[SCAN] Upload response status:', uploadResponse.status);
-
-        if (!uploadResponse.ok) {
-          throw new Error(`Failed to upload image ${i + 1}`);
-        }
-
-        const { storageId } = await uploadResponse.json();
-        storageIds.push(storageId as Id<"_storage">);
-        console.log('[SCAN] Got storage ID:', storageId);
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
-      console.log('[SCAN] All images uploaded, calling processScan...');
-      updateJob('analyzing', 25, 'AI is reading your scorecard...');
-
-      // Generate job ID now before calling action
-      const clientJobId = generateUniqueId();
-
-      // Set up the scan job BEFORE calling the action
-      // This allows us to show course modal immediately
-      setActiveScanJob({
-        id: clientJobId,
-        status: 'processing',
-        stage: 'processing',
-        progress: 30,
-        message: 'AI is reading your scorecard...',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        thumbnailUri: photos[0] || null,
-        requiresReview: false,
-        result: null,
-        autoReviewLaunched: false,
-      });
-
-      // Fire the action in background - don't await!
-      // The action will update scan job state and sync results to store
-      processScanAction({ storageIds })
-        .then((result) => {
-          console.log('[SCAN] processScan completed:', result);
-          setRemainingScans(result.scansRemaining ?? remainingScans);
-          // Update scan job with result - this triggers review screen when user closes course modal
-          if (result.result) {
-            updateActiveScanJob({
-              status: 'complete',
-              stage: 'complete',
-              progress: 100,
-              message: 'Ready for review',
-              result: result.result,
-              requiresReview: true,
-            });
-            setScannedData(result.result);
-          }
-        })
-        .catch((error) => {
-          console.error('[SCAN] processScan error:', error);
-          updateActiveScanJob({
-            status: 'error',
-            stage: 'error',
-            message: 'Failed to analyze scorecard. Please try again.',
-            progress: 0,
-          });
-        });
-
-      // Navigate to home immediately and show course selection modal there
-      setProcessingComplete(false);
-      setDetectedPlayers([]);
-      setSelectedApiCourse(null);
-      setIsLocalCourseSelected(false);
-      setIsScanning(false);
-
-      // Navigate first, then trigger modal with a slight delay to avoid race condition
-      console.log('[SCAN] Navigating to home...');
-      router.replace('/');
-
-      // Small delay to ensure navigation completes before showing modal
-      setTimeout(() => {
-        console.log('[SCAN] Setting shouldShowScanCourseModal to TRUE after delay');
-        setShouldShowScanCourseModal(true);
-      }, 100);
-      return;
-
-    } catch (error) {
-      console.error('Scan error:', error);
-      updateActiveScanJob({
-        status: 'error',
-        stage: 'error',
-        message: error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
-        progress: 0,
-      });
-
-      Alert.alert(
-        'Scan Failed',
-        error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
-        [
-          {
-            text: 'Retry',
-            onPress: () => processScorecard()
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-            onPress: () => {
-              clearActiveScanJob();
-            }
-          }
-        ]
-      );
-    } finally {
-      setIsScanning(false);
-    }
+    // Navigate to camera
+    router.replace('/scan-scorecard');
   };
+
 
   const processAIResults = (scanResult: ScorecardScanResult) => {
     const currentUser = players.find(p => p.isUser);
@@ -942,25 +610,44 @@ export default function ScanScorecardScreen() {
   };
 
   const handleEditPlayerNameById = (playerId: string, newName: string) => {
+    const normalizedName = newName.toLowerCase().trim();
+
     setDetectedPlayers(prev => {
       const updated = prev.map(p => ({ ...p }));
       const idx = updated.findIndex(p => p.id === playerId);
       if (idx < 0) return prev;
       updated[idx].name = newName;
 
-      // Auto-link if exact match found
-      const exactMatch = players.find(p => p.name.toLowerCase() === newName.toLowerCase());
-      if (exactMatch && !updated[idx].linkedPlayerId) {
-        const matchesUserById = currentUserId && exactMatch.id === currentUserId;
-        const matchesUserByFlag = exactMatch.isUser;
-        const matchesUserByName = currentUserName && exactMatch.name.toLowerCase() === currentUserName;
+      // Skip auto-link if already linked
+      if (updated[idx].linkedPlayerId) return updated;
+
+      // Auto-link if exact match found in Convex players (by name or alias)
+      const exactMatch = convexPlayers.find(p => {
+        // Check name match
+        if (p.name?.toLowerCase().trim() === normalizedName) return true;
+        // Check alias match
+        const aliases = (p as any).aliases || [];
+        return aliases.some((alias: string) => alias.toLowerCase().trim() === normalizedName);
+      });
+
+      // Also check Zustand players as fallback
+      const zustandMatch = !exactMatch ? players.find(p => p.name?.toLowerCase().trim() === normalizedName) : null;
+      const matchedPlayer = exactMatch || zustandMatch;
+
+      if (matchedPlayer) {
+
+        const matchId = (matchedPlayer as any)._id || (matchedPlayer as any).id;
+        const matchesUserById = currentUserId && matchId === currentUserId;
+        const matchesUserByFlag = (matchedPlayer as any).isSelf;
+        const matchesUserByName = currentUserName && matchedPlayer.name?.toLowerCase().trim() === currentUserName;
+
         if (matchesUserById || matchesUserByFlag || matchesUserByName) {
           // Treat as "You": set isUser, avoid Linked badge
           updated.forEach(p => { p.isUser = false; });
           updated[idx].isUser = true;
-          updated[idx].linkedPlayerId = exactMatch.id;
+          updated[idx].linkedPlayerId = matchId;
           updated[idx].handicap =
-            exactMatch.handicap ??
+            (matchedPlayer as any).handicap ??
             (profile as any)?.handicap ??
             currentUser?.handicap;
           // Preserve prior linkage/handicap for undo
@@ -971,10 +658,10 @@ export default function ScanScorecardScreen() {
             updated[idx].prevHandicap = updated[idx].handicap;
           }
         } else {
-          updated[idx].linkedPlayerId = exactMatch.id;
-          updated[idx].handicap = exactMatch.handicap;
-          if (exactMatch.gender === "M" || exactMatch.gender === "F") {
-            updated[idx].teeGender = exactMatch.gender;
+          updated[idx].linkedPlayerId = matchId;
+          updated[idx].handicap = (matchedPlayer as any).handicap;
+          if ((matchedPlayer as any).gender === "M" || (matchedPlayer as any).gender === "F") {
+            updated[idx].teeGender = (matchedPlayer as any).gender;
           }
         }
       }
@@ -1380,8 +1067,68 @@ export default function ScanScorecardScreen() {
       return;
     }
 
+    // Auto-link check before save: match any unlinked players by name or alias
+    const playersWithAutoLink = detectedPlayers.map(player => {
+      if (player.linkedPlayerId) return player; // Already linked
+
+      const normalizedName = player.name.toLowerCase().trim();
+
+      // Check Convex players (by name or alias)
+      const convexMatch = convexPlayers.find(p => {
+        if (p.name?.toLowerCase().trim() === normalizedName) return true;
+        const aliases = (p as any).aliases || [];
+        return aliases.some((alias: string) => alias.toLowerCase().trim() === normalizedName);
+      });
+
+      // Fallback to Zustand players
+      const zustandMatch = !convexMatch ? players.find(p => p.name?.toLowerCase().trim() === normalizedName) : null;
+      const matchedPlayer = convexMatch || zustandMatch;
+
+      if (matchedPlayer) {
+        const matchId = (matchedPlayer as any)._id || (matchedPlayer as any).id;
+
+        return {
+          ...player,
+          linkedPlayerId: matchId,
+          handicap: player.handicap ?? (matchedPlayer as any).handicap,
+          teeGender: (matchedPlayer as any).gender === "M" || (matchedPlayer as any).gender === "F"
+            ? (matchedPlayer as any).gender
+            : player.teeGender,
+        };
+      }
+      return player;
+    });
+
+    // Create aliases for linked players whose detected name differs from stored name
+    // This helps auto-link work better on future scans
+    for (const player of playersWithAutoLink) {
+      if (player.linkedPlayerId) {
+        // Find the linked player to get their stored name
+        const linkedPlayer = convexPlayers.find(cp =>
+          (cp as any)._id === player.linkedPlayerId || cp.name === player.linkedPlayerId
+        );
+        if (linkedPlayer) {
+          const storedName = linkedPlayer.name?.toLowerCase().trim();
+          const detectedName = player.name.toLowerCase().trim();
+
+          // If names differ, create an alias (addAlias handles deduplication)
+          if (storedName && detectedName && storedName !== detectedName) {
+            try {
+              await addPlayerAlias({
+                playerId: (linkedPlayer as any)._id,
+                alias: player.name,
+              });
+            } catch (e) {
+              // Alias creation is best-effort, don't fail the save
+              console.warn('Failed to create alias:', e);
+            }
+          }
+        }
+      }
+    }
+
     // Calculate total scores for each player
-    const playersWithTotalScores = detectedPlayers.map(player => {
+    const playersWithTotalScores = playersWithAutoLink.map(player => {
       const totalScore = player.scores.reduce((sum, score) => sum + score.strokes, 0);
       return {
         ...player,
@@ -1627,50 +1374,6 @@ export default function ScanScorecardScreen() {
     }
   };
 
-  if (!permission && !isEditMode) {
-    // Camera permissions are still loading
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!isEditMode && permission && !permission.granted) {
-    // Camera permissions are not granted yet
-    return (
-      <SafeAreaView style={styles.container}>
-        <Stack.Screen
-          options={{
-            title: "Scan Scorecard",
-            headerStyle: {
-              backgroundColor: colors.background,
-            },
-            headerTitleStyle: {
-              color: colors.text,
-            },
-            headerTintColor: colors.text,
-          }}
-        />
-
-        <View style={styles.permissionContainer}>
-          <Camera size={60} color={colors.primary} style={styles.permissionIcon} />
-          <Text style={styles.permissionTitle}>Camera Access Required</Text>
-          <Text style={styles.permissionText}>
-            We need camera access to scan your scorecard. Please grant permission to continue.
-          </Text>
-          <Button
-            title="Grant Permission"
-            onPress={requestPermission}
-            style={styles.permissionButton}
-          />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   if (showPlayerLinking) {
     const selectedLinkedId = (() => {
       if (selectedPlayerId) {
@@ -1776,7 +1479,25 @@ export default function ScanScorecardScreen() {
                       <Text style={styles.playerLinkInitial}>{player.name.charAt(0)}</Text>
                     </View>
                     <View style={styles.playerLinkInfo}>
-                      <Text style={styles.playerLinkName}>{player.name}</Text>
+                      <View style={styles.playerLinkNameRow}>
+                        <Text style={styles.playerLinkName}>{player.name}</Text>
+                        {(() => {
+                          // Get aliases from convexPlayers
+                          const convexPlayer = convexPlayers.find(cp =>
+                            (cp as any)._id === player.id || cp.name === player.name
+                          );
+                          const aliases = (convexPlayer as any)?.aliases || [];
+                          if (aliases.length > 0) {
+                            return (
+                              <Text style={styles.playerLinkAlias}>
+                                {' '}aka {aliases.slice(0, 2).join(', ')}
+                                {aliases.length > 2 && '...'}
+                              </Text>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </View>
                       {player.handicap !== undefined && (
                         <Text style={styles.playerLinkHandicap}>Scandicap: {player.handicap}</Text>
                       )}
@@ -2017,10 +1738,7 @@ export default function ScanScorecardScreen() {
                       title="Retake"
                       variant="outline"
                       size="small"
-                      onPress={() => {
-                        resetPhotos();
-                        setActiveTab('players');
-                      }}
+                      onPress={handleRetake}
                       style={styles.retakeButton}
                     />
                   </View>
@@ -2255,11 +1973,12 @@ export default function ScanScorecardScreen() {
     );
   }
 
+  // Fallback: processing not complete yet - show loading state
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <Stack.Screen
         options={{
-          title: "Scan Scorecard",
+          title: "Review Scorecard",
           headerStyle: {
             backgroundColor: colors.background,
           },
@@ -2269,152 +1988,17 @@ export default function ScanScorecardScreen() {
           headerTintColor: colors.text,
         }}
       />
-
-      {photos.length > 0 ? (
-        <View style={styles.previewContainer}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.photosScrollView}
-          >
-            {photos.map((photo, index) => (
-              <View key={index} style={styles.photoContainer}>
-                <Image
-                  source={{ uri: photo }}
-                  style={styles.previewImage}
-                  resizeMode="contain"
-                />
-                <TouchableOpacity
-                  style={styles.removePhotoButton}
-                  onPress={() => removePhoto(index)}
-                >
-                  <Trash2 size={20} color={colors.background} />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-
-          <View style={styles.photoIndicator}>
-            <Text style={styles.photoIndicatorText}>
-              {photos.length} photo{photos.length > 1 ? 's' : ''} selected
-            </Text>
-          </View>
-
-          <View style={styles.previewActions}>
-            <Button
-              title="Add More"
-              onPress={pickImage}
-              variant="outline"
-              style={styles.previewButton}
-            />
-
-            <Button
-              title="Take Another"
-              onPress={takePicture}
-              variant="outline"
-              style={styles.previewButton}
-              disabled={Platform.OS === 'web'}
-            />
-
-            <Button
-              title={scanning ? "Processing..." : "Process Scorecard"}
-              onPress={processScorecard}
-              disabled={scanning}
-              loading={scanning}
-              style={styles.previewButton}
-            />
-          </View>
-
-          {remainingScans < 50 && (
-            <View style={styles.scanLimitContainer}>
-              <Text style={styles.scanLimitText}>
-                {remainingScans} scans remaining today
-              </Text>
-            </View>
-          )}
-        </View>
-      ) : (
-        <>
-          {!showCourseSearchModal || coursePickerSource !== 'scan' ? (
-            <View style={styles.cameraContainer}>
-              {Platform.OS !== 'web' ? (
-                <CameraView
-                  style={styles.camera}
-                  facing={facing}
-                  ref={cameraRef}
-                >
-                  <View style={styles.overlay}>
-                    <View style={styles.scanFrame} />
-                  </View>
-                </CameraView>
-              ) : (
-                <View style={styles.webFallback}>
-                  <Camera size={60} color={colors.primary} />
-                  <Text style={styles.webFallbackText}>
-                    Camera is not available on web. Please use the upload button below.
-                  </Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={[styles.cameraContainer, { backgroundColor: colors.background }]} />
-          )}
-
-          <View style={styles.controls}>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={pickImage}
-            >
-              <ImageIcon size={24} color={colors.text} />
-              <Text style={styles.controlText}>Upload</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.captureButton}
-              onPress={takePicture}
-              disabled={Platform.OS === 'web'}
-            >
-              <View style={styles.captureButtonInner} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={toggleCameraFacing}
-              disabled={Platform.OS === 'web'}
-            >
-              <RotateCcw size={24} color={Platform.OS === 'web' ? colors.inactive : colors.text} />
-              <Text style={[styles.controlText, Platform.OS === 'web' && styles.disabledText]}>Flip</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.instructions}>
-            <Text style={styles.instructionsTitle}>How to scan:</Text>
-            <Text style={styles.instructionsText}>
-              1. Position your scorecard within the frame
-            </Text>
-            <Text style={styles.instructionsText}>
-              2. Make sure the scorecard is well-lit and clearly visible
-            </Text>
-            <Text style={styles.instructionsText}>
-              3. Take multiple photos for longer scorecards
-            </Text>
-            <Text style={styles.instructionsText}>
-              4. Hold steady and tap the capture button
-            </Text>
-          </View>
-        </>
-      )}
-      {showCourseSearchModal && (
-        <CourseSearchModal
-          visible={showCourseSearchModal}
-          testID="scan-camera-course-modal"
-          onClose={() => setShowCourseSearchModal(false)}
-          onSelectCourse={handleSelectCourse}
-          onAddManualCourse={handleAddCourseManually}
-          showMyCoursesTab={true}
-        />
-      )}
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.processingText, { marginTop: 16 }]}>
+          {activeScanJob?.message || 'Processing your scorecard...'}
+        </Text>
+        {activeScanJob?.progress !== undefined && activeScanJob.progress > 0 && (
+          <Text style={styles.processingSubText}>
+            {activeScanJob.progress}% complete
+          </Text>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -2428,6 +2012,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  processingText: {
+    fontSize: 16,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  processingSubText: {
+    fontSize: 14,
+    color: colors.text,
+    opacity: 0.7,
+    marginTop: 8,
   },
   permissionContainer: {
     flex: 1,
@@ -3074,6 +2669,16 @@ const styles = StyleSheet.create({
   playerLinkName: {
     fontSize: 16,
     color: colors.text,
+  },
+  playerLinkNameRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+  },
+  playerLinkAlias: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: colors.textSecondary,
   },
   playerLinkHandicap: {
     fontSize: 14,
