@@ -57,6 +57,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
   const searchAction = useAction(api.golfCourse.search);
   const searchConvexCourses = useAction(api.courses.searchByNameAction);
+  const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
   const upsertCourse = useMutation(api.courses.upsert);
   const setImageUrl = useMutation(api.courses.setImageUrl);
   const getOrCreateCourseImage = useAction(api.courseImages.getOrCreate);
@@ -357,52 +358,9 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         onSelectCourse(course, { apiCourse, selectedTee: teeName });
       }
 
-      // Only upsert to Convex if NOT already from cache
-      if (!isFromConvexCache) {
-        try {
-          await upsertCourse({
-            externalId: courseToUse.id,
-            name: courseToUse.name,
-            location: courseToUse.location || "Unknown",
-            slope: (courseToUse as any).slope,
-            rating: (courseToUse as any).rating,
-            teeSets: (courseToUse as any).teeSets
-              ? (courseToUse as any).teeSets.map((t: any) => ({
-                name: t.name,
-                rating: t.rating,
-                slope: t.slope,
-                gender: t.gender,
-                frontRating: t.frontRating,
-                frontSlope: t.frontSlope,
-                backRating: t.backRating,
-                backSlope: t.backSlope,
-                holes: Array.isArray(t.holes)
-                  ? t.holes.map((h: any, index: number) => ({
-                    number: h.number ?? index + 1,
-                    par: h.par,
-                    hcp: h.handicap ?? h.hcp ?? index + 1,
-                    yardage: h.distance ?? h.yardage,
-                  }))
-                  : undefined,
-              }))
-              : undefined,
-            holes: courseToUse.holes.map((h) => ({
-              number: h.number,
-              par: h.par,
-              hcp: (h as any).handicap ?? (h as any).hcp ?? h.number,
-              yardage: (h as any).distance ?? (h as any).yardage,
-            })),
-            // Only persist a real image (e.g., Google data URL); never the Unsplash placeholder
-            imageUrl:
-              (courseToUse as any).imageUrl &&
-                (courseToUse as any).imageUrl !== DEFAULT_COURSE_IMAGE
-                ? (courseToUse as any).imageUrl
-                : undefined,
-          });
-        } catch (err) {
-          console.warn("Convex upsert course failed (non-fatal):", err);
-        }
-      }
+      // NOTE: Course is NOT upserted to Convex here. It will be upserted in RoundSyncer
+      // when the round is actually saved. This prevents courses from being created
+      // in Convex before a round is completed.
 
       setSearchQuery('');
       setSearchResults([]);
@@ -458,6 +416,10 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     // Handle local course from My Courses tab
     if (selectedCourse._isLocalCourse && selectedCourse._localCourse) {
       const localCourse = selectedCourse._localCourse;
+      // Ensure course is in local Zustand store for later lookups
+      if (!getCourseById(localCourse.id)) {
+        addCourse(localCourse);
+      }
       onSelectCourse(localCourse, { selectedTee: teeName });
       setSearchQuery('');
       setSearchResults([]);
@@ -508,49 +470,8 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
       onSelectCourse(courseToUse, { apiCourse: selectedCourse, selectedTee: teeName });
 
-      // Upsert into Convex courses table so teeSets/holes and image are cached server-side
-      try {
-        await upsertCourse({
-          externalId: courseToUse.id,
-          name: courseToUse.name,
-          location: courseToUse.location || "Unknown",
-          slope: (courseToUse as any).slope,
-          rating: (courseToUse as any).rating,
-          teeSets: (courseToUse as any).teeSets
-            ? (courseToUse as any).teeSets.map((t: any) => ({
-              name: t.name,
-              rating: t.rating,
-              slope: t.slope,
-              gender: t.gender,
-              frontRating: t.frontRating,
-              frontSlope: t.frontSlope,
-              backRating: t.backRating,
-              backSlope: t.backSlope,
-              holes: Array.isArray(t.holes)
-                ? t.holes.map((h: any, index: number) => ({
-                  number: h.number ?? index + 1,
-                  par: h.par,
-                  hcp: h.handicap ?? h.hcp ?? index + 1,
-                  yardage: h.distance ?? h.yardage,
-                }))
-                : undefined,
-            }))
-            : undefined,
-          holes: courseToUse.holes.map((h) => ({
-            number: h.number,
-            par: h.par,
-            hcp: (h as any).handicap ?? (h as any).hcp ?? h.number,
-            yardage: (h as any).distance ?? (h as any).yardage,
-          })),
-          imageUrl:
-            (courseToUse as any).imageUrl &&
-              (courseToUse as any).imageUrl !== DEFAULT_COURSE_IMAGE
-              ? (courseToUse as any).imageUrl
-              : undefined,
-        });
-      } catch (error) {
-        console.warn("Convex upsert course failed (tee selection, non-fatal):", error);
-      }
+      // NOTE: Course is NOT upserted to Convex here. It will be upserted in RoundSyncer
+      // when the round is actually saved.
 
       setSearchQuery('');
       setSearchResults([]);
@@ -613,38 +534,75 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   );
 
   const renderLocalCourse = ({ item }: { item: Course }) => {
+    const handleLocalCoursePress = async (course: Course) => {
+      // Check if course needs full data (holes missing or empty)
+      let courseToUse = course;
+      const needsFullData = !course.holes || course.holes.length === 0;
+
+      if (needsFullData && course.id) {
+        // Fetch full course data from Convex
+        try {
+          const convexCourse = await getConvexCourseByExternalId({ externalId: course.id });
+          if (convexCourse) {
+            courseToUse = {
+              ...course,
+              holes: convexCourse.holes?.map((h: any) => ({
+                number: h.number,
+                par: h.par,
+                distance: h.yardage || 0,
+                handicap: h.hcp,
+              })) || [],
+              teeSets: convexCourse.teeSets,
+              slope: convexCourse.slope,
+              rating: convexCourse.rating,
+              location: convexCourse.location || course.location,
+            };
+          }
+        } catch (e) {
+          console.warn('Failed to fetch full course data from Convex:', e);
+        }
+      }
+
+      // Ensure course is in local Zustand store for later lookups
+      if (!getCourseById(courseToUse.id)) {
+        addCourse(courseToUse);
+      } else if (needsFullData && courseToUse.holes?.length) {
+        // Update existing course with full data
+        updateCourse(courseToUse);
+      }
+
+      // Check if course has multiple tees - show tee picker same as API search flow
+      const teeSets = courseToUse.teeSets ?? [];
+
+      if (teeSets.length > 1) {
+        // Convert local course to API-like format for tee selection
+        setSelectedCourse({
+          ...courseToUse,
+          id: courseToUse.id,
+          name: courseToUse.name,
+          tees: teeSets.map((t: any) => ({
+            name: t.name,
+            gender: t.gender,
+            rating: t.rating,
+            slope: t.slope,
+          })),
+          _isLocalCourse: true,
+          _localCourse: courseToUse,
+        });
+        setShowTeeSelection(true);
+      } else {
+        // Only one tee or no tees - use it directly
+        const firstTeeName = teeSets[0]?.name;
+        onSelectCourse(courseToUse, { selectedTee: firstTeeName });
+        handleClose();
+      }
+    };
+
     return (
       <View style={styles.courseCardContainer}>
         <CourseCard
           course={item}
-          onPress={(course) => {
-
-            // Check if course has multiple tees - show tee picker same as API search flow
-            const teeSets = course.teeSets ?? [];
-
-            if (teeSets.length > 1) {
-              // Convert local course to API-like format for tee selection
-              setSelectedCourse({
-                ...course,
-                id: course.id,
-                name: course.name,
-                tees: teeSets.map((t: any) => ({
-                  name: t.name,
-                  gender: t.gender,
-                  rating: t.rating,
-                  slope: t.slope,
-                })),
-                _isLocalCourse: true,
-                _localCourse: course,
-              });
-              setShowTeeSelection(true);
-            } else {
-              // Only one tee or no tees - use it directly
-              const firstTeeName = teeSets[0]?.name;
-              onSelectCourse(course, { selectedTee: firstTeeName });
-              handleClose();
-            }
-          }}
+          onPress={handleLocalCoursePress}
         />
       </View>
     );

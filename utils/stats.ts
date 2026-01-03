@@ -68,7 +68,8 @@ export const calculatePerformanceByPar = ({
     if (!player) return;
 
     player.scores.forEach(score => {
-      const hole = course.holes.find(h => h.number === score.holeNumber);
+      const holes = course.holes ?? [];
+      const hole = holes.find(h => h.number === score.holeNumber);
       if (!hole || hole.par < 3 || hole.par > 5) return;
 
       totals[hole.par].relativeToPar += score.strokes - hole.par;
@@ -102,7 +103,8 @@ export const calculatePerformanceByDifficulty = ({
     if (!course) return;
 
     player.scores.forEach(score => {
-      const hole = course.holes.find((h: Hole) => h.number === score.holeNumber);
+      const holes = course.holes ?? [];
+      const hole = holes.find((h: Hole) => h.number === score.holeNumber);
       if (!hole || !hole.handicap) return;
 
       const relativeToPar = score.strokes - hole.par;
@@ -151,7 +153,8 @@ export const calculateBlowUpRate = ({
 
     let countedRound = false;
     player.scores.forEach(score => {
-      const hole = course.holes.find((h: Hole) => h.number === score.holeNumber);
+      const holes = course.holes ?? [];
+      const hole = holes.find((h: Hole) => h.number === score.holeNumber);
       if (!hole) return;
 
       countedRound = true;
@@ -193,7 +196,8 @@ export const calculatePerHoleAverages = ({
     if (!player) return;
 
     player.scores.forEach(score => {
-      const hole = course.holes.find(h => h.number === score.holeNumber);
+      const holes = course.holes ?? [];
+      const hole = holes.find(h => h.number === score.holeNumber);
       if (!hole) return;
 
       if (!aggregates[hole.number]) {

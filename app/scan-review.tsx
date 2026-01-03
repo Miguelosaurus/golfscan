@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,11 +14,12 @@ import {
   UIManager,
   Modal
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { FlatList } from 'react-native-gesture-handler';
 // @ts-ignore - local ambient types provided via declarations
 import DraggableFlatList from 'react-native-draggable-flatlist';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Stack, useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
 import {
   X,
@@ -63,6 +64,12 @@ interface DetectedPlayer {
   prevName?: string;
   teeColor?: string;
   teeGender?: 'M' | 'F';
+  // When scanning from session, store the scanned name if different from session player name
+  detectedAsName?: string;
+  // Flag to indicate this player came from a pre-round session (locked, non-editable)
+  isFromSession?: boolean;
+  // Track which scanned player index was assigned (for cycling)
+  scannedPlayerIndex?: number;
   scores: {
     holeNumber: number;
     strokes: number;
@@ -87,6 +94,40 @@ const MAX_IMAGES = 3;
 export default function ScanScorecardScreen() {
   const { courseId, editRoundId, prefilled, review } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string }>();
   const router = useRouter();
+  const pathname = usePathname();
+  const instanceId = useRef(Math.random().toString(16).slice(2, 8));
+  const insets = useSafeAreaInsets();
+  const reviewHeaderOptions = useMemo(() => {
+    return {
+      title: "Review Scorecard",
+      headerStyle: {
+        backgroundColor: colors.background,
+      },
+      headerTitleStyle: {
+        color: colors.text,
+      },
+      headerTintColor: colors.text,
+    };
+  }, []);
+  useEffect(() => {
+    console.log(`[scan-review ${instanceId.current}] mount`, {
+      pathname,
+      courseId,
+      editRoundId,
+      review,
+      hasPrefilled: !!prefilled,
+    });
+    return () => console.log(`[scan-review ${instanceId.current}] unmount`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log(`[scan-review ${instanceId.current}] focus`, { pathname });
+      return () => console.log(`[scan-review ${instanceId.current}] blur`, { pathname });
+    }, [pathname])
+  );
+
   const {
     players,
     courses,
@@ -95,6 +136,7 @@ export default function ScanScorecardScreen() {
     updateRound,
     addPlayer,
     addCourse,
+    getCourseById,
     updateCourse,
     scannedData,
     pendingScanPhotos,
@@ -120,10 +162,17 @@ export default function ScanScorecardScreen() {
   const convexPlayers = useQuery(api.players.list) || [];
   const userGender = (profile as any)?.gender as "M" | "F" | undefined;
 
+  // Get active session to pre-fill course data when scanning from pre-round flow
+  // Note: activeSession is undefined while loading, null when no session exists
+  const activeSessionRaw = useQuery(api.gameSessions.getActive);
+  const activeSessionLoaded = activeSessionRaw !== undefined;
+  const activeSession = activeSessionRaw as any;
+
   // Convex actions for course lookup (to check global cache before paid API)
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
   const upsertCourse = useMutation(api.courses.upsert);
   const addPlayerAlias = useMutation(api.players.addAlias);
+  const completeSessionWithSettlement = useMutation(api.gameSessions.completeWithSettlement);
   const photos = pendingScanPhotos;
   const [processingComplete, setProcessingComplete] = useState(false);
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
@@ -141,10 +190,95 @@ export default function ScanScorecardScreen() {
   const [teePickerPlayerIndex, setTeePickerPlayerIndex] = useState<number | null>(null);
   const [teePickerPlayerId, setTeePickerPlayerId] = useState<string | null>(null);
   const [teePickerGenderTab, setTeePickerGenderTab] = useState<'M' | 'F'>('M');
+  // Store scanned players for the cycling feature in session mode
+  const [sessionScannedPlayers, setSessionScannedPlayers] = useState<{
+    index: number;
+    name: string;
+    scores: { holeNumber: number; strokes: number; confidence?: number }[];
+  }[]>([]);
+
+  const selectedLinkedIdForLinking = useMemo(() => {
+    if (selectedPlayerId) {
+      const p = detectedPlayers.find(dp => dp.id === selectedPlayerId);
+      return p?.linkedPlayerId;
+    }
+    if (selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex]) {
+      return detectedPlayers[selectedPlayerIndex].linkedPlayerId;
+    }
+    return undefined;
+  }, [detectedPlayers, selectedPlayerId, selectedPlayerIndex]);
+
+  const handleCloseLinking = useCallback(() => {
+    setShowPlayerLinking(false);
+    setSelectedPlayerIndex(null);
+    setSelectedPlayerId(null);
+    setLinkingWasRemoved(false);
+  }, []);
+
+  const handleUnlinkSelectedPlayer = useCallback(() => {
+    if (selectedPlayerIndex === null) return;
+    setDetectedPlayers(prev => {
+      const updated = [...prev];
+      const current = { ...updated[selectedPlayerIndex] };
+      current.linkedPlayerId = undefined;
+      if (current.prevName !== undefined) {
+        current.name = current.prevName;
+        delete current.prevName;
+      }
+      if (current.prevLinkedPlayerId !== undefined) {
+        current.linkedPlayerId = current.prevLinkedPlayerId;
+        delete current.prevLinkedPlayerId;
+      }
+      if (current.prevHandicap !== undefined) {
+        current.handicap = current.prevHandicap;
+        delete current.prevHandicap;
+      }
+      updated[selectedPlayerIndex] = current;
+      return updated;
+    });
+    setLinkingWasRemoved(true);
+  }, [selectedPlayerIndex]);
+
+  const linkPlayerScreenOptions = useMemo(() => {
+    return {
+      title: "Link to Existing Player",
+      headerStyle: {
+        backgroundColor: colors.background,
+      },
+      headerTitleStyle: {
+        color: colors.text,
+      },
+      headerTintColor: colors.text,
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={handleCloseLinking}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.headerButton}
+        >
+          <Text style={styles.headerButtonText}>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        selectedLinkedIdForLinking ? (
+          <TouchableOpacity
+            onPress={handleUnlinkSelectedPlayer}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={styles.headerButton}
+          >
+            <Text style={styles.headerButtonText}>Remove Link</Text>
+          </TouchableOpacity>
+        ) : null
+      ),
+    };
+  }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking]);
   const teePickerIndexRef = useRef<number | null>(null);
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
+  const bottomBarOffset = useMemo(() => {
+    const baseInset = Math.max(insets.bottom, 0);
+    return activeTab === 'players' ? -(baseInset + 80) : -(baseInset + 28);
+  }, [activeTab, insets.bottom]);
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
   const [selectedApiCourse, setSelectedApiCourse] = useState<{ apiCourse: ApiCourseData; selectedTee?: string } | null>(null);
   const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
@@ -382,8 +516,8 @@ export default function ScanScorecardScreen() {
 
     if (activeScanJob?.requiresReview && activeScanJob.result) {
       if (lastProcessedScanId.current !== activeScanJob.id) {
-        processAIResults(activeScanJob.result);
         lastProcessedScanId.current = activeScanJob.id;
+        processAIResults(activeScanJob.result);
       }
     } else if (!activeScanJob) {
       lastProcessedScanId.current = null;
@@ -451,8 +585,84 @@ export default function ScanScorecardScreen() {
       return;
     }
 
-    // Only auto-open course selector if no course selected and modal not already shown
-    if (!selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected) {
+    // If we have an active session with course data, use that
+    if (activeSession?.course && !hasAppliedCourseSelection.current) {
+      const convexCourse = activeSession.course;
+      // Use externalId as the canonical ID (matches local Zustand store format)
+      const courseId = convexCourse.externalId || convexCourse._id;
+      console.log('[SCAN] Applying course from active session:', courseId, convexCourse.name);
+
+      // Convert Convex course format to local Course format and add to Zustand
+      const localCourse: Course = {
+        id: courseId,
+        name: convexCourse.name,
+        location: convexCourse.location || 'Unknown location',
+        holes: convexCourse.holes?.map((h: any) => ({
+          number: h.number,
+          par: h.par,
+          distance: h.yardage || 0,
+          handicap: h.hcp,
+        })) || [],
+        imageUrl: convexCourse.imageUrl,
+        slope: convexCourse.slope,
+        rating: convexCourse.rating,
+        teeSets: convexCourse.teeSets,
+      };
+
+      // Add to Zustand store for later lookups
+      if (!getCourseById(courseId)) {
+        addCourse(localCourse);
+      }
+
+      setSelectedCourse(courseId);
+      setIsLocalCourseSelected(true);
+
+      // Get the tee from the first participant (they all use the same course)
+      const firstParticipant = activeSession.participants?.[0];
+      if (firstParticipant?.teeName) {
+        setSelectedTeeName(firstParticipant.teeName);
+        setDetectedPlayers(prev =>
+          prev.map(p => ({
+            ...p,
+            teeColor: firstParticipant.teeName,
+            teeGender: (firstParticipant.teeGender || userGender || 'M') as 'M' | 'F',
+          }))
+        );
+        setListVersion(v => v + 1);
+      }
+
+      // Persist to activeScanJob for consistency
+      if (activeScanJob) {
+        setActiveScanJob({
+          ...activeScanJob,
+          selectedCourseId: courseId,
+          selectedCourseName: convexCourse.name,
+          selectedTeeName: firstParticipant?.teeName,
+        });
+      }
+
+      hasAppliedCourseSelection.current = true;
+      return;
+    }
+
+    // Only auto-open course selector if:
+    // 1. No course selected and modal not already shown
+    // 2. Active session query has finished loading (to avoid opening while waiting)
+    // 3. There's no active session at all
+    console.log('[SCAN-REVIEW] Course modal check:', {
+      isReviewMode,
+      processingComplete,
+      selectedCourse,
+      selectedApiCourse,
+      showCourseSearchModal,
+      isLocalCourseSelected,
+      activeSessionLoaded,
+      activeSession: activeSession ? 'exists' : 'null',
+      hasAppliedCourseSelection: hasAppliedCourseSelection.current,
+      shouldOpenModal: !selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected && activeSessionLoaded && !activeSession,
+    });
+    if (!selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected && activeSessionLoaded && !activeSession) {
+      console.log('[SCAN-REVIEW] Opening course search modal');
       // Small timeout to ensure transition/mount is done
       const timer = setTimeout(() => {
         setShowCourseSearchModal(true);
@@ -460,7 +670,7 @@ export default function ScanScorecardScreen() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isReviewMode, processingComplete, selectedCourse, selectedApiCourse, showCourseSearchModal, isLocalCourseSelected, pendingScanCourseSelection, activeScanJob]);
+  }, [isReviewMode, processingComplete, selectedCourse, selectedApiCourse, showCourseSearchModal, isLocalCourseSelected, pendingScanCourseSelection, activeScanJob, activeSession, activeSessionLoaded, courses, userGender]);
 
   // Helper function for confidence-based styling
   const getConfidenceStyle = (confidence?: number) => {
@@ -488,17 +698,126 @@ export default function ScanScorecardScreen() {
     const teeFromResult = (scanResult as any).teeName as string | undefined;
     const teeOverride = teeFromResult || activeScanJob?.selectedTeeName || selectedTeeName;
 
-    // Restore course selection from activeScanJob if present (e.g., after app reload)
-    if (activeScanJob?.selectedCourseId) {
-      console.log('[SCAN] processAIResults: Restoring course from activeScanJob:', activeScanJob.selectedCourseId);
-      setSelectedCourse(activeScanJob.selectedCourseId as string);
-      setIsLocalCourseSelected(true);  // Prevent modal from reopening
-      if (activeScanJob.selectedTeeName) {
-        setSelectedTeeName(activeScanJob.selectedTeeName);
+    // Check if we have an active session with participants
+    const sessionParticipants = activeSession?.playerDetails || [];
+    const hasActiveSession = activeSession && sessionParticipants.length > 0;
+
+    // SESSION MODE: When scanning from pre-round flow, match scanned scores to session participants
+    if (hasActiveSession) {
+      console.log('[SCAN] Session mode - matching scanned players to session participants');
+
+      // Parse all scanned players from AI results
+      const scannedPlayers = scanResult.players.map((p, index) => ({
+        index,
+        name: p.name,
+        nameLower: p.name.toLowerCase().trim(),
+        scores: p.scores
+          .filter(s => s.score !== null)
+          .map(s => ({
+            holeNumber: s.hole,
+            strokes: s.score!,
+            confidence: s.confidence
+          }))
+      }));
+
+      // Track which scanned player indices have been assigned
+      const usedIndices = new Set<number>();
+
+      // STEP 1: Compute distance matrix for all session participants to all scanned players
+      // This allows optimal global assignment instead of greedy per-participant
+      const distanceMatrix: { pIdx: number; sIdx: number; distance: number; scanned: typeof scannedPlayers[0] }[] = [];
+
+      for (let pIdx = 0; pIdx < sessionParticipants.length; pIdx++) {
+        const participant = sessionParticipants[pIdx];
+        const participantNameLower = (participant.name || '').toLowerCase().trim();
+        const participantNamesToMatch = [
+          participantNameLower,
+          ...(participant.aliases || []).map((a: string) => a.toLowerCase().trim())
+        ];
+
+        for (const scanned of scannedPlayers) {
+          // Find best match against primary name or any alias
+          let bestDistance = Infinity;
+          for (const nameToMatch of participantNamesToMatch) {
+            const distance = levenshteinDistance(nameToMatch, scanned.nameLower);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+            }
+          }
+          distanceMatrix.push({ pIdx, sIdx: scanned.index, distance: bestDistance, scanned });
+        }
       }
+
+      // STEP 2: Sort by distance (best matches first) and assign greedily from global best
+      distanceMatrix.sort((a, b) => a.distance - b.distance);
+
+      const assignmentByParticipant: Map<number, { scanned: typeof scannedPlayers[0]; distance: number }> = new Map();
+
+      for (const entry of distanceMatrix) {
+        // Skip if this participant already has an assignment
+        if (assignmentByParticipant.has(entry.pIdx)) continue;
+        // Skip if this scanned player already used
+        if (usedIndices.has(entry.sIdx)) continue;
+
+        // Assign this scanned player to this participant
+        assignmentByParticipant.set(entry.pIdx, { scanned: entry.scanned, distance: entry.distance });
+        usedIndices.add(entry.sIdx);
+      }
+
+      // STEP 3: Create DetectedPlayers from session participants using optimal assignments
+      const sessionModePlayers: DetectedPlayer[] = sessionParticipants.map((participant: any, pIdx: number) => {
+        const participantNameLower = (participant.name || '').toLowerCase().trim();
+
+        const assignment = assignmentByParticipant.get(pIdx);
+        const assigned = assignment ? { ...assignment.scanned, distance: assignment.distance } : null;
+
+        // Use assigned scores, or empty if no match
+        const matchedScores = assigned ? assigned.scores : [];
+        // Show detected name if it differs from participant name
+        const detectedName = assigned && assigned.nameLower !== participantNameLower
+          ? assigned.name
+          : undefined;
+
+        console.log('[SCAN] Name matching:', {
+          participantName: participant.name,
+          scannedName: assigned?.name,
+          assignedIndex: assigned?.index,
+          distance: assigned?.distance,
+          detectedAsName: detectedName,
+          teeName: participant.teeName,
+        });
+
+        const isCurrentUser = currentUserId && participant.playerId === currentUserId;
+
+        return {
+          id: generateUniqueId(),
+          name: participant.name,
+          linkedPlayerId: participant.playerId,
+          isUser: isCurrentUser || false,
+          handicap: participant.handicapIndex,
+          teeColor: participant.teeName || teeOverride || 'Blue',
+          teeGender: (participant.teeGender as 'M' | 'F') || userGender || 'M',
+          detectedAsName: detectedName,
+          isFromSession: true,
+          scannedPlayerIndex: assigned?.index,
+          scores: matchedScores,
+        };
+      });
+
+      // Set date
+      setDate(ensureValidDate(scanResult.date));
+      // Save scanned players for cycling feature
+      setSessionScannedPlayers(scannedPlayers.map(p => ({
+        index: p.index,
+        name: p.name,
+        scores: p.scores,
+      })));
+      setDetectedPlayers(sessionModePlayers);
+      setProcessingComplete(true);
+      return;
     }
 
-    // Convert AI results to DetectedPlayer format
+    // REGULAR MODE: Convert AI results to DetectedPlayer format
     const aiDetectedPlayers: DetectedPlayer[] = scanResult.players.map(player => ({
       id: generateUniqueId(),
       name: player.name,
@@ -667,6 +986,75 @@ export default function ScanScorecardScreen() {
       }
       return updated;
     });
+  };
+
+  // Cycle through available scanned players for session mode
+  const handleCycleDetectedPlayer = (playerId: string) => {
+    console.log('[CYCLE] Starting cycle for player:', playerId);
+    console.log('[CYCLE] sessionScannedPlayers:', sessionScannedPlayers.length);
+    if (sessionScannedPlayers.length === 0) {
+      console.log('[CYCLE] No scanned players to cycle through');
+      return;
+    }
+
+    setDetectedPlayers(prev => {
+      const updated = [...prev];
+      const playerIndex = updated.findIndex(p => p.id === playerId);
+      if (playerIndex < 0) return prev;
+
+      const player = updated[playerIndex];
+      const currentScannedIndex = player.scannedPlayerIndex;
+
+      // Get all scanned player indices to cycle through (not just unassigned)
+      const allIndices = sessionScannedPlayers.map(sp => sp.index);
+
+      if (allIndices.length <= 1) {
+        console.log('[CYCLE] Only one scanned player, cannot cycle');
+        return prev;
+      }
+
+      // Find next index in the cycle
+      const currentPosition = allIndices.indexOf(currentScannedIndex ?? -1);
+      const nextPosition = (currentPosition + 1) % allIndices.length;
+      const nextScannedIndex = allIndices[nextPosition];
+
+      const nextScanned = sessionScannedPlayers.find(sp => sp.index === nextScannedIndex);
+      if (!nextScanned) return prev;
+
+      // Check if someone else has this scanned player - if so, swap!
+      const otherPlayerIndex = updated.findIndex((p, i) =>
+        i !== playerIndex && p.scannedPlayerIndex === nextScannedIndex
+      );
+
+      if (otherPlayerIndex >= 0) {
+        // Swap: give the other player our current scanned player
+        const currentScanned = sessionScannedPlayers.find(sp => sp.index === currentScannedIndex);
+        const otherPlayer = updated[otherPlayerIndex];
+
+        updated[otherPlayerIndex] = {
+          ...otherPlayer,
+          scannedPlayerIndex: currentScannedIndex,
+          scores: currentScanned?.scores || [],
+          detectedAsName: currentScanned && currentScanned.name.toLowerCase().trim() !== otherPlayer.name.toLowerCase().trim()
+            ? currentScanned.name
+            : undefined,
+        };
+        console.log('[CYCLE] Swapped with player:', otherPlayer.name);
+      }
+
+      // Update this player with the next scanned assignment
+      updated[playerIndex] = {
+        ...player,
+        scannedPlayerIndex: nextScannedIndex,
+        scores: nextScanned.scores,
+        detectedAsName: nextScanned.name.toLowerCase().trim() !== player.name.toLowerCase().trim()
+          ? nextScanned.name
+          : undefined,
+      };
+
+      return updated;
+    });
+    setListVersion(v => v + 1);
   };
 
   const handleEditPlayerHandicap = (index: number, handicap: string) => {
@@ -959,7 +1347,11 @@ export default function ScanScorecardScreen() {
     const source = coursePickerSource;
     setCoursePickerSource(null);
     if (!isEditMode && source === 'scan') {
-      router.replace('/');
+      // Clear all modal/stacked screens before navigating to home
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace('/(tabs)');
     }
   };
 
@@ -1344,7 +1736,28 @@ export default function ScanScorecardScreen() {
       scorecardPhotos: photos,
       // Mark as pending so RoundSyncer will push to Convex (including dev-mode rounds)
       syncStatus: 'pending' as const,
+      // Store session ID so RoundSyncer can link and complete it after sync
+      gameSessionId: activeSession?._id as string | undefined,
     };
+
+    // Save detected names as aliases for better future matching
+    for (const player of playersWithTotalScores) {
+      if (player.detectedAsName && player.linkedPlayerId) {
+        try {
+          // Check if the linkedPlayerId is a valid Convex ID
+          const linkedId = player.linkedPlayerId;
+          if (linkedId && /^[a-z0-9]{32}$/i.test(linkedId)) {
+            await addPlayerAlias({
+              playerId: linkedId as any,
+              alias: player.detectedAsName,
+            });
+            console.log('[SCAN] Added alias:', player.detectedAsName, 'for player:', player.name);
+          }
+        } catch (err) {
+          console.warn('[SCAN] Failed to add alias:', err);
+        }
+      }
+    }
 
     if (isEditMode) {
       // Ensure any new players are added to the store
@@ -1358,6 +1771,7 @@ export default function ScanScorecardScreen() {
       router.back();
     } else {
       // Add the round to the store and go straight to Round Details
+      // Session linking and settlement will be handled by RoundSyncer after round syncs
       addRound(newRound as any);
       router.replace(`/round/${roundId}`);
     }
@@ -1374,81 +1788,58 @@ export default function ScanScorecardScreen() {
     }
   };
 
-  if (showPlayerLinking) {
-    const selectedLinkedId = (() => {
-      if (selectedPlayerId) {
-        const p = detectedPlayers.find(dp => dp.id === selectedPlayerId);
-        return p?.linkedPlayerId;
-      }
-      if (selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex]) {
-        return detectedPlayers[selectedPlayerIndex].linkedPlayerId;
-      }
-      return undefined;
-    })();
-
-    const handleUnlinkSelectedPlayer = () => {
-      if (selectedPlayerIndex === null) return;
-      setDetectedPlayers(prev => {
-        const updated = [...prev];
-        const current = { ...updated[selectedPlayerIndex] };
-        current.linkedPlayerId = undefined;
-        if (current.prevName !== undefined) {
-          current.name = current.prevName;
-          delete current.prevName;
-        }
-        if (current.prevLinkedPlayerId !== undefined) {
-          current.linkedPlayerId = current.prevLinkedPlayerId;
-          delete current.prevLinkedPlayerId;
-        }
-        if (current.prevHandicap !== undefined) {
-          current.handicap = current.prevHandicap;
-          delete current.prevHandicap;
-        }
-        updated[selectedPlayerIndex] = current;
-        return updated;
-      });
-      setLinkingWasRemoved(true);
+  // expo-router's `<Stack.Screen />` calls `navigation.setOptions(options)` whenever the
+  // `options` object identity changes. Keep callbacks/options stable to avoid update loops.
+  const handleSaveRoundRef = useRef(handleSaveRound);
+  useEffect(() => {
+    handleSaveRoundRef.current = handleSaveRound;
+  }, [handleSaveRound]);
+  const onPressSaveRound = useCallback(() => {
+    void handleSaveRoundRef.current();
+  }, []);
+  const onPressCancelEdit = useCallback(() => {
+    // Clear all modal/stacked screens before navigating to home
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace('/(tabs)');
+  }, [router]);
+  const resultsScreenOptions = useMemo(() => {
+    return {
+      title: isEditMode ? "Edit Round" : "Scorecard Results",
+      headerStyle: {
+        backgroundColor: colors.background,
+      },
+      headerTitleStyle: {
+        color: colors.text,
+      },
+      headerTintColor: colors.text,
+      // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
+      gestureEnabled: activeTab !== 'players',
+      headerLeft: isEditMode ? () => (
+        <TouchableOpacity
+          onPress={onPressCancelEdit}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.headerButton}
+        >
+          <Text style={styles.headerButtonText}>Cancel</Text>
+        </TouchableOpacity>
+      ) : undefined,
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={onPressSaveRound}
+          style={styles.headerButton}
+        >
+          <Text style={styles.headerButtonText}>Save</Text>
+        </TouchableOpacity>
+      )
     };
+  }, [activeTab, isEditMode, onPressCancelEdit, onPressSaveRound]);
 
+  if (showPlayerLinking) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Stack.Screen
-          options={{
-            title: "Link to Existing Player",
-            headerStyle: {
-              backgroundColor: colors.background,
-            },
-            headerTitleStyle: {
-              color: colors.text,
-            },
-            headerTintColor: colors.text,
-            headerLeft: () => (
-              <TouchableOpacity
-                onPress={() => {
-                  setShowPlayerLinking(false);
-                  setSelectedPlayerIndex(null);
-                  setSelectedPlayerId(null);
-                  setLinkingWasRemoved(false);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                style={styles.headerButton}
-              >
-                <Text style={styles.headerButtonText}>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
-              </TouchableOpacity>
-            ),
-            headerRight: () => (
-              selectedLinkedId ? (
-                <TouchableOpacity
-                  onPress={handleUnlinkSelectedPlayer}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={styles.headerButton}
-                >
-                  <Text style={styles.headerButtonText}>Remove Link</Text>
-                </TouchableOpacity>
-              ) : null
-            )
-          }}
-        />
+        <Stack.Screen options={linkPlayerScreenOptions} />
 
         <ScrollView
           style={styles.scrollView}
@@ -1468,7 +1859,7 @@ export default function ScanScorecardScreen() {
             linkablePlayers
               .filter(p => !p.isUser) // hide the current user from merge targets
               .map((player, idx) => {
-                const isSelected = selectedLinkedId === player.id;
+                const isSelected = selectedLinkedIdForLinking === player.id;
                 return (
                   <TouchableOpacity
                     key={player.id || `${player.name}-${idx}`}
@@ -1533,38 +1924,17 @@ export default function ScanScorecardScreen() {
 
   if ((isEditMode || isReviewMode) && processingComplete) {
     return (
-      <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Stack.Screen
-          options={{
-            title: isEditMode ? "Edit Round" : "Scorecard Results",
-            headerStyle: {
-              backgroundColor: colors.background,
-            },
-            headerTitleStyle: {
-              color: colors.text,
-            },
-            headerTintColor: colors.text,
-            // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
-            gestureEnabled: activeTab !== 'players',
-            headerLeft: isEditMode ? () => (
-              <TouchableOpacity
-                onPress={() => router.replace('/')}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                style={styles.headerButton}
-              >
-                <Text style={styles.headerButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            ) : undefined,
-            headerRight: () => (
-              <TouchableOpacity
-                onPress={handleSaveRound}
-                style={styles.headerButton}
-              >
-                <Text style={styles.headerButtonText}>Save</Text>
-              </TouchableOpacity>
-            )
-          }}
-        />
+      <SafeAreaView style={styles.container} edges={[]}>
+        <Stack.Screen options={resultsScreenOptions} />
+
+        {/* Custom Modal Header */}
+        <View style={styles.customHeader}>
+          <View style={{ width: 50 }} />
+          <Text style={styles.customHeaderTitle}>Scorecard Results</Text>
+          <TouchableOpacity style={styles.customHeaderButton} onPress={onPressSaveRound}>
+            <Text style={styles.customHeaderButtonText}>Save</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.tabContainer}>
           <TouchableOpacity
@@ -1599,7 +1969,7 @@ export default function ScanScorecardScreen() {
               extraData={listVersion}
               keyExtractor={(item: DetectedPlayer) => item.id}
               activationDistance={6}
-              contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
               autoscrollThreshold={40}
               autoscrollSpeed={280}
               bounces={false}
@@ -1624,29 +1994,42 @@ export default function ScanScorecardScreen() {
               }}
               ListHeaderComponent={
                 <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }]}>
-                  <Text style={styles.sectionTitle}>Detected Players</Text>
-                  <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
-                    <Plus size={16} color={colors.primary} />
-                    <Text style={styles.addPlayerText}>Add Player</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.sectionTitle}>
+                    {detectedPlayers.some(p => p.isFromSession) ? 'Session Players' : 'Detected Players'}
+                  </Text>
+                  {!detectedPlayers.some(p => p.isFromSession) && (
+                    <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
+                      <Plus size={16} color={colors.primary} />
+                      <Text style={styles.addPlayerText}>Add Player</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               }
               ListFooterComponent={
-                <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
-                  <Text style={styles.infoTitle}>Player Management</Text>
-                  <Text style={styles.infoText}>• Drag to reorder players if they were detected incorrectly</Text>
-                  <Text style={styles.infoText}>• Edit names by clicking on them and changing the text</Text>
-                  <Text style={styles.infoText}>• Link players to existing profiles using the link icon</Text>
-                  <Text style={styles.infoText}>• Mark yourself using the user icon</Text>
-                  <Text style={styles.infoText}>• Set Scandicaps and tee colors for accurate scoring</Text>
-                  <Text style={styles.infoText}>• Tap tee color to cycle through available options</Text>
-                </View>
+                detectedPlayers.some(p => p.isFromSession) ? (
+                  <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
+                    <Text style={styles.infoTitle}>Score Assignment</Text>
+                    <Text style={styles.infoText}>• Players are from your pre-round setup</Text>
+                    <Text style={styles.infoText}>• Scores are automatically matched to players</Text>
+                    <Text style={styles.infoText}>• Tap "Detected as" to cycle through options</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
+                    <Text style={styles.infoTitle}>Player Management</Text>
+                    <Text style={styles.infoText}>• Drag to reorder players if they were detected incorrectly</Text>
+                    <Text style={styles.infoText}>• Edit names by clicking on them and changing the text</Text>
+                    <Text style={styles.infoText}>• Link players to existing profiles using the link icon</Text>
+                    <Text style={styles.infoText}>• Mark yourself using the user icon</Text>
+                    <Text style={styles.infoText}>• Set Scandicaps and tee colors for accurate scoring</Text>
+                    <Text style={styles.infoText}>• Tap tee color to cycle through available options</Text>
+                  </View>
+                )
               }
               renderItem={({ item: player, index, drag, isActive, getIndex }: any) => (
                 <TouchableOpacity
                   key={player.id}
                   activeOpacity={1}
-                  onLongPress={drag}
+                  onLongPress={player.isFromSession ? undefined : drag}
                   delayLongPress={120}
                   style={[
                     styles.playerCard,
@@ -1655,41 +2038,69 @@ export default function ScanScorecardScreen() {
                   ]}
                 >
                   <View style={styles.playerHeaderRow}>
-                    <TouchableOpacity style={styles.dragHandle} onLongPress={drag} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
-                      <GripVertical size={18} color={isActive ? colors.primary : colors.text} />
-                    </TouchableOpacity>
-                    <TextInput
-                      style={[styles.playerNameInline, getConfidenceStyle(player.nameConfidence)]}
-                      value={player.name}
-                      onChangeText={(text) => handleEditPlayerNameById(player.id, text)}
-                      editable={!player.linkedPlayerId}
-                      placeholder="Player Name"
-                    />
+                    {/* Only show drag handle for non-session players */}
+                    {!player.isFromSession && (
+                      <TouchableOpacity style={styles.dragHandle} onLongPress={drag} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
+                        <GripVertical size={18} color={isActive ? colors.primary : colors.text} />
+                      </TouchableOpacity>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <TextInput
+                        style={[
+                          styles.playerNameInline,
+                          getConfidenceStyle(player.nameConfidence),
+                          player.isFromSession && { marginLeft: 4 }
+                        ]}
+                        value={player.name}
+                        onChangeText={(text) => handleEditPlayerNameById(player.id, text)}
+                        editable={!player.linkedPlayerId && !player.isFromSession}
+                        placeholder="Player Name"
+                      />
+                      {/* Show "Detected as" for session mode when scanned name differs */}
+                      {player.detectedAsName && (
+                        <TouchableOpacity onPress={() => handleCycleDetectedPlayer(player.id)} style={{ flexDirection: 'row' }}>
+                          <Text style={styles.detectedAsText}>Detected as </Text>
+                          <Text style={[styles.detectedAsText, { color: colors.primary, textDecorationLine: 'underline' }]}>
+                            "{player.detectedAsName}"
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                     <View style={styles.headerRightRow}>
                       {player.isUser && (
                         <View style={styles.userBadge}><Text style={styles.userBadgeText}>You</Text></View>
                       )}
-                      {player.linkedPlayerId && !player.isUser && (
+                      {/* Show Pre-Round badge for session players */}
+                      {player.isFromSession && (
+                        <View style={styles.sessionBadge}><Text style={styles.sessionBadgeText}>Pre-Round</Text></View>
+                      )}
+                      {/* Show Linked badge for non-session linked players */}
+                      {player.linkedPlayerId && !player.isUser && !player.isFromSession && (
                         <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>Linked</Text></View>
                       )}
-                      <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayerById(player.id)}>
-                        <LinkIcon
-                          size={18}
-                          color={
-                            player.isUser
-                              ? colors.primary // keep orange for "You"
-                              : player.linkedPlayerId
-                                ? colors.text
-                                : colors.primary
-                          }
-                        />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUserById(player.id)}>
-                        <User size={18} color={player.isUser ? colors.text : colors.primary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.playerAction} onPress={() => handleRemovePlayerById(player.id)}>
-                        <X size={18} color={colors.error} />
-                      </TouchableOpacity>
+                      {/* Hide action icons for session players */}
+                      {!player.isFromSession && (
+                        <>
+                          <TouchableOpacity style={styles.playerAction} onPress={() => handleLinkPlayerById(player.id)}>
+                            <LinkIcon
+                              size={18}
+                              color={
+                                player.isUser
+                                  ? colors.primary // keep orange for "You"
+                                  : player.linkedPlayerId
+                                    ? colors.text
+                                    : colors.primary
+                              }
+                            />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.playerAction} onPress={() => handleMarkAsUserById(player.id)}>
+                            <User size={18} color={player.isUser ? colors.text : colors.primary} />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.playerAction} onPress={() => handleRemovePlayerById(player.id)}>
+                            <X size={18} color={colors.error} />
+                          </TouchableOpacity>
+                        </>
+                      )}
                     </View>
                   </View>
                   <View style={styles.playerDetailsRow}>
@@ -1764,7 +2175,8 @@ export default function ScanScorecardScreen() {
                   {detectedPlayers.length > 0 && detectedPlayers[0].scores.map(score => {
                     // Find the course to get par for this hole
                     const course = selectedCourse ? courses.find(c => c.id === selectedCourse) : null;
-                    const hole = course ? course.holes.find(h => h.number === score.holeNumber) : null;
+                    const holes = course?.holes ?? [];
+                    const hole = holes.find(h => h.number === score.holeNumber);
                     const par = hole ? hole.par : 4; // Default to par 4 if not found
 
                     return (
@@ -1871,7 +2283,12 @@ export default function ScanScorecardScreen() {
           </ScrollView>
         )}
 
-        <View style={styles.bottomBar}>
+        <View
+          style={[
+            styles.bottomBar,
+            { bottom: bottomBarOffset, paddingBottom: 12 + Math.max(insets.bottom, 0) },
+          ]}
+        >
           <Button
             title="Save Round"
             onPress={handleSaveRound}
@@ -1976,18 +2393,7 @@ export default function ScanScorecardScreen() {
   // Fallback: processing not complete yet - show loading state
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen
-        options={{
-          title: "Review Scorecard",
-          headerStyle: {
-            backgroundColor: colors.background,
-          },
-          headerTitleStyle: {
-            color: colors.text,
-          },
-          headerTintColor: colors.text,
-        }}
-      />
+      <Stack.Screen options={reviewHeaderOptions} />
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.processingText, { marginTop: 16 }]}>
@@ -2007,6 +2413,29 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  customHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  customHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  customHeaderButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  customHeaderButtonText: {
+    fontSize: 16,
+    color: colors.primary,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
@@ -2240,7 +2669,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 100,
+    paddingBottom: 140,
   },
   sectionContainer: {
     marginBottom: 24,
@@ -2446,6 +2875,24 @@ const styles = StyleSheet.create({
     color: colors.card,
     fontWeight: '500',
   },
+  sessionBadge: {
+    backgroundColor: colors.primary,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  sessionBadgeText: {
+    fontSize: 12,
+    color: colors.background,
+    fontWeight: '500',
+  },
+  detectedAsText: {
+    fontSize: 12,
+    color: colors.text,
+    fontStyle: 'italic',
+    marginLeft: 4,
+  },
   playerActions: {
     flexDirection: 'row',
   },
@@ -2617,7 +3064,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    justifyContent: 'flex-end',
   },
   saveButton: {
     width: '100%',

@@ -140,8 +140,9 @@ export const getEighteenHoleEquivalentScore = (
   }
 
   // For 9-hole rounds, convert to 18-hole equivalent
-  const coursePar9 = course ?
-    course.holes.slice(0, 9).reduce((sum, hole) => sum + hole.par, 0) :
+  const holes = course?.holes ?? [];
+  const coursePar9 = holes.length >= 9 ?
+    holes.slice(0, 9).reduce((sum, hole) => sum + (hole?.par ?? 4), 0) :
     36; // default 9-hole par
 
   return convertNineHoleToEighteenEquivalent(

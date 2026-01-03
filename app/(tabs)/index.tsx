@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PreRoundFlowModal } from '@/components/PreRoundFlowModal';
 import { useUser } from '@clerk/clerk-expo';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from '@/constants/colors';
@@ -32,6 +33,8 @@ import { useCourseImage } from '@/hooks/useCourseImage';
 
 export default function HomeScreen() {
   const router = useRouter();
+
+
   const {
     rounds,
     courses,
@@ -49,7 +52,10 @@ export default function HomeScreen() {
     shouldShowScanCourseModal,
     setShouldShowScanCourseModal,
     setPendingScanCourseSelection,
+    pendingGameSetupIntent,
+    setPendingGameSetupIntent,
   } = useGolfStore();
+
   // Scan flow state - for course selection during scan
   const [selectedScanCourse, setSelectedScanCourse] = useState<{ id: string; teeName: string } | null>(null);
 
@@ -543,6 +549,7 @@ export default function HomeScreen() {
   const RoundListItem: React.FC<{ item: Round & { userWon: boolean } }> = ({ item }) => {
     const courseExternalId = (item as any).courseExternalId as string | undefined;
     const remoteCourseImage = (item as any).courseImageUrl as string | undefined;
+    const remoteCourseLocation = (item as any).courseLocation as string | undefined;
     const course =
       (courseExternalId && courses.find((c) => c.id === courseExternalId)) ||
       courses.find((c) => c.id === item.courseId);
@@ -554,6 +561,13 @@ export default function HomeScreen() {
       convexImageUrl: remoteCourseImage,
       localImageUrl: course?.imageUrl,
     });
+
+    // Prefer Convex location (most up-to-date), fall back to local store
+    const isValidLocation = (loc?: string | null) =>
+      loc && !loc.includes('undefined') && !loc.includes('Unknown');
+    const displayLocation = isValidLocation(remoteCourseLocation)
+      ? remoteCourseLocation
+      : (isValidLocation(course?.location) ? course?.location : 'Unknown Location');
 
     return (
       <TouchableOpacity
@@ -583,7 +597,7 @@ export default function HomeScreen() {
           {/* Overlay course info on image */}
           <View style={styles.roundInfoOverlay}>
             <Text style={styles.roundLocationOnImage} numberOfLines={1}>
-              {course?.location || 'Unknown Location'}
+              {displayLocation}
             </Text>
             <Text style={styles.roundCourseOnImage} numberOfLines={1}>
               {item.courseName}
@@ -731,7 +745,7 @@ export default function HomeScreen() {
               <Info size={14} color={colors.text} />
             </View>
           </View>
-          <Text style={styles.statLabel}>HANDICAP</Text>
+          <Text style={styles.statLabel}>SCANDICAP</Text>
         </TouchableOpacity>
       </View>
 
@@ -973,6 +987,15 @@ export default function HomeScreen() {
           setShouldShowScanCourseModal(false);
         }}
       />
+
+      {/* Game setup modal (triggered from camera screen's "Setup Game Instead") */}
+      {pendingGameSetupIntent && (
+        <PreRoundFlowModal
+          visible={true}
+          onClose={() => setPendingGameSetupIntent(null)}
+          initialIntent={pendingGameSetupIntent}
+        />
+      )}
     </SafeAreaView >
   );
 }

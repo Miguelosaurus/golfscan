@@ -1,8 +1,9 @@
 {
   "expo": {
-    "name": "Golf Score Tracker",
+    "name": "ScanCaddie",
     "slug": "golf-score-tracker-u82dxka",
-    "version": "1.0.0",
+    "version": "1.0.3",
+    "icon": "./assets/images/icon.png",
     "orientation": "portrait",
     "runtimeVersion": {
       "policy": "sdkVersion"
@@ -16,7 +17,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.golfscanai.app"
+      "bundleIdentifier": "com.golfscanai.app",
+      "buildNumber": "3"
     },
     "android": {
       "package": "com.golfscanai.app"
@@ -26,10 +28,17 @@
         "expo-router",
         {}
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "516f2c1f-9d13-40aa-9ae7-e81b1a83e431"
+      }
     }
   }
 }

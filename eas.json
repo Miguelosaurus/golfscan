@@ -1,29 +1,46 @@
 {
     "cli": {
-        "version": ">= 10.0.0"
+        "version": ">= 10.0.0",
+        "appVersionSource": "remote"
     },
     "build": {
         "development": {
             "developmentClient": true,
-            "distribution": "internal"
+            "distribution": "internal",
+            "env": {
+                "npm_config_legacy_peer_deps": "true"
+            }
         },
         "staging": {
             "distribution": "store",
             "env": {
                 "EXPO_PUBLIC_CONVEX_URL": "https://next-oriole-469.convex.cloud",
-                "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cG9zc2libGUtamF3ZmlzaC02MS5jbGVyay5hY2NvdW50cy5kZXYk"
+                "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cG9zc2libGUtamF3ZmlzaC02MS5jbGVyay5hY2NvdW50cy5kZXYk",
+                "npm_config_legacy_peer_deps": "true"
             }
         },
         "production": {
-            "distribution": "store"
+            "distribution": "store",
+            "env": {
+                "npm_config_legacy_peer_deps": "true"
+            }
         }
     },
     "submit": {
         "production": {
             "ios": {
-                "appleId": "YOUR_APPLE_ID_EMAIL@gmail.com",
-                "ascAppId": "PLACEHOLDER",
-                "appleTeamId": "PLACEHOLDER"
+                "appleTeamId": "F5786NY22N",
+                "companyName": "SEA & SEA LLC",
+                "sku": "com.golfscanai.scancaddie.prod"
+            }
+        },
+        "staging": {
+            "ios": {
+                "appleId": "serram1994@gmail.com",
+                "appleTeamId": "F5786NY22N",
+                "ascAppId": "6757163693",
+                "companyName": "SEA & SEA LLC",
+                "sku": "com.golfscanai.scancaddie.staging"
             }
         }
     }

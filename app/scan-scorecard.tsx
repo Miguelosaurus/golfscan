@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,14 +12,21 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
-  Modal
+  Modal,
+  ActionSheetIOS,
+  Dimensions,
+  ImageBackground,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { PanGestureHandler, State, FlatList } from 'react-native-gesture-handler';
 // @ts-ignore - local ambient types provided via declarations
 import DraggableFlatList from 'react-native-draggable-flatlist';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Stack, useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import {
@@ -44,6 +51,7 @@ import { generateUniqueId, ensureValidDate } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
+import { PreRoundFlowModal } from '@/components/PreRoundFlowModal';
 import { Button } from '@/components/Button';
 import { Hole, ScorecardScanResult, ApiCourseData, Course, Player } from '@/types';
 import { api } from '@/convex/_generated/api';
@@ -88,9 +96,106 @@ const TEE_COLORS = [
 // Maximum number of scorecard images per scan (multi-page scorecards)
 const MAX_IMAGES = 3;
 
+// Screen dimensions for full-screen camera
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Persist last known permission across screen remounts to avoid UI flicker.
+let lastKnownCameraPermissionGlobal: any = null;
+
+// Corner bracket component for scan frame
+const ScanBracket = ({ position }: { position: 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight' }) => {
+  const size = 40;
+  const thickness = 4;
+  const segmentLength = Math.round(size * 0.8);
+  const color = 'rgba(255,255,255,0.95)';
+  const cornerRadius = 12;
+
+  const anchor: any = (() => {
+    switch (position) {
+      case 'topLeft':
+        return { top: 0, left: 0 };
+      case 'topRight':
+        return { top: 0, right: 0 };
+      case 'bottomLeft':
+        return { bottom: 0, left: 0 };
+      case 'bottomRight':
+        return { bottom: 0, right: 0 };
+    }
+  })();
+
+  const cornerStyle: any = (() => {
+    const base = {
+      position: 'absolute' as const,
+      width: segmentLength,
+      height: segmentLength,
+      borderColor: color,
+    };
+    switch (position) {
+      case 'topLeft':
+        return {
+          ...base,
+          top: 0,
+          left: 0,
+          borderTopWidth: thickness,
+          borderLeftWidth: thickness,
+          borderTopLeftRadius: cornerRadius,
+        };
+      case 'topRight':
+        return {
+          ...base,
+          top: 0,
+          right: 0,
+          borderTopWidth: thickness,
+          borderRightWidth: thickness,
+          borderTopRightRadius: cornerRadius,
+        };
+      case 'bottomLeft':
+        return {
+          ...base,
+          bottom: 0,
+          left: 0,
+          borderBottomWidth: thickness,
+          borderLeftWidth: thickness,
+          borderBottomLeftRadius: cornerRadius,
+        };
+      case 'bottomRight':
+      default:
+        return {
+          ...base,
+          bottom: 0,
+          right: 0,
+          borderBottomWidth: thickness,
+          borderRightWidth: thickness,
+          borderBottomRightRadius: cornerRadius,
+        };
+    }
+  })();
+
+  return (
+    <View style={{ position: 'absolute', width: size, height: size, ...anchor }}>
+      <View style={cornerStyle} />
+    </View>
+  );
+};
+
 export default function ScanScorecardScreen() {
   const { courseId, editRoundId, prefilled, review } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string }>();
   const router = useRouter();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
+  const instanceId = useRef(Math.random().toString(16).slice(2, 8));
+  const renderCount = useRef(0);
+  renderCount.current += 1;
+
+  const cameraScreenOptions = useMemo(
+    () => ({
+      headerShown: false as const,
+    }),
+    []
+  );
+
+  const lightStatusBar = useMemo(() => <StatusBar style="light" />, []);
+  const cameraTopOffset = insets.top + 26;
 
   // SEATBELT: Redirect legacy review URLs to the new /scan-review route
   useEffect(() => {
@@ -102,6 +207,13 @@ export default function ScanScorecardScreen() {
       if (courseId) params.set('courseId', courseId);
 
       const queryString = params.toString();
+      console.log(`[scan-scorecard ${instanceId.current}] seatbelt redirect -> /scan-review`, {
+        review,
+        editRoundId,
+        courseId,
+        hasPrefilled: !!prefilled,
+        queryString,
+      });
       router.replace(`/scan-review${queryString ? '?' + queryString : ''}` as any);
     }
   }, [review, editRoundId, prefilled, courseId, router]);
@@ -135,14 +247,28 @@ export default function ScanScorecardScreen() {
     setShouldShowScanCourseModal,
     pendingScanCourseSelection,
     clearPendingScanCourseSelection,
+    setPendingGameSetupIntent,
   } = useGolfStore();
   const [permission, requestPermission] = useCameraPermissions();
+  // `useCameraPermissions()` can briefly return `null` while re-checking; keep the last
+  // known value to avoid flicker between "loading" and the camera UI.
+  const lastKnownPermission = useRef<any>(permission ?? lastKnownCameraPermissionGlobal);
+  useEffect(() => {
+    if (permission) {
+      lastKnownPermission.current = permission;
+      lastKnownCameraPermissionGlobal = permission;
+    }
+  }, [permission]);
+  const effectivePermission = permission ?? lastKnownPermission.current;
   const profile = useQuery(api.users.getProfile);
   const roundsSummary = useQuery(
     api.rounds.listWithSummary,
     profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
   ) || [];
   const userGender = (profile as any)?.gender as "M" | "F" | undefined;
+
+  // Get active session to hide "Setup Game Instead" button when session exists
+  const activeSession = useQuery(api.gameSessions.getActive);
 
   // Convex actions for course lookup (to check global cache before paid API)
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
@@ -161,11 +287,89 @@ export default function ScanScorecardScreen() {
   const [showCourseSelector, setShowCourseSelector] = useState(false);
   const [showCourseSearchModal, setShowCourseSearchModal] = useState(false);
   const [coursePickerSource, setCoursePickerSource] = useState<'scan' | 'review' | null>(null);
+  // Game setup state
+  const [showSetupSheet, setShowSetupSheet] = useState(false);
+  const [selectedGameIntent, setSelectedGameIntent] = useState<'new_game' | 'quick_strokes' | null>(null);
   const [selectedTeeName, setSelectedTeeName] = useState<string | undefined>(undefined);
   const [showTeePicker, setShowTeePicker] = useState(false);
   const [teePickerPlayerIndex, setTeePickerPlayerIndex] = useState<number | null>(null);
   const [teePickerPlayerId, setTeePickerPlayerId] = useState<string | null>(null);
   const [teePickerGenderTab, setTeePickerGenderTab] = useState<'M' | 'F'>('M');
+
+  const selectedLinkedIdForLinking = useMemo(() => {
+    if (selectedPlayerId) {
+      const p = detectedPlayers.find(dp => dp.id === selectedPlayerId);
+      return p?.linkedPlayerId;
+    }
+    if (selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex]) {
+      return detectedPlayers[selectedPlayerIndex].linkedPlayerId;
+    }
+    return undefined;
+  }, [detectedPlayers, selectedPlayerId, selectedPlayerIndex]);
+
+  const handleCloseLinking = useCallback(() => {
+    setShowPlayerLinking(false);
+    setSelectedPlayerIndex(null);
+    setSelectedPlayerId(null);
+    setLinkingWasRemoved(false);
+  }, []);
+
+  const handleUnlinkSelectedPlayer = useCallback(() => {
+    if (selectedPlayerIndex === null) return;
+    setDetectedPlayers(prev => {
+      const updated = [...prev];
+      const current = { ...updated[selectedPlayerIndex] };
+      current.linkedPlayerId = undefined;
+      if (current.prevName !== undefined) {
+        current.name = current.prevName;
+        delete current.prevName;
+      }
+      if (current.prevLinkedPlayerId !== undefined) {
+        current.linkedPlayerId = current.prevLinkedPlayerId;
+        delete current.prevLinkedPlayerId;
+      }
+      if (current.prevHandicap !== undefined) {
+        current.handicap = current.prevHandicap;
+        delete current.prevHandicap;
+      }
+      updated[selectedPlayerIndex] = current;
+      return updated;
+    });
+    setLinkingWasRemoved(true);
+  }, [selectedPlayerIndex]);
+
+  const linkPlayerScreenOptions = useMemo(() => {
+    return {
+      title: "Link to Existing Player",
+      headerStyle: {
+        backgroundColor: colors.background,
+      },
+      headerTitleStyle: {
+        color: colors.text,
+      },
+      headerTintColor: colors.text,
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={handleCloseLinking}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.headerButton}
+        >
+          <Text style={styles.headerButtonText}>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
+        </TouchableOpacity>
+      ),
+      headerRight: () => (
+        selectedLinkedIdForLinking ? (
+          <TouchableOpacity
+            onPress={handleUnlinkSelectedPlayer}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={styles.headerButton}
+          >
+            <Text style={styles.headerButtonText}>Remove Link</Text>
+          </TouchableOpacity>
+        ) : null
+      ),
+    };
+  }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking]);
   const teePickerIndexRef = useRef<number | null>(null);
   const [notes, setNotes] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -402,6 +606,8 @@ export default function ScanScorecardScreen() {
 
   useEffect(() => {
     if (isEditMode) return;
+    // Scan screen should not process review results; review lives in /scan-review.
+    if (!isReviewMode) return;
 
     // Wait until course modal is closed before processing results
     if (showCourseSearchModal) return;
@@ -411,13 +617,13 @@ export default function ScanScorecardScreen() {
 
     if (activeScanJob?.requiresReview && activeScanJob.result) {
       if (lastProcessedScanId.current !== activeScanJob.id) {
-        processAIResults(activeScanJob.result);
         lastProcessedScanId.current = activeScanJob.id;
+        processAIResults(activeScanJob.result);
       }
     } else if (!activeScanJob) {
       lastProcessedScanId.current = null;
     }
-  }, [activeScanJob, isEditMode, showCourseSearchModal, processingComplete]);
+  }, [activeScanJob, isEditMode, isReviewMode, showCourseSearchModal, processingComplete]);
 
   // Auto-apply pending course selection from home screen, or open course selector if needed
   useEffect(() => {
@@ -480,6 +686,44 @@ export default function ScanScorecardScreen() {
       return;
     }
 
+    // FALLBACK: If there's an active session with course data, use it
+    // This handles cases where pendingScanCourseSelection was lost (e.g., in production builds)
+    if (activeSession?.course && !selectedCourse) {
+      const course = activeSession.course;
+      console.log('[SCAN] Applying course from active session:', course._id, course.name);
+      setSelectedCourse(course._id);
+      setIsLocalCourseSelected(true);
+
+      // Find the user's tee from the active session participants
+      const userParticipant = activeSession.participants?.find(
+        (p: any) => activeSession.playerDetails?.find((pd: any) => pd.playerId === p.playerId)
+      );
+      if (userParticipant?.teeName) {
+        setSelectedTeeName(userParticipant.teeName);
+        setDetectedPlayers(prev =>
+          prev.map(p => ({
+            ...p,
+            teeColor: userParticipant.teeName,
+            teeGender: (userParticipant.teeGender ?? userGender ?? 'M') as 'M' | 'F',
+          }))
+        );
+        setListVersion(v => v + 1);
+      }
+
+      // Persist to activeScanJob for consistency
+      if (activeScanJob) {
+        setActiveScanJob({
+          ...activeScanJob,
+          selectedCourseId: course._id,
+          selectedCourseName: course.name,
+          selectedTeeName: userParticipant?.teeName,
+        });
+      }
+
+      hasAppliedCourseSelection.current = true;
+      return;
+    }
+
     // Only auto-open course selector if no course selected and modal not already shown
     if (!selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected) {
       // Small timeout to ensure transition/mount is done
@@ -489,7 +733,7 @@ export default function ScanScorecardScreen() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isReviewMode, processingComplete, selectedCourse, selectedApiCourse, showCourseSearchModal, isLocalCourseSelected, pendingScanCourseSelection, activeScanJob]);
+  }, [isReviewMode, processingComplete, selectedCourse, selectedApiCourse, showCourseSearchModal, isLocalCourseSelected, pendingScanCourseSelection, activeScanJob, activeSession]);
 
   // Helper function for confidence-based styling
   const getConfidenceStyle = (confidence?: number) => {
@@ -592,6 +836,46 @@ export default function ScanScorecardScreen() {
     setDetectedPlayers([]);
     setSelectedApiCourse(null);
     setIsLocalCourseSelected(false);
+  };
+
+  const showAddPicOptions = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Take Photo', 'Select from Gallery'],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            takePicture();
+          } else if (buttonIndex === 2) {
+            pickImage();
+          }
+        }
+      );
+    } else {
+      // For Android, use Alert with buttons
+      Alert.alert(
+        'Add Photo',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Take Photo', onPress: takePicture },
+          { text: 'Select from Gallery', onPress: pickImage },
+        ]
+      );
+    }
+  };
+
+  const showSetupGameOptions = () => {
+    setShowSetupSheet(true);
+  };
+
+  const handleSelectSetupIntent = (intent: 'new_game' | 'quick_strokes') => {
+    setShowSetupSheet(false);
+    // Set intent in store and navigate back to home - home will pick it up and show modal
+    setPendingGameSetupIntent(intent);
+    router.back();
   };
 
   const processScorecard = async () => {
@@ -775,13 +1059,23 @@ export default function ScanScorecardScreen() {
 
       // Navigate first, then trigger modal with a slight delay to avoid race condition
       console.log('[SCAN] Navigating to home...');
-      router.replace('/');
+      // Clear all modal/stacked screens before navigating to home
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace('/(tabs)');
 
-      // Small delay to ensure navigation completes before showing modal
-      setTimeout(() => {
-        console.log('[SCAN] Setting shouldShowScanCourseModal to TRUE after delay');
-        setShouldShowScanCourseModal(true);
-      }, 100);
+      // Only show course selection modal if there's no active session
+      // (if there's an active session, the course is already selected from pre-round flow)
+      if (!activeSession) {
+        // Small delay to ensure navigation completes before showing modal
+        setTimeout(() => {
+          console.log('[SCAN] Setting shouldShowScanCourseModal to TRUE after delay');
+          setShouldShowScanCourseModal(true);
+        }, 100);
+      } else {
+        console.log('[SCAN] Active session exists, skipping course modal');
+      }
       return;
 
     } catch (error) {
@@ -819,16 +1113,6 @@ export default function ScanScorecardScreen() {
     const currentUser = players.find(p => p.isUser);
     const teeFromResult = (scanResult as any).teeName as string | undefined;
     const teeOverride = teeFromResult || activeScanJob?.selectedTeeName || selectedTeeName;
-
-    // Restore course selection from activeScanJob if present (e.g., after app reload)
-    if (activeScanJob?.selectedCourseId) {
-      console.log('[SCAN] processAIResults: Restoring course from activeScanJob:', activeScanJob.selectedCourseId);
-      setSelectedCourse(activeScanJob.selectedCourseId as string);
-      setIsLocalCourseSelected(true);  // Prevent modal from reopening
-      if (activeScanJob.selectedTeeName) {
-        setSelectedTeeName(activeScanJob.selectedTeeName);
-      }
-    }
 
     // Convert AI results to DetectedPlayer format
     const aiDetectedPlayers: DetectedPlayer[] = scanResult.players.map(player => ({
@@ -1272,7 +1556,11 @@ export default function ScanScorecardScreen() {
     const source = coursePickerSource;
     setCoursePickerSource(null);
     if (!isEditMode && source === 'scan') {
-      router.replace('/');
+      // Clear all modal/stacked screens before navigating to home
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
+      router.replace('/(tabs)');
     }
   };
 
@@ -1627,33 +1915,164 @@ export default function ScanScorecardScreen() {
     }
   };
 
-  if (!permission && !isEditMode) {
-    // Camera permissions are still loading
+  // expo-router's `<Stack.Screen />` calls `navigation.setOptions(options)` whenever the
+  // `options` object identity changes. Keep callbacks/options stable to avoid update loops.
+  const handleSaveRoundRef = useRef(handleSaveRound);
+  useEffect(() => {
+    handleSaveRoundRef.current = handleSaveRound;
+  }, [handleSaveRound]);
+  const onPressSaveRound = useCallback(() => {
+    void handleSaveRoundRef.current();
+  }, []);
+  const onPressCancelEdit = useCallback(() => {
+    // Clear all modal/stacked screens before navigating to home
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace('/(tabs)');
+  }, [router]);
+  const resultsScreenOptions = useMemo(() => {
+    return {
+      title: isEditMode ? "Edit Round" : "Scorecard Results",
+      headerStyle: {
+        backgroundColor: colors.background,
+      },
+      headerTitleStyle: {
+        color: colors.text,
+      },
+      headerTintColor: colors.text,
+      // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
+      gestureEnabled: activeTab !== 'players',
+      headerLeft: isEditMode ? () => (
+        <TouchableOpacity
+          onPress={onPressCancelEdit}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.headerButton}
+        >
+          <Text style={styles.headerButtonText}>Cancel</Text>
+        </TouchableOpacity>
+      ) : undefined,
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={onPressSaveRound}
+          style={styles.headerButton}
+        >
+          <Text style={styles.headerButtonText}>Save</Text>
+        </TouchableOpacity>
+      ),
+    };
+  }, [activeTab, isEditMode, onPressCancelEdit, onPressSaveRound]);
+
+  // This route is the camera flow; avoid coupling permission gating to scan-job state
+  // (which can change during store hydration and cause UI flicker).
+  const bypassCameraPermissionGate = isEditMode || isReviewMode;
+
+  // Debug: track render + permission state to diagnose flicker/remount loops.
+  useEffect(() => {
+    console.log(`[scan-scorecard ${instanceId.current}] mount`, {
+      pathname,
+      courseId,
+      editRoundId,
+      review,
+      hasPrefilled: !!prefilled,
+    });
+    return () => {
+      console.log(`[scan-scorecard ${instanceId.current}] unmount`);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log(`[scan-scorecard ${instanceId.current}] focus`, { pathname });
+      return () => {
+        console.log(`[scan-scorecard ${instanceId.current}] blur`, { pathname });
+      };
+    }, [pathname])
+  );
+
+  const lastDebugSnapshot = useRef<string | null>(null);
+  const lastGateMode = useRef<string | null>(null);
+  useEffect(() => {
+    const snapshot = JSON.stringify({
+      render: renderCount.current,
+      rawPermission: permission ? { granted: permission.granted, canAskAgain: (permission as any).canAskAgain, status: (permission as any).status } : null,
+      effectivePermission: effectivePermission ? { granted: effectivePermission.granted, canAskAgain: (effectivePermission as any).canAskAgain, status: (effectivePermission as any).status } : null,
+      bypassCameraPermissionGate,
+      ui: {
+        pathname,
+        photos: photos.length,
+        showCourseSearchModal,
+        coursePickerSource,
+        processingComplete,
+        isReviewMode,
+      },
+      activeScanJob: activeScanJob ? { id: activeScanJob.id, status: activeScanJob.status, requiresReview: activeScanJob.requiresReview } : null,
+    });
+    if (snapshot !== lastDebugSnapshot.current) {
+      lastDebugSnapshot.current = snapshot;
+      console.log(`[scan-scorecard ${instanceId.current}] state`, JSON.parse(snapshot));
+    }
+
+    const gateMode =
+      !effectivePermission && !bypassCameraPermissionGate
+        ? 'permission_loading'
+        : !bypassCameraPermissionGate && effectivePermission && !effectivePermission.granted
+          ? 'permission_denied'
+          : 'ok';
+    if (gateMode !== lastGateMode.current) {
+      lastGateMode.current = gateMode;
+      console.log(`[scan-scorecard ${instanceId.current}] gate=${gateMode}`);
+    }
+  }, [
+    permission?.granted,
+    (permission as any)?.status,
+    effectivePermission?.granted,
+    (effectivePermission as any)?.status,
+    bypassCameraPermissionGate,
+    photos.length,
+    showCourseSearchModal,
+    coursePickerSource,
+    processingComplete,
+    isReviewMode,
+    pathname,
+    activeScanJob?.id,
+    activeScanJob?.status,
+    activeScanJob?.requiresReview,
+  ]);
+
+  const cameraPermissionGateMode =
+    !effectivePermission && !bypassCameraPermissionGate
+      ? 'permission_loading'
+      : !bypassCameraPermissionGate && effectivePermission && !effectivePermission.granted
+        ? 'permission_denied'
+        : 'ok';
+
+  if (cameraPermissionGateMode === 'permission_loading') {
+    // Keep the same root (and hidden header) as the camera UI to avoid visible flicker.
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.fullScreenContainer}>
+        <Stack.Screen options={cameraScreenOptions} />
+        {lightStatusBar}
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  if (!isEditMode && permission && !permission.granted) {
-    // Camera permissions are not granted yet
+  if (cameraPermissionGateMode === 'permission_denied') {
     return (
       <SafeAreaView style={styles.container}>
-        <Stack.Screen
-          options={{
-            title: "Scan Scorecard",
-            headerStyle: {
-              backgroundColor: colors.background,
-            },
-            headerTitleStyle: {
-              color: colors.text,
-            },
-            headerTintColor: colors.text,
-          }}
-        />
+        <Stack.Screen options={cameraScreenOptions} />
+
+        <TouchableOpacity
+          style={{ alignSelf: 'flex-end', padding: 16 }}
+          onPress={() => router.back()}
+          accessibilityLabel="Close"
+        >
+          <X size={24} color={colors.text} />
+        </TouchableOpacity>
 
         <View style={styles.permissionContainer}>
           <Camera size={60} color={colors.primary} style={styles.permissionIcon} />
@@ -1672,80 +2091,9 @@ export default function ScanScorecardScreen() {
   }
 
   if (showPlayerLinking) {
-    const selectedLinkedId = (() => {
-      if (selectedPlayerId) {
-        const p = detectedPlayers.find(dp => dp.id === selectedPlayerId);
-        return p?.linkedPlayerId;
-      }
-      if (selectedPlayerIndex !== null && detectedPlayers[selectedPlayerIndex]) {
-        return detectedPlayers[selectedPlayerIndex].linkedPlayerId;
-      }
-      return undefined;
-    })();
-
-    const handleUnlinkSelectedPlayer = () => {
-      if (selectedPlayerIndex === null) return;
-      setDetectedPlayers(prev => {
-        const updated = [...prev];
-        const current = { ...updated[selectedPlayerIndex] };
-        current.linkedPlayerId = undefined;
-        if (current.prevName !== undefined) {
-          current.name = current.prevName;
-          delete current.prevName;
-        }
-        if (current.prevLinkedPlayerId !== undefined) {
-          current.linkedPlayerId = current.prevLinkedPlayerId;
-          delete current.prevLinkedPlayerId;
-        }
-        if (current.prevHandicap !== undefined) {
-          current.handicap = current.prevHandicap;
-          delete current.prevHandicap;
-        }
-        updated[selectedPlayerIndex] = current;
-        return updated;
-      });
-      setLinkingWasRemoved(true);
-    };
-
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Stack.Screen
-          options={{
-            title: "Link to Existing Player",
-            headerStyle: {
-              backgroundColor: colors.background,
-            },
-            headerTitleStyle: {
-              color: colors.text,
-            },
-            headerTintColor: colors.text,
-            headerLeft: () => (
-              <TouchableOpacity
-                onPress={() => {
-                  setShowPlayerLinking(false);
-                  setSelectedPlayerIndex(null);
-                  setSelectedPlayerId(null);
-                  setLinkingWasRemoved(false);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                style={styles.headerButton}
-              >
-                <Text style={styles.headerButtonText}>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
-              </TouchableOpacity>
-            ),
-            headerRight: () => (
-              selectedLinkedId ? (
-                <TouchableOpacity
-                  onPress={handleUnlinkSelectedPlayer}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={styles.headerButton}
-                >
-                  <Text style={styles.headerButtonText}>Remove Link</Text>
-                </TouchableOpacity>
-              ) : null
-            )
-          }}
-        />
+        <Stack.Screen options={linkPlayerScreenOptions} />
 
         <ScrollView
           style={styles.scrollView}
@@ -1765,7 +2113,7 @@ export default function ScanScorecardScreen() {
             linkablePlayers
               .filter(p => !p.isUser) // hide the current user from merge targets
               .map((player, idx) => {
-                const isSelected = selectedLinkedId === player.id;
+                const isSelected = selectedLinkedIdForLinking === player.id;
                 return (
                   <TouchableOpacity
                     key={player.id || `${player.name}-${idx}`}
@@ -1813,37 +2161,7 @@ export default function ScanScorecardScreen() {
   if ((isEditMode || isReviewMode) && processingComplete) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Stack.Screen
-          options={{
-            title: isEditMode ? "Edit Round" : "Scorecard Results",
-            headerStyle: {
-              backgroundColor: colors.background,
-            },
-            headerTitleStyle: {
-              color: colors.text,
-            },
-            headerTintColor: colors.text,
-            // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
-            gestureEnabled: activeTab !== 'players',
-            headerLeft: isEditMode ? () => (
-              <TouchableOpacity
-                onPress={() => router.replace('/')}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                style={styles.headerButton}
-              >
-                <Text style={styles.headerButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            ) : undefined,
-            headerRight: () => (
-              <TouchableOpacity
-                onPress={handleSaveRound}
-                style={styles.headerButton}
-              >
-                <Text style={styles.headerButtonText}>Save</Text>
-              </TouchableOpacity>
-            )
-          }}
-        />
+        <Stack.Screen options={resultsScreenOptions} />
 
         <View style={styles.tabContainer}>
           <TouchableOpacity
@@ -2256,96 +2574,206 @@ export default function ScanScorecardScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen
-        options={{
-          title: "Scan Scorecard",
-          headerStyle: {
-            backgroundColor: colors.background,
-          },
-          headerTitleStyle: {
-            color: colors.text,
-          },
-          headerTintColor: colors.text,
-        }}
-      />
+    <View style={styles.fullScreenContainer}>
+      <Stack.Screen options={cameraScreenOptions} />
+      {lightStatusBar}
 
       {photos.length > 0 ? (
-        <View style={styles.previewContainer}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.photosScrollView}
-          >
-            {photos.map((photo, index) => (
-              <View key={index} style={styles.photoContainer}>
-                <Image
-                  source={{ uri: photo }}
-                  style={styles.previewImage}
-                  resizeMode="contain"
-                />
-                <TouchableOpacity
-                  style={styles.removePhotoButton}
-                  onPress={() => removePhoto(index)}
-                >
-                  <Trash2 size={20} color={colors.background} />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-
-          <View style={styles.photoIndicator}>
-            <Text style={styles.photoIndicatorText}>
-              {photos.length} photo{photos.length > 1 ? 's' : ''} selected
-            </Text>
-          </View>
-
-          <View style={styles.previewActions}>
-            <Button
-              title="Add More"
-              onPress={pickImage}
-              variant="outline"
-              style={styles.previewButton}
-            />
-
-            <Button
-              title="Take Another"
-              onPress={takePicture}
-              variant="outline"
-              style={styles.previewButton}
-              disabled={Platform.OS === 'web'}
-            />
-
-            <Button
-              title={scanning ? "Processing..." : "Process Scorecard"}
-              onPress={processScorecard}
-              disabled={scanning}
-              loading={scanning}
-              style={styles.previewButton}
-            />
-          </View>
-
-          {remainingScans < 50 && (
-            <View style={styles.scanLimitContainer}>
-              <Text style={styles.scanLimitText}>
-                {remainingScans} scans remaining today
-              </Text>
+        // === PHOTO REVIEW MODE ===
+        <ImageBackground
+          source={{ uri: photos[0] }}
+          style={styles.fullScreenContainer}
+          blurRadius={20}
+        >
+          <View style={styles.reviewOverlay}>
+            {/* Custom header */}
+            <View style={[styles.reviewHeader, { paddingTop: insets.top + 18 }]}>
+              <TouchableOpacity
+                style={styles.reviewHeaderClose}
+                onPress={() => router.back()}
+              >
+                <X size={24} color="white" />
+              </TouchableOpacity>
+              <Text style={styles.reviewHeaderTitle}>Review Scans</Text>
+              <View style={styles.reviewHeaderSpacer} />
             </View>
-          )}
-        </View>
+
+            {/* Photo carousel */}
+            <View style={styles.reviewPhotosContainer}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.reviewPhotosScroll}
+              >
+                {photos.map((photo, index) => (
+                  <View key={index} style={styles.reviewPhotoCard}>
+                    <Image
+                      source={{ uri: photo }}
+                      style={styles.reviewPhotoImage}
+                      resizeMode="cover"
+                    />
+                    {/* Trash button */}
+                    <TouchableOpacity
+                      style={styles.reviewPhotoTrash}
+                      onPress={() => removePhoto(index)}
+                    >
+                      <Trash2 size={20} color="white" />
+                    </TouchableOpacity>
+                    {/* Photo indicator */}
+                    <View style={styles.reviewPhotoIndicator}>
+                      <Text style={styles.reviewPhotoIndicatorText}>
+                        {index + 1} of {photos.length}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Bottom controls */}
+            <View style={styles.reviewBottomControls}>
+              {/* Add Pic */}
+              <TouchableOpacity
+                style={styles.reviewSideButton}
+                onPress={showAddPicOptions}
+              >
+                <View style={styles.reviewSideButtonIcon}>
+                  <ImageIcon size={22} color="white" />
+                </View>
+                <Text style={styles.reviewSideButtonText}>Add Pic</Text>
+              </TouchableOpacity>
+
+              {/* Analyze Scorecard button */}
+              <TouchableOpacity
+                style={styles.analyzeButton}
+                onPress={processScorecard}
+                disabled={scanning}
+              >
+                {scanning ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.analyzeButtonText}>Analyze Scorecard</Text>
+                    <Text style={styles.analyzeButtonArrow}>›</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Retake */}
+              <TouchableOpacity
+                style={styles.reviewSideButton}
+                onPress={resetPhotos}
+              >
+                <View style={styles.reviewSideButtonIcon}>
+                  <RotateCcw size={22} color="white" />
+                </View>
+                <Text style={styles.reviewSideButtonText}>Retake</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
+        </ImageBackground>
       ) : (
+        // === CAMERA MODE ===
         <>
           {!showCourseSearchModal || coursePickerSource !== 'scan' ? (
-            <View style={styles.cameraContainer}>
+            <View style={styles.fullScreenCamera}>
               {Platform.OS !== 'web' ? (
                 <CameraView
-                  style={styles.camera}
+                  style={StyleSheet.absoluteFillObject}
                   facing={facing}
                   ref={cameraRef}
                 >
-                  <View style={styles.overlay}>
-                    <View style={styles.scanFrame} />
+                  <View style={styles.cameraOverlaySafe}>
+                    {/* Top bar */}
+                    <View
+                      style={[styles.cameraTopBar, { top: cameraTopOffset }]}
+                      pointerEvents="box-none"
+                    >
+                      <TouchableOpacity
+                        style={styles.cameraCloseButton}
+                        onPress={() => router.back()}
+                        accessibilityLabel="Close scan"
+                      >
+                        <X size={24} color="#FFF" />
+                      </TouchableOpacity>
+
+                      <View style={styles.cameraTitlePillContainer} pointerEvents="none">
+                        <View style={styles.cameraTitlePill}>
+                          <Text style={styles.cameraTitlePillText} numberOfLines={1}>
+                            Scan Scorecard
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Only show "Setup Game Instead" when there's no active session */}
+                      {!activeSession ? (
+                        <TouchableOpacity
+                          style={styles.cameraSetupButton}
+                          onPress={showSetupGameOptions}
+                          accessibilityLabel="Setup game instead"
+                        >
+                          <Text style={styles.cameraSetupButtonText} numberOfLines={1}>
+                            Setup Game Instead
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={{ width: 40 }} />
+                      )}
+                    </View>
+
+                    {/* Framing guide */}
+                    <View style={styles.cameraCenterGuide}>
+                      <View style={styles.scanBracketContainer}>
+                        <ScanBracket position="topLeft" />
+                        <ScanBracket position="topRight" />
+                        <ScanBracket position="bottomLeft" />
+                        <ScanBracket position="bottomRight" />
+                      </View>
+                      <Text style={styles.scanInstructionText}>
+                        Align scorecard within frame
+                      </Text>
+                    </View>
+
+                    {/* Bottom controls */}
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)']}
+                      style={[
+                        styles.cameraBottomGradientContainer,
+                        { paddingBottom: insets.bottom + 18 },
+                      ]}
+                    >
+                      <View style={styles.cameraBottomControlsRow}>
+                        <TouchableOpacity
+                          style={styles.cameraSideButton}
+                          onPress={showAddPicOptions}
+                        >
+                          <View style={styles.cameraSideButtonIcon}>
+                            <ImageIcon size={22} color="white" />
+                          </View>
+                          <Text style={styles.cameraSideButtonText}>Add Pic</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.newCaptureButton}
+                          onPress={takePicture}
+                          accessibilityLabel="Take picture"
+                        >
+                          <View style={styles.newCaptureButtonInner} />
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.cameraSideButton}
+                          onPress={toggleCameraFacing}
+                        >
+                          <View style={styles.cameraSideButtonIcon}>
+                            <RotateCcw size={22} color="white" />
+                          </View>
+                          <Text style={styles.cameraSideButtonText}>Flip</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </LinearGradient>
                   </View>
                 </CameraView>
               ) : (
@@ -2354,68 +2782,121 @@ export default function ScanScorecardScreen() {
                   <Text style={styles.webFallbackText}>
                     Camera is not available on web. Please use the upload button below.
                   </Text>
+                  <TouchableOpacity
+                    style={styles.webUploadButton}
+                    onPress={pickImage}
+                  >
+                    <Text style={styles.webUploadButtonText}>Select from Gallery</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
           ) : (
-            <View style={[styles.cameraContainer, { backgroundColor: colors.background }]} />
+            <View style={styles.fullScreenCamera} />
           )}
-
-          <View style={styles.controls}>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={pickImage}
-            >
-              <ImageIcon size={24} color={colors.text} />
-              <Text style={styles.controlText}>Upload</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.captureButton}
-              onPress={takePicture}
-              disabled={Platform.OS === 'web'}
-            >
-              <View style={styles.captureButtonInner} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={toggleCameraFacing}
-              disabled={Platform.OS === 'web'}
-            >
-              <RotateCcw size={24} color={Platform.OS === 'web' ? colors.inactive : colors.text} />
-              <Text style={[styles.controlText, Platform.OS === 'web' && styles.disabledText]}>Flip</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.instructions}>
-            <Text style={styles.instructionsTitle}>How to scan:</Text>
-            <Text style={styles.instructionsText}>
-              1. Position your scorecard within the frame
-            </Text>
-            <Text style={styles.instructionsText}>
-              2. Make sure the scorecard is well-lit and clearly visible
-            </Text>
-            <Text style={styles.instructionsText}>
-              3. Take multiple photos for longer scorecards
-            </Text>
-            <Text style={styles.instructionsText}>
-              4. Hold steady and tap the capture button
-            </Text>
-          </View>
         </>
-      )}
-      {showCourseSearchModal && (
-        <CourseSearchModal
-          visible={showCourseSearchModal}
-          testID="scan-camera-course-modal"
-          onClose={() => setShowCourseSearchModal(false)}
-          onSelectCourse={handleSelectCourse}
-          onAddManualCourse={handleAddCourseManually}
-          showMyCoursesTab={true}
-        />
-      )}
-    </SafeAreaView>
+      )
+      }
+      {/* Setup Game Bottom Sheet */}
+      <Modal
+        visible={showSetupSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSetupSheet(false)}
+      >
+        <TouchableOpacity
+          style={styles.setupSheetBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowSetupSheet(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.setupSheetContainer}
+            onPress={() => { }} // Prevent closing when tapping inside
+          >
+            {/* Drag handle */}
+            <View style={styles.setupSheetHandle} />
+
+            {/* Title */}
+            <Text style={styles.setupSheetTitle}>Setup Game</Text>
+            <Text style={styles.setupSheetSubtitle}>Choose how you'd like to get started</Text>
+
+            {/* Start a New Game option */}
+            <TouchableOpacity
+              style={styles.setupSheetOption}
+              onPress={() => handleSelectSetupIntent('new_game')}
+            >
+              <View style={styles.setupSheetOptionIcon}>
+                <Image
+                  source={require('@/assets/images/doodle_new_game.png')}
+                  style={styles.setupSheetOptionImage}
+                  resizeMode="contain"
+                />
+              </View>
+              <View style={styles.setupSheetOptionText}>
+                <Text style={styles.setupSheetOptionTitle}>Start a New Game</Text>
+                <Text style={styles.setupSheetOptionDesc}>
+                  Set up strokes, bets, and games before you play
+                </Text>
+              </View>
+              <ChevronDown size={20} color={colors.primary} style={{ transform: [{ rotate: '-90deg' }] }} />
+            </TouchableOpacity>
+
+            {/* Quick Strokes option */}
+            <TouchableOpacity
+              style={styles.setupSheetOption}
+              onPress={() => handleSelectSetupIntent('quick_strokes')}
+            >
+              <View style={styles.setupSheetOptionIcon}>
+                <Image
+                  source={require('@/assets/images/doodle_quick_strokes.png')}
+                  style={styles.setupSheetOptionImage}
+                  resizeMode="contain"
+                />
+              </View>
+              <View style={styles.setupSheetOptionText}>
+                <Text style={styles.setupSheetOptionTitle}>Quick Strokes</Text>
+                <Text style={styles.setupSheetOptionDesc}>
+                  Just calculate who gives strokes to whom
+                </Text>
+              </View>
+              <ChevronDown size={20} color={colors.primary} style={{ transform: [{ rotate: '-90deg' }] }} />
+            </TouchableOpacity>
+
+            {/* Cancel button */}
+            <TouchableOpacity
+              style={styles.setupSheetCancel}
+              onPress={() => setShowSetupSheet(false)}
+            >
+              <Text style={styles.setupSheetCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {
+        selectedGameIntent && (
+          <PreRoundFlowModal
+            visible={true}
+            onClose={() => setSelectedGameIntent(null)}
+            initialIntent={selectedGameIntent}
+          />
+        )
+      }
+
+      {
+        showCourseSearchModal && (
+          <CourseSearchModal
+            visible={showCourseSearchModal}
+            testID="scan-camera-course-modal"
+            onClose={() => setShowCourseSearchModal(false)}
+            onSelectCourse={handleSelectCourse}
+            onAddManualCourse={handleAddCourseManually}
+            showMyCoursesTab={true}
+          />
+        )
+      }
+    </View >
   );
 }
 
@@ -3342,5 +3823,351 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
+  },
+
+  // === NEW CAMERA UI STYLES ===
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  fullScreenCamera: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  cameraOverlaySafe: {
+    flex: 1,
+  },
+  cameraTopBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 40,
+    zIndex: 20,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cameraCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraTitlePillContainer: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 12,
+  },
+  cameraTitlePill: {
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '100%',
+  },
+  cameraTitlePillText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  cameraSetupButton: {
+    backgroundColor: colors.text,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  cameraSetupButtonText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  cameraCenterGuide: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanBracketContainer: {
+    width: SCREEN_WIDTH * 0.85,
+    height: SCREEN_WIDTH * 0.65,
+    position: 'relative',
+  },
+  scanInstructionText: {
+    color: 'white',
+    fontSize: 16,
+    marginTop: 20,
+    textAlign: 'center',
+    fontWeight: '400',
+  },
+  cameraBottomGradientContainer: {
+    paddingTop: 24,
+    paddingBottom: 18,
+  },
+  cameraBottomControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  cameraSideButton: {
+    alignItems: 'center',
+    width: 60,
+  },
+  cameraSideButtonIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraSideButtonText: {
+    color: 'white',
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '400',
+  },
+  newCaptureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'transparent',
+    borderWidth: 4,
+    borderColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  newCaptureButtonInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'white',
+  },
+
+  // === PHOTO REVIEW MODE STYLES ===
+  reviewOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  reviewHeaderClose: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reviewHeaderTitle: {
+    color: 'white',
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  reviewHeaderSpacer: {
+    width: 40,
+  },
+  reviewPhotosContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reviewPhotosScroll: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  reviewPhotoCard: {
+    width: SCREEN_WIDTH - 80,
+    height: (SCREEN_WIDTH - 80) * 1.3,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#222',
+    marginHorizontal: 10,
+  },
+  reviewPhotoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  reviewPhotoTrash: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reviewPhotoIndicator: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  reviewPhotoIndicatorText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  reviewBottomControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 50,
+    paddingTop: 20,
+  },
+  reviewSideButton: {
+    alignItems: 'center',
+    width: 60,
+  },
+  reviewSideButtonIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reviewSideButtonText: {
+    color: 'white',
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '400',
+  },
+  analyzeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: 28,
+    paddingVertical: 16,
+    borderRadius: 30,
+    gap: 8,
+    minWidth: 200,
+  },
+  analyzeButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  analyzeButtonArrow: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: '300',
+  },
+  scanLimitContainerReview: {
+    alignItems: 'center',
+    paddingBottom: 16,
+  },
+  scanLimitTextReview: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+  },
+  webUploadButton: {
+    marginTop: 20,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  webUploadButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+
+  // === SETUP GAME BOTTOM SHEET STYLES ===
+  setupSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  setupSheetContainer: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+  },
+  setupSheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  setupSheetTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  setupSheetSubtitle: {
+    fontSize: 15,
+    color: '#666',
+    marginBottom: 24,
+  },
+  setupSheetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F8F8',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  setupSheetOptionIcon: {
+    width: 80,
+    height: 80,
+    marginRight: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+  },
+  setupSheetOptionImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 8,
+  },
+  setupSheetOptionText: {
+    flex: 1,
+  },
+  setupSheetOptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  setupSheetOptionDesc: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+  },
+  setupSheetCancel: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  setupSheetCancelText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
   },
 });

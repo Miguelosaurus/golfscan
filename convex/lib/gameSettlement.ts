@@ -148,16 +148,18 @@ export interface MatchPlaySettlementArgs {
     strokeAllocations: StrokeAllocation[];
     betPerUnitCents: number;
     holeSelection: "18" | "front_9" | "back_9";
+    betUnit?: "match" | "hole" | "stroke_margin" | "winner" | "point" | "skin";
 }
 
 /**
  * Calculate Match Play settlement
  * Count holes won by each side, winner takes bet
+ * If betUnit is "hole", multiply betPerUnitCents by holes won
  */
 export function calculateMatchPlaySettlement(
     args: MatchPlaySettlementArgs
 ): Transaction[] {
-    const { sides, playerScores, strokeAllocations, betPerUnitCents, holeSelection } = args;
+    const { sides, playerScores, strokeAllocations, betPerUnitCents, holeSelection, betUnit } = args;
 
     if (sides.length !== 2) {
         throw new Error("Match play requires exactly 2 sides");
@@ -203,6 +205,13 @@ export function calculateMatchPlaySettlement(
 
     const transactions: Transaction[] = [];
 
+    // Calculate amount based on betUnit
+    // If betUnit is "hole", multiply by holes won difference
+    // Otherwise, it's a flat match bet
+    const holesWonDiff = Math.abs(sideAWins - sideBWins);
+    const isPerHole = betUnit === "hole";
+    const totalAmount = isPerHole ? betPerUnitCents * holesWonDiff : betPerUnitCents;
+
     if (sideAWins > sideBWins) {
         // Side A wins - each B player pays each A player
         for (const loserPid of sideB.playerIds) {
@@ -210,8 +219,10 @@ export function calculateMatchPlaySettlement(
                 transactions.push({
                     fromPlayerId: loserPid,
                     toPlayerId: winnerPid,
-                    amountCents: Math.round(betPerUnitCents / sideA.playerIds.length),
-                    reason: `Lost Match Play (${sideAWins}-${sideBWins})`,
+                    amountCents: Math.round(totalAmount / sideA.playerIds.length),
+                    reason: isPerHole
+                        ? `Lost Match Play (${sideAWins}-${sideBWins}, $${(betPerUnitCents / 100).toFixed(0)}/hole × ${holesWonDiff})`
+                        : `Lost Match Play (${sideAWins}-${sideBWins})`,
                 });
             }
         }
@@ -222,8 +233,10 @@ export function calculateMatchPlaySettlement(
                 transactions.push({
                     fromPlayerId: loserPid,
                     toPlayerId: winnerPid,
-                    amountCents: Math.round(betPerUnitCents / sideB.playerIds.length),
-                    reason: `Lost Match Play (${sideBWins}-${sideAWins})`,
+                    amountCents: Math.round(totalAmount / sideB.playerIds.length),
+                    reason: isPerHole
+                        ? `Lost Match Play (${sideBWins}-${sideAWins}, $${(betPerUnitCents / 100).toFixed(0)}/hole × ${holesWonDiff})`
+                        : `Lost Match Play (${sideBWins}-${sideAWins})`,
                 });
             }
         }
@@ -462,3 +475,117 @@ export function calculateSkinsSettlement(args: SkinsSettlementArgs): Transaction
 
     return transactions;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SIDE BETS (JUNK) SETTLEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface SideBetsSettlementArgs {
+    playerScores: PlayerScore[];
+    parByHole: number[]; // Par for each hole (index 0 = hole 1)
+    holeSelection: "18" | "front_9" | "back_9";
+    sideBets: {
+        greenies: boolean;
+        sandies: boolean;
+        birdies: boolean;
+        amountCents: number;
+    };
+    // Manually tracked side bet counts from session
+    trackedCounts?: Array<{
+        playerId: Id<"players">;
+        greenies: number;
+        sandies: number;
+    }>;
+}
+
+/**
+ * Calculate Side Bets (Junk) settlement
+ * Supports:
+ * - Birdies: counted automatically from scores vs par
+ * - Greenies: from manually tracked counts (par-3 GIR)
+ * - Sandies: from manually tracked counts (par from bunker)
+ */
+export function calculateSideBetsSettlement(args: SideBetsSettlementArgs): Transaction[] {
+    const { playerScores, parByHole, holeSelection, sideBets, trackedCounts } = args;
+
+    if (!sideBets.birdies && !sideBets.greenies && !sideBets.sandies) {
+        return [];
+    }
+
+    const startHole = holeSelection === "back_9" ? 9 : 0;
+    const endHole = holeSelection === "front_9" ? 8 : 17;
+
+    const transactions: Transaction[] = [];
+
+    // Count birdies for each player (auto-calculated from scores)
+    if (sideBets.birdies) {
+        const birdieCount = new Map<string, number>();
+
+        for (const ps of playerScores) {
+            let count = 0;
+            for (let h = startHole; h <= endHole; h++) {
+                const par = parByHole[h] || 4;
+                if (ps.holeScores[h] > 0 && ps.holeScores[h] < par) {
+                    // Birdie or better
+                    count++;
+                }
+            }
+            birdieCount.set(ps.playerId as string, count);
+        }
+
+        // Each player with birdies gets paid by all others
+        birdieCount.forEach((count, winnerId) => {
+            if (count > 0) {
+                for (const ps of playerScores) {
+                    if (ps.playerId !== (winnerId as Id<"players">)) {
+                        transactions.push({
+                            fromPlayerId: ps.playerId,
+                            toPlayerId: winnerId as Id<"players">,
+                            amountCents: sideBets.amountCents * count,
+                            reason: `${count} birdie(s)`,
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    // Add manually tracked greenies
+    if (sideBets.greenies && trackedCounts) {
+        for (const tracked of trackedCounts) {
+            if (tracked.greenies > 0) {
+                for (const ps of playerScores) {
+                    if (ps.playerId !== tracked.playerId) {
+                        transactions.push({
+                            fromPlayerId: ps.playerId,
+                            toPlayerId: tracked.playerId,
+                            amountCents: sideBets.amountCents * tracked.greenies,
+                            reason: `${tracked.greenies} greenie(s)`,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Add manually tracked sandies
+    if (sideBets.sandies && trackedCounts) {
+        for (const tracked of trackedCounts) {
+            if (tracked.sandies > 0) {
+                for (const ps of playerScores) {
+                    if (ps.playerId !== tracked.playerId) {
+                        transactions.push({
+                            fromPlayerId: ps.playerId,
+                            toPlayerId: tracked.playerId,
+                            amountCents: sideBets.amountCents * tracked.sandies,
+                            reason: `${tracked.sandies} sandy(ies)`,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    return transactions;
+}
+

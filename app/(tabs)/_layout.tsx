@@ -1,49 +1,36 @@
-import React, { useState } from "react";
+import React from "react";
 import { Tabs, useRouter } from "expo-router";
 import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { Home, History, Camera } from "lucide-react-native";
 import { colors } from "@/constants/colors";
-import { PreRoundFlowModal } from "@/components/PreRoundFlowModal";
-import { useQuery } from "@/lib/convex";
-import { api } from "@/convex/_generated/api";
 
 function ScanButton() {
   const router = useRouter();
-  const [showModal, setShowModal] = useState(false);
-
-  // Check for active game session
-  const activeSession = useQuery(api.gameSessions.getActive) as any;
+  const lastNavAtRef = React.useRef(0);
 
   const handlePress = () => {
-    console.log('[ScanButton] handlePress - activeSession:', activeSession, 'status:', activeSession?.status);
-    if (activeSession && (activeSession.status === 'active' || activeSession.status === 'pending')) {
-      // Active session exists - skip modal and go directly to scan with session context
-      console.log('[ScanButton] Skipping modal, going to scan with session:', activeSession._id);
-      router.push(`/scan-scorecard?sessionId=${activeSession._id}`);
-    } else {
-      // No active session - show the normal pre-round flow modal
-      console.log('[ScanButton] No active session, showing PreRoundFlowModal');
-      setShowModal(true);
+    const now = Date.now();
+    if (now - lastNavAtRef.current < 800) {
+      console.log('[ScanButton] Ignoring double-press');
+      return;
     }
+    lastNavAtRef.current = now;
+
+    // Always go directly to camera scan screen
+    console.log('[ScanButton] Going to scan-scorecard');
+    router.push('/scan-scorecard');
   };
 
   return (
-    <>
-      <TouchableOpacity
-        style={styles.scanButton}
-        onPress={handlePress}
-        activeOpacity={0.8}
-      >
-        <View style={styles.scanButtonInner}>
-          <Camera size={36} color="#FFFFFF" />
-        </View>
-      </TouchableOpacity>
-
-      <PreRoundFlowModal
-        visible={showModal}
-        onClose={() => setShowModal(false)}
-      />
-    </>
+    <TouchableOpacity
+      style={styles.scanButton}
+      onPress={handlePress}
+      activeOpacity={0.8}
+    >
+      <View style={styles.scanButtonInner}>
+        <Camera size={36} color="#FFFFFF" />
+      </View>
+    </TouchableOpacity>
   );
 }
 

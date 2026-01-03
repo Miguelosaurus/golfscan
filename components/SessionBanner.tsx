@@ -180,6 +180,12 @@ const styles = StyleSheet.create({
         color: THEME.textSub,
         fontWeight: '500',
     },
+    sideBetsText: {
+        fontSize: 11,
+        color: THEME.primaryGreen,
+        fontWeight: '600',
+        marginTop: 2,
+    },
     action: {
         backgroundColor: THEME.primaryGreen,
         paddingHorizontal: 14,

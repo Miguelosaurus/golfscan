@@ -113,3 +113,4 @@ Since `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` is undefined:
    ```
 4. **Restart Expo**: `expo start -c` to clear cache and reload env vars
 
+

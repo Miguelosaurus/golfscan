@@ -37,7 +37,7 @@ export default function HistoryScreen() {
   const [datePreset, setDatePreset] = useState<'all' | 'week' | 'month' | 'year' | 'last30' | 'custom'>('all');
   const [customStart, setCustomStart] = useState<string | null>(null); // YYYY-MM-DD
   const [customEnd, setCustomEnd] = useState<string | null>(null);
-  const { isScanning, activeScanJob, courses, players, addPlayer, updatePlayer } = useGolfStore();
+  const { isScanning, activeScanJob, courses, players, addPlayer, updatePlayer, hiddenCourseIds } = useGolfStore();
   const { user, isLoaded: isUserLoaded } = useUser();
 
   const profile = useQuery(api.users.getProfile);
@@ -125,6 +125,10 @@ export default function HistoryScreen() {
     roundsData.forEach((r: any) => {
       const externalId = r.courseExternalId as string | undefined;
       const key = externalId ?? (r.courseId as string);
+
+      // Skip hidden courses
+      if (hiddenCourseIds.includes(key)) return;
+
       if (map.has(key)) return;
 
       const storeCourse =
@@ -133,19 +137,48 @@ export default function HistoryScreen() {
 
       const id = storeCourse?.id ?? externalId ?? (r.courseId as string);
 
-      // Use Convex imageUrl first (source of truth), fallback to local store
+      // Use Convex data first (source of truth), fallback to local store
+      // courseHoles now comes directly from Convex listWithSummary
+      const convexHoles = (r.courseHoles as any[] | undefined) ?? [];
+      const holes = convexHoles.length > 0 ? convexHoles.map((h: any) => ({
+        number: h.number,
+        par: h.par,
+        distance: h.yardage ?? h.distance ?? 0,
+        handicap: h.hcp ?? h.handicap,
+      })) : (storeCourse?.holes ?? []);
+
+      // Helper to detect real vs default image
+      const isRealImage = (url?: string | null) =>
+        url && (url.startsWith('data:image') || (!url.includes('unsplash.com') && !url.includes('photo-1587174486073-ae5e5cff23aa')));
+
+      const convexImage = r.courseImageUrl as string | undefined;
+      const storeImage = storeCourse?.imageUrl;
+      // Prefer real image: Convex first (most up-to-date), then local store
+      const imageUrl = isRealImage(convexImage) ? convexImage : (isRealImage(storeImage) ? storeImage : (convexImage ?? storeImage));
+      // Helper to check if location is valid (not undefined/Unknown)
+      const isValidLocation = (loc?: string | null) =>
+        loc && !loc.includes('undefined') && !loc.includes('Unknown');
+
+      const convexLocation = r.courseLocation as string | undefined;
+      const storeLocation = storeCourse?.location;
+      // Prefer valid Convex location, then valid store location, then hide invalid ones
+      const location = isValidLocation(convexLocation)
+        ? convexLocation!
+        : (isValidLocation(storeLocation) ? storeLocation! : '');
+
       map.set(key, {
         id,
         name: r.courseName,
-        location: storeCourse?.location ?? 'Unknown location',
-        holes: storeCourse?.holes ?? [],
-        imageUrl: (r.courseImageUrl as string | undefined) ?? storeCourse?.imageUrl,
-        slope: storeCourse?.slope,
-        rating: storeCourse?.rating,
+        location,
+        holes,
+        imageUrl,
+        slope: (r.courseSlope as number | undefined) ?? storeCourse?.slope,
+        rating: (r.courseRating as number | undefined) ?? storeCourse?.rating,
+        teeSets: (r.courseTeeSets as any[] | undefined) ?? storeCourse?.teeSets,
       });
     });
     return Array.from(map.values());
-  }, [roundsData, courses]);
+  }, [roundsData, courses, hiddenCourseIds]);
 
   const filteredCourses = derivedCourses.filter(course =>
     course.name.toLowerCase().includes(coursesSearchQuery.toLowerCase()) ||
@@ -165,8 +198,9 @@ export default function HistoryScreen() {
         );
         const isNineHole = holeCount <= 9;
         const course = courses.find(c => c.id === (round.courseId as any));
-        const coursePar9 = course
-          ? course.holes.slice(0, 9).reduce((sum, h) => sum + (h.par ?? 4), 0)
+        const holes = course?.holes ?? [];
+        const coursePar9 = holes.length >= 9
+          ? holes.slice(0, 9).reduce((sum, h) => sum + (h.par ?? 4), 0)
           : 36;
         const eighteenEq = isNineHole
           ? convertNineHoleToEighteenEquivalent(
@@ -323,7 +357,7 @@ export default function HistoryScreen() {
             {item.roundsPlayed} {item.roundsPlayed === 1 ? 'round' : 'rounds'} played
           </Text>
           {item.handicap !== undefined && (
-            <Text style={styles.playerHandicap}>Handicap: {item.handicap}</Text>
+            <Text style={styles.playerHandicap}>Scandicap: {item.handicap}</Text>
           )}
         </View>
         <View style={styles.playerScoreContainer}>

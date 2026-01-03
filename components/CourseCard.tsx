@@ -48,10 +48,13 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, convexImageUrl, 
       <View style={styles.infoContainer}>
         <Text style={styles.name} numberOfLines={1}>{course.name}</Text>
 
-        <View style={styles.locationContainer}>
-          <MapPin size={14} color={colors.textSecondary} />
-          <Text style={styles.location} numberOfLines={1}>{course.location}</Text>
-        </View>
+        {/* Only show location if valid */}
+        {course.location && course.location.trim() !== '' && (
+          <View style={styles.locationContainer}>
+            <MapPin size={14} color={colors.textSecondary} />
+            <Text style={styles.location} numberOfLines={1}>{course.location}</Text>
+          </View>
+        )}
 
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>

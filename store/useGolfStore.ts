@@ -47,6 +47,12 @@ interface GolfUIState {
   shouldShowScanCourseModal: boolean;
   pendingScanCourseSelection: { courseId: string; teeName: string } | null;
 
+  // Game setup intent (triggered from camera screen's "Setup Game Instead" button)
+  pendingGameSetupIntent: 'new_game' | 'quick_strokes' | null;
+
+  // Hidden courses (for courses derived from rounds that user wants to hide)
+  hiddenCourseIds: string[];
+
   // No-op domain mutators to satisfy call sites
   addCourse: (course: Course) => void;
   updateCourse: (course: Course) => void;
@@ -63,6 +69,9 @@ interface GolfUIState {
   getFrequentCourses: () => any[];
   trackCourseUsage: (courseId: string, courseName: string) => void;
   removeLegacyCourses: () => void;
+  hideCourse: (courseId: string) => void;
+  unhideCourse: (courseId: string) => void;
+  isCourseHidden: (courseId: string) => boolean;
 
   // Scanning actions
   setScannedData: (data: ScorecardScanResult | null) => void;
@@ -83,6 +92,9 @@ interface GolfUIState {
   setShouldShowScanCourseModal: (show: boolean) => void;
   setPendingScanCourseSelection: (selection: { courseId: string; teeName: string } | null) => void;
   clearPendingScanCourseSelection: () => void;
+
+  // Game setup intent action
+  setPendingGameSetupIntent: (intent: 'new_game' | 'quick_strokes' | null) => void;
 }
 
 export const useGolfStore = create<GolfUIState>()(
@@ -103,13 +115,21 @@ export const useGolfStore = create<GolfUIState>()(
       activeScanJob: null,
       shouldShowScanCourseModal: false,
       pendingScanCourseSelection: null,
+      pendingGameSetupIntent: null,
+      hiddenCourseIds: [],
 
       // Domain mutators
       addCourse: (course) => set((state) => ({ courses: [...state.courses, course] })),
       updateCourse: (course) =>
         set((state) => ({ courses: state.courses.map((c) => (c.id === course.id ? course : c)) })),
       deleteCourse: (courseId) =>
-        set((state) => ({ courses: state.courses.filter((c) => c.id !== courseId) })),
+        set((state) => ({
+          courses: state.courses.filter((c) => c.id !== courseId),
+          // Also hide the course so it doesn't reappear from derived courses
+          hiddenCourseIds: state.hiddenCourseIds.includes(courseId)
+            ? state.hiddenCourseIds
+            : [...state.hiddenCourseIds, courseId],
+        })),
       addPlayer: (player) => set((state) => ({ players: [...state.players, player] })),
       updatePlayer: (player) =>
         set((state) => ({ players: state.players.map((p) => (p.id === player.id ? player : p)) })),
@@ -152,6 +172,17 @@ export const useGolfStore = create<GolfUIState>()(
             courses: state.courses.filter((c) => isConvexId(c.id)),
           };
         }),
+      hideCourse: (courseId) =>
+        set((state) => ({
+          hiddenCourseIds: state.hiddenCourseIds.includes(courseId)
+            ? state.hiddenCourseIds
+            : [...state.hiddenCourseIds, courseId],
+        })),
+      unhideCourse: (courseId) =>
+        set((state) => ({
+          hiddenCourseIds: state.hiddenCourseIds.filter((id) => id !== courseId),
+        })),
+      isCourseHidden: (courseId) => get().hiddenCourseIds.includes(courseId),
 
       setScannedData: (data) => set({ scannedData: data }),
       setIsScanning: (scanning) => set({ isScanning: scanning }),
@@ -182,6 +213,7 @@ export const useGolfStore = create<GolfUIState>()(
       setShouldShowScanCourseModal: (show) => set({ shouldShowScanCourseModal: show }),
       setPendingScanCourseSelection: (selection) => set({ pendingScanCourseSelection: selection }),
       clearPendingScanCourseSelection: () => set({ pendingScanCourseSelection: null }),
+      setPendingGameSetupIntent: (intent: 'new_game' | 'quick_strokes' | null) => set({ pendingGameSetupIntent: intent }),
     }),
     {
       name: "golfscan-store",
@@ -191,6 +223,7 @@ export const useGolfStore = create<GolfUIState>()(
         players: state.players,
         rounds: state.rounds,
         courseUsage: state.courseUsage,
+        hiddenCourseIds: state.hiddenCourseIds,
         scannedData: state.scannedData,
         isScanning: state.isScanning,
         remainingScans: state.remainingScans,

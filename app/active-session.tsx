@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     View,
     Text,
@@ -8,7 +8,7 @@ import {
     SafeAreaView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { useQuery } from '@/lib/convex';
+import { useQuery, useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import {
@@ -19,6 +19,11 @@ import {
     DollarSign,
     Target,
     ArrowLeftRight,
+    PlusCircle,
+    MinusCircle,
+    Leaf,       // Greenie
+    Waves,      // Sandy (bunker)
+    Bird,       // Birdie
 } from 'lucide-react-native';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -65,6 +70,12 @@ interface BetSettings {
     carryover?: boolean;
     pressEnabled?: boolean;
     pressThreshold?: number;
+    sideBets?: {
+        greenies: boolean;
+        sandies: boolean;
+        birdies: boolean;
+        amountCents: number;
+    };
 }
 
 interface SessionData {
@@ -92,6 +103,61 @@ export default function ActiveSessionScreen() {
         api.gameSessions.getById,
         sessionId ? { sessionId: sessionId as Id<'gameSessions'> } : 'skip'
     ) as SessionData | null;
+
+    // Side bet tracking state - must be declared before any early return
+    const [sideBetCounts, setSideBetCounts] = useState<{
+        [playerId: string]: { greenies: number; sandies: number };
+    }>({});
+
+    // Initialize side bet counts when session loads - load from persisted data
+    React.useEffect(() => {
+        if (session?.playerDetails) {
+            setSideBetCounts(() => {
+                const initial: { [playerId: string]: { greenies: number; sandies: number } } = {};
+                const persisted = (session as any).sideBetTracking || [];
+
+                session.playerDetails.forEach((p: PlayerDetail) => {
+                    // Look for persisted count for this player
+                    const tracked = persisted.find((t: any) => t.playerId === p.playerId);
+                    initial[p.playerId] = {
+                        greenies: tracked?.greenies || 0,
+                        sandies: tracked?.sandies || 0,
+                    };
+                });
+                return initial;
+            });
+        }
+    }, [session?.playerDetails, (session as any)?.sideBetTracking]);
+
+    // Mutation to persist side bet counts
+    const updateSideBetCountsMutation = useMutation(api.gameSessions.updateSideBetCounts);
+
+    const updateSideBetCount = async (playerId: string, type: 'greenies' | 'sandies', delta: number) => {
+        const newCount = Math.max(0, (sideBetCounts[playerId]?.[type] || 0) + delta);
+
+        // Update local state for immediate UI feedback
+        setSideBetCounts((prev) => ({
+            ...prev,
+            [playerId]: {
+                ...prev[playerId],
+                [type]: newCount,
+            },
+        }));
+
+        // Persist to Convex
+        if (sessionId) {
+            try {
+                await updateSideBetCountsMutation({
+                    sessionId: sessionId as Id<'gameSessions'>,
+                    playerId: playerId as Id<'players'>,
+                    greenies: type === 'greenies' ? newCount : (sideBetCounts[playerId]?.greenies || 0),
+                    sandies: type === 'sandies' ? newCount : (sideBetCounts[playerId]?.sandies || 0),
+                });
+            } catch (e) {
+                console.error('[ActiveSession] Failed to persist side bet count:', e);
+            }
+        }
+    };
 
     if (!session) {
         return (
@@ -296,6 +362,70 @@ export default function ActiveSessionScreen() {
                                     Presses enabled (threshold: {session.betSettings.pressThreshold ?? 2} down)
                                 </Text>
                             )}
+                        </View>
+                    </>
+                )}
+
+                {/* Side Bets Tracking */}
+                {session.betSettings?.sideBets && (session.betSettings.sideBets.greenies || session.betSettings.sideBets.sandies) && (
+                    <>
+                        <View style={styles.sectionHeader}>
+                            <Bird size={18} color={THEME.textMain} />
+                            <Text style={styles.sectionTitle}>
+                                Side Bets (${(session.betSettings.sideBets.amountCents / 100).toFixed(0)} each)
+                            </Text>
+                        </View>
+
+                        <View style={styles.sideBetsCard}>
+                            {session.playerDetails.map((player) => (
+                                <View key={player.playerId} style={styles.sideBetPlayerRow}>
+                                    <View style={styles.sideBetPlayerInfo}>
+                                        <View style={styles.playerAvatarSmall}>
+                                            <Text style={styles.playerInitialSmall}>
+                                                {player.name?.charAt(0) ?? '?'}
+                                            </Text>
+                                        </View>
+                                        <Text style={styles.sideBetPlayerName}>{player.name}</Text>
+                                    </View>
+
+                                    <View style={styles.sideBetCounters}>
+                                        {/* Greenie counter */}
+                                        {session.betSettings?.sideBets?.greenies && (
+                                            <View style={styles.sideBetCounter}>
+                                                <Leaf size={14} color={THEME.primaryGreen} />
+                                                <TouchableOpacity onPress={() => updateSideBetCount(player.playerId, 'greenies', -1)}>
+                                                    <MinusCircle size={22} color={THEME.textSub} />
+                                                </TouchableOpacity>
+                                                <Text style={styles.sideBetCount}>
+                                                    {sideBetCounts[player.playerId]?.greenies || 0}
+                                                </Text>
+                                                <TouchableOpacity onPress={() => updateSideBetCount(player.playerId, 'greenies', 1)}>
+                                                    <PlusCircle size={22} color={THEME.primaryGreen} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+
+                                        {/* Sandy counter */}
+                                        {session.betSettings?.sideBets?.sandies && (
+                                            <View style={styles.sideBetCounter}>
+                                                <Waves size={14} color={THEME.accentOrange} />
+                                                <TouchableOpacity onPress={() => updateSideBetCount(player.playerId, 'sandies', -1)}>
+                                                    <MinusCircle size={22} color={THEME.textSub} />
+                                                </TouchableOpacity>
+                                                <Text style={styles.sideBetCount}>
+                                                    {sideBetCounts[player.playerId]?.sandies || 0}
+                                                </Text>
+                                                <TouchableOpacity onPress={() => updateSideBetCount(player.playerId, 'sandies', 1)}>
+                                                    <PlusCircle size={22} color={THEME.accentOrange} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+                                    </View>
+                                </View>
+                            ))}
+                            <Text style={styles.sideBetHint}>
+                                Tap + when a player makes a greenie or sandy
+                            </Text>
                         </View>
                     </>
                 )}
@@ -624,6 +754,63 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: THEME.textSub,
         marginTop: 2,
+    },
+    // Side bets tracking
+    sideBetsCard: {
+        backgroundColor: THEME.card,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    sideBetPlayerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F0F0F0',
+    },
+    sideBetPlayerInfo: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    sideBetPlayerName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: THEME.textMain,
+    },
+    sideBetCounters: {
+        flexDirection: 'row',
+        gap: 16,
+    },
+    sideBetCounter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: THEME.lightGreenBg,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    sideBetCount: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: THEME.textMain,
+        minWidth: 20,
+        textAlign: 'center',
+    },
+    sideBetHint: {
+        fontSize: 12,
+        color: THEME.textSub,
+        marginTop: 12,
+        textAlign: 'center',
+        fontStyle: 'italic',
     },
     // Footer
     footer: {

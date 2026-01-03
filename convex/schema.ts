@@ -248,9 +248,23 @@ export default defineSchema({
       v.object({
         enabled: v.boolean(),
         betPerUnitCents: v.number(),
+        betUnit: v.optional(v.union(
+          v.literal("match"),
+          v.literal("hole"),
+          v.literal("stroke_margin"),
+          v.literal("winner"),
+          v.literal("point"),
+          v.literal("skin")
+        )),
         carryover: v.optional(v.boolean()),
         pressEnabled: v.optional(v.boolean()),
         pressThreshold: v.optional(v.number()),
+        sideBets: v.optional(v.object({
+          greenies: v.boolean(),
+          sandies: v.boolean(),
+          birdies: v.boolean(),
+          amountCents: v.number(),
+        })),
       })
     ),
 
@@ -273,6 +287,13 @@ export default defineSchema({
       playerNames: v.array(v.string()),
       startAt: v.number(),
     }),
+
+    // Track side bet counts during play (greenies, sandies per player)
+    sideBetTracking: v.optional(v.array(v.object({
+      playerId: v.id("players"),
+      greenies: v.number(),
+      sandies: v.number(),
+    }))),
 
     linkedRoundId: v.optional(v.id("rounds")),
 

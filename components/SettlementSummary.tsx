@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Share } from 'react-native';
 import { colors } from '@/constants/colors';
 import { DollarSign, TrendingUp, TrendingDown, Share2 } from 'lucide-react-native';
@@ -66,6 +66,72 @@ export function SettlementSummary({
     const netBalance = calculateNetBalance(transactions, myPlayerName);
     const isPositive = netBalance >= 0;
 
+    // Consolidate transactions: net amounts per player pair with combined reasons
+    const consolidatedTransactions = useMemo(() => {
+        // Group by player pair (always order alphabetically to ensure same key for A→B and B→A)
+        const pairMap = new Map<string, {
+            player1: string;
+            player2: string;
+            netAmount: number; // Positive = player1 owes player2
+            reasons: string[];
+        }>();
+
+        for (const tx of transactions) {
+            const [first, second] = [tx.fromPlayerName, tx.toPlayerName].sort();
+            const key = `${first}|${second}`;
+
+            if (!pairMap.has(key)) {
+                pairMap.set(key, {
+                    player1: first,
+                    player2: second,
+                    netAmount: 0,
+                    reasons: [],
+                });
+            }
+
+            const entry = pairMap.get(key)!;
+            // If fromPlayer is player1, they owe player2 (positive)
+            // If fromPlayer is player2, player2 owes player1 (negative from player1's perspective)
+            if (tx.fromPlayerName === entry.player1) {
+                entry.netAmount += tx.amountCents;
+            } else {
+                entry.netAmount -= tx.amountCents;
+            }
+
+            // Add reason if not already included
+            if (tx.reason && !entry.reasons.includes(tx.reason)) {
+                entry.reasons.push(tx.reason);
+            }
+        }
+
+        // Convert to final format: who actually owes whom based on net
+        const result: { from: string; to: string; amount: number; reasons: string[] }[] = [];
+
+        pairMap.forEach((entry) => {
+            if (entry.netAmount === 0) return; // No debt
+
+            if (entry.netAmount > 0) {
+                // player1 owes player2
+                result.push({
+                    from: entry.player1,
+                    to: entry.player2,
+                    amount: entry.netAmount,
+                    reasons: entry.reasons,
+                });
+            } else {
+                // player2 owes player1
+                result.push({
+                    from: entry.player2,
+                    to: entry.player1,
+                    amount: Math.abs(entry.netAmount),
+                    reasons: entry.reasons,
+                });
+            }
+        });
+
+        return result;
+    }, [transactions]);
+
     const handleShare = async () => {
         if (onShare) {
             onShare();
@@ -75,14 +141,14 @@ export function SettlementSummary({
         // Build share message
         let message = `🏌️ ${gameType.replace('_', ' ').toUpperCase()} Results\n\n`;
 
-        if (segmentResults && segmentResults.length > 0) {
-            for (const seg of segmentResults) {
-                message += `${seg.segment}: ${seg.winnerName} won ${formatCents(seg.amountCents)}\n`;
+        // Add consolidated settlements
+        message += `💵 Settlement:\n`;
+        for (const tx of consolidatedTransactions) {
+            message += `• ${tx.from} owes ${tx.to}: ${formatCents(tx.amount)}\n`;
+            if (tx.reasons.length > 0) {
+                message += `  (${tx.reasons.join(', ')})\n`;
             }
-            message += '\n';
         }
-
-        message += `My Balance: ${isPositive ? '+' : ''}${formatCents(netBalance)}`;
 
         try {
             await Share.share({ message });
@@ -122,19 +188,32 @@ export function SettlementSummary({
                 </View>
             )}
 
-            {/* Who Owes Whom */}
+            {/* Who Owes Whom - Consolidated */}
             <View style={styles.transactionsContainer}>
                 <Text style={styles.sectionLabel}>Who Owes Whom:</Text>
-                {transactions.map((tx, idx) => (
-                    <View key={idx} style={styles.transactionRow}>
-                        <Text style={styles.transactionFrom}>{tx.fromPlayerName}</Text>
-                        <Text style={styles.transactionArrow}>→</Text>
-                        <Text style={styles.transactionTo}>{tx.toPlayerName}</Text>
-                        <Text style={styles.transactionAmount}>
-                            {formatCents(tx.amountCents)}
-                        </Text>
-                    </View>
-                ))}
+                {consolidatedTransactions.length === 0 ? (
+                    <Text style={styles.noDebtText}>All settled up! 🎉</Text>
+                ) : (
+                    consolidatedTransactions.map((tx, idx) => (
+                        <View key={idx} style={styles.transactionRow}>
+                            <View style={styles.transactionHeader}>
+                                <View style={styles.transactionParties}>
+                                    <Text style={styles.transactionFrom}>{tx.from}</Text>
+                                    <Text style={styles.transactionArrow}>→</Text>
+                                    <Text style={styles.transactionTo}>{tx.to}</Text>
+                                </View>
+                                <Text style={styles.transactionAmount}>
+                                    {formatCents(tx.amount)}
+                                </Text>
+                            </View>
+                            {tx.reasons.length > 0 && (
+                                <Text style={styles.transactionReason}>
+                                    {tx.reasons.join(' + ')}
+                                </Text>
+                            )}
+                        </View>
+                    ))
+                )}
             </View>
 
             {/* Net Balance Card */}
@@ -234,12 +313,16 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     transactionRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: 'column',
         backgroundColor: colors.background,
         borderRadius: 10,
         padding: 12,
         marginBottom: 8,
+    },
+    transactionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     transactionFrom: {
         flex: 1,
@@ -263,6 +346,11 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: colors.primary,
         marginLeft: 8,
+    },
+    transactionParties: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     balanceCard: {
         flexDirection: 'row',
@@ -299,6 +387,43 @@ const styles = StyleSheet.create({
     },
     balanceEmoji: {
         fontSize: 28,
+    },
+    breakdownContainer: {
+        marginBottom: 16,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    breakdownRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+    },
+    breakdownIcon: {
+        fontSize: 18,
+        marginRight: 10,
+    },
+    breakdownLabel: {
+        flex: 1,
+        fontSize: 15,
+        color: colors.text,
+        fontWeight: '500',
+    },
+    breakdownAmount: {
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    transactionReason: {
+        fontSize: 11,
+        color: colors.textSecondary,
+        marginTop: 6,
+        textAlign: 'right',
+    },
+    noDebtText: {
+        fontSize: 15,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        paddingVertical: 16,
     },
     shareResultsButton: {
         flexDirection: 'row',

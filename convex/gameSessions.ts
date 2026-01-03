@@ -7,6 +7,7 @@ import {
     calculateMatchPlaySettlement,
     calculateNassauSettlement,
     calculateSkinsSettlement,
+    calculateSideBetsSettlement,
     PlayerScore,
 } from "./lib/gameSettlement";
 
@@ -36,9 +37,23 @@ const strokeAllocationValidator = v.object({
 const betSettingsValidator = v.object({
     enabled: v.boolean(),
     betPerUnitCents: v.number(),
+    betUnit: v.optional(v.union(
+        v.literal("match"),
+        v.literal("hole"),
+        v.literal("stroke_margin"),
+        v.literal("winner"),
+        v.literal("point"),
+        v.literal("skin")
+    )),
     carryover: v.optional(v.boolean()),
     pressEnabled: v.optional(v.boolean()),
     pressThreshold: v.optional(v.number()),
+    sideBets: v.optional(v.object({
+        greenies: v.boolean(),
+        sandies: v.boolean(),
+        birdies: v.boolean(),
+        amountCents: v.number(),
+    })),
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -462,6 +477,49 @@ export const cancel = mutation({
 });
 
 /**
+ * Update side bet tracking counts for a player
+ */
+export const updateSideBetCounts = mutation({
+    args: {
+        sessionId: v.id("gameSessions"),
+        playerId: v.id("players"),
+        greenies: v.number(),
+        sandies: v.number(),
+    },
+    handler: async (ctx, args) => {
+        const session = await ctx.db.get(args.sessionId);
+        if (!session) throw new Error("Session not found");
+
+        // Get existing tracking or create new array
+        const currentTracking = session.sideBetTracking || [];
+
+        // Find existing entry for this player
+        const existingIndex = currentTracking.findIndex(t => t.playerId === args.playerId);
+
+        const newEntry = {
+            playerId: args.playerId,
+            greenies: args.greenies,
+            sandies: args.sandies,
+        };
+
+        let updatedTracking;
+        if (existingIndex >= 0) {
+            // Update existing entry
+            updatedTracking = [...currentTracking];
+            updatedTracking[existingIndex] = newEntry;
+        } else {
+            // Add new entry
+            updatedTracking = [...currentTracking, newEntry];
+        }
+
+        await ctx.db.patch(args.sessionId, {
+            sideBetTracking: updatedTracking,
+            updatedAt: Date.now(),
+        });
+    },
+});
+
+/**
  * Link a scanned round to this session
  */
 export const linkRound = mutation({
@@ -647,6 +705,7 @@ export const completeWithSettlement = mutation({
                     strokeAllocations,
                     betPerUnitCents: session.betSettings.betPerUnitCents,
                     holeSelection: session.holeSelection,
+                    betUnit: session.betSettings.betUnit,
                 });
                 break;
 
@@ -675,6 +734,24 @@ export const completeWithSettlement = mutation({
                     payoutMode: session.payoutMode || "war",
                 });
                 break;
+        }
+
+        // Calculate side bets if enabled
+        if (session.betSettings.sideBets) {
+            // Get par for each hole from course
+            const course = await ctx.db.get(session.courseId);
+            if (course && course.holes) {
+                const parByHole = course.holes.map((h: { par: number }) => h.par);
+                const sideBetTransactions = calculateSideBetsSettlement({
+                    playerScores,
+                    parByHole,
+                    holeSelection: session.holeSelection,
+                    sideBets: session.betSettings.sideBets,
+                    // Pass the manually tracked greenies/sandies counts
+                    trackedCounts: session.sideBetTracking,
+                });
+                transactions = [...transactions, ...sideBetTransactions];
+            }
         }
 
         // Persist settlement

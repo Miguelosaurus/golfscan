@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -53,6 +53,8 @@ interface SelectedPlayer {
 interface PreRoundFlowModalProps {
     visible: boolean;
     onClose: () => void;
+    /** Skip the intent screen and start with a specific intent */
+    initialIntent?: 'new_game' | 'quick_strokes';
 }
 
 type Step =
@@ -71,11 +73,30 @@ type Step =
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) {
+export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundFlowModalProps) {
     const router = useRouter();
+    const lastNavAtRef = useRef(0);
 
-    // Step state
-    const [currentStep, setCurrentStep] = useState<Step>('intent');
+    // Step state - start at 'course' if initialIntent is provided
+    const [currentStep, setCurrentStep] = useState<Step>(() => initialIntent ? 'course' : 'intent');
+
+    // Track if this was opened with an initial intent (to set game mode)
+    const hasAppliedInitialIntent = useRef(false);
+
+    // Apply initial intent settings when modal opens
+    React.useEffect(() => {
+        if (visible && initialIntent && !hasAppliedInitialIntent.current) {
+            hasAppliedInitialIntent.current = true;
+            setCurrentStep('course');
+            if (initialIntent === 'quick_strokes') {
+                setGameMode('individual');
+            }
+        }
+        // Reset when modal closes
+        if (!visible) {
+            hasAppliedInitialIntent.current = false;
+        }
+    }, [visible, initialIntent]);
 
     // Form data
     const [selectedCourse, setSelectedCourse] = useState<any>(null);
@@ -88,6 +109,15 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
     const [betAmountDollars, setBetAmountDollars] = useState(5);
     const [carryover, setCarryover] = useState(true);
     const [pressEnabled, setPressEnabled] = useState(false);
+    // Bet unit: how winnings are calculated
+    const [betUnit, setBetUnit] = useState<'match' | 'hole' | 'stroke_margin' | 'winner'>('match');
+    // Side bets ("junk")
+    const [sideBets, setSideBets] = useState<{
+        greenies: boolean;
+        sandies: boolean;
+        birdies: boolean;
+    }>({ greenies: false, sandies: false, birdies: false });
+    const [sideBetAmountDollars, setSideBetAmountDollars] = useState(2);
     // Team assignments for head_to_head and teams modes
     const [teamAssignments, setTeamAssignments] = useState<{
         sideA: string[];
@@ -196,12 +226,19 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
     // ═══════════════════════════════════════════════════════════════════════════
 
     const getNextStep = useCallback((): Step | null => {
+        // Quick strokes flow: course -> players -> strokeAllocations -> summary
+        const isQuickStrokes = initialIntent === 'quick_strokes';
+
         switch (currentStep) {
             case 'intent':
                 return 'course';
             case 'course':
                 return 'players';
             case 'players':
+                // Quick strokes skips game type, rules, mode, and betting
+                if (isQuickStrokes) {
+                    return 'strokeAllocations';
+                }
                 return 'gameType';
             case 'gameType':
                 return 'gameRules';
@@ -222,14 +259,18 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
             default:
                 return null;
         }
-    }, [currentStep, gameType, gameMode]);
+    }, [currentStep, gameType, gameMode, initialIntent]);
 
     const getPreviousStep = useCallback((): Step | null => {
+        // Quick strokes flow: course -> players -> strokeAllocations -> summary
+        const isQuickStrokes = initialIntent === 'quick_strokes';
+
         switch (currentStep) {
             case 'intent':
                 return null;
             case 'course':
-                return 'intent';
+                // If started with initialIntent, don't go back to intent
+                return initialIntent ? null : 'intent';
             case 'players':
                 return 'course';
             case 'gameType':
@@ -244,13 +285,17 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
                 }
                 return 'gameRules';
             case 'strokeAllocations':
+                // Quick strokes goes back to players (skipping game/betting steps)
+                if (isQuickStrokes) {
+                    return 'players';
+                }
                 return 'betConfig';
             case 'summary':
                 return 'strokeAllocations';
             default:
                 return null;
         }
-    }, [currentStep, gameType, gameMode]);
+    }, [currentStep, gameType, gameMode, initialIntent]);
 
     const goNext = () => {
         const next = getNextStep();
@@ -297,7 +342,12 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
 
     const goBack = () => {
         const prev = getPreviousStep();
-        if (prev) setCurrentStep(prev);
+        if (prev) {
+            setCurrentStep(prev);
+        } else if (initialIntent) {
+            // If we started with initialIntent and can't go back, close the modal
+            resetAndClose();
+        }
     };
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -305,6 +355,14 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
     // ═══════════════════════════════════════════════════════════════════════════
 
     const handleScanPostRound = () => {
+        const now = Date.now();
+        if (now - lastNavAtRef.current < 800) {
+            console.log('[PRE-ROUND] Ignoring double navigation to /scan-scorecard');
+            return;
+        }
+        lastNavAtRef.current = now;
+
+        console.log('[PRE-ROUND] nav -> /scan-scorecard');
         onClose();
         router.push('/scan-scorecard');
     };
@@ -386,8 +444,13 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
                 betSettings: betEnabled ? {
                     enabled: true,
                     betPerUnitCents: betAmountDollars * 100,
+                    betUnit: gameType === 'skins' ? 'skin' : gameType === 'nassau' ? 'point' : betUnit,
                     carryover: gameType === 'skins' ? carryover : undefined,
                     pressEnabled: gameType === 'nassau' ? pressEnabled : undefined,
+                    sideBets: (sideBets.greenies || sideBets.sandies || sideBets.birdies) ? {
+                        ...sideBets,
+                        amountCents: sideBetAmountDollars * 100,
+                    } : undefined,
                 } : undefined,
             });
 
@@ -973,7 +1036,12 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
                 unit = 'skin';
                 break;
             case 'match_play':
-                unit = 'match';
+                // Use betUnit state for match play bet type
+                unit = betUnit === 'hole' ? 'hole' : 'match';
+                break;
+            case 'stroke_play':
+                // Use betUnit state for stroke play bet type
+                unit = betUnit === 'stroke_margin' ? 'stroke' : 'player';
                 break;
             case 'nassau':
                 unit = 'point';
@@ -1074,6 +1142,52 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
 
                         {/* Game Type Specific Settings */}
                         <View style={{ gap: 16 }}>
+                            {/* Bet Unit for Match Play */}
+                            {gameType === 'match_play' && (
+                                <View>
+                                    <Text style={styles.sectionLabel}>Bet Type</Text>
+                                    <View style={styles.betUnitRow}>
+                                        <TouchableOpacity
+                                            style={[styles.betUnitOption, betUnit === 'match' && styles.betUnitOptionActive]}
+                                            onPress={() => setBetUnit('match')}
+                                        >
+                                            <Text style={[styles.betUnitText, betUnit === 'match' && styles.betUnitTextActive]}>Per Match</Text>
+                                            <Text style={styles.betUnitDesc}>Winner takes all</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.betUnitOption, betUnit === 'hole' && styles.betUnitOptionActive]}
+                                            onPress={() => setBetUnit('hole')}
+                                        >
+                                            <Text style={[styles.betUnitText, betUnit === 'hole' && styles.betUnitTextActive]}>Per Hole</Text>
+                                            <Text style={styles.betUnitDesc}>$X for each hole won</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* Bet Unit for Stroke Play */}
+                            {gameType === 'stroke_play' && (
+                                <View>
+                                    <Text style={styles.sectionLabel}>Bet Type</Text>
+                                    <View style={styles.betUnitRow}>
+                                        <TouchableOpacity
+                                            style={[styles.betUnitOption, betUnit === 'winner' && styles.betUnitOptionActive]}
+                                            onPress={() => setBetUnit('winner')}
+                                        >
+                                            <Text style={[styles.betUnitText, betUnit === 'winner' && styles.betUnitTextActive]}>Winner Takes All</Text>
+                                            <Text style={styles.betUnitDesc}>Fixed payout</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={[styles.betUnitOption, betUnit === 'stroke_margin' && styles.betUnitOptionActive]}
+                                            onPress={() => setBetUnit('stroke_margin')}
+                                        >
+                                            <Text style={[styles.betUnitText, betUnit === 'stroke_margin' && styles.betUnitTextActive]}>Per Stroke</Text>
+                                            <Text style={styles.betUnitDesc}>$X × stroke margin</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
+
                             {gameType === 'skins' && (
                                 <TouchableOpacity
                                     style={[styles.toggleRow, carryover && styles.toggleRowActive]}
@@ -1104,6 +1218,106 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
                                     </View>
                                 </TouchableOpacity>
                             )}
+
+                            {/* Side Bets ("Junk") */}
+                            <View style={{ marginTop: 8 }}>
+                                <Text style={styles.sectionLabel}>Side Bets (Junk)</Text>
+                                <Text style={[styles.toggleDesc, { marginBottom: 12 }]}>Optional bonus payouts</Text>
+
+                                <TouchableOpacity
+                                    style={[styles.toggleRow, sideBets.greenies && styles.toggleRowActive]}
+                                    onPress={() => setSideBets(prev => ({ ...prev, greenies: !prev.greenies }))}
+                                >
+                                    <View>
+                                        <Text style={styles.toggleLabel}>Greenies</Text>
+                                        <Text style={styles.toggleDesc}>Hit par-3 green & make par+</Text>
+                                    </View>
+                                    <View style={[styles.toggle, sideBets.greenies && styles.toggleActive]}>
+                                        <View style={[styles.toggleThumb, sideBets.greenies && styles.toggleThumbActive]} />
+                                    </View>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={[styles.toggleRow, sideBets.sandies && styles.toggleRowActive, { marginTop: 8 }]}
+                                    onPress={() => setSideBets(prev => ({ ...prev, sandies: !prev.sandies }))}
+                                >
+                                    <View>
+                                        <Text style={styles.toggleLabel}>Sandies</Text>
+                                        <Text style={styles.toggleDesc}>Make par after bunker shot</Text>
+                                    </View>
+                                    <View style={[styles.toggle, sideBets.sandies && styles.toggleActive]}>
+                                        <View style={[styles.toggleThumb, sideBets.sandies && styles.toggleThumbActive]} />
+                                    </View>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={[styles.toggleRow, sideBets.birdies && styles.toggleRowActive, { marginTop: 8 }]}
+                                    onPress={() => setSideBets(prev => ({ ...prev, birdies: !prev.birdies }))}
+                                >
+                                    <View>
+                                        <Text style={styles.toggleLabel}>Birdies</Text>
+                                        <Text style={styles.toggleDesc}>Make birdie on any hole</Text>
+                                    </View>
+                                    <View style={[styles.toggle, sideBets.birdies && styles.toggleActive]}>
+                                        <View style={[styles.toggleThumb, sideBets.birdies && styles.toggleThumbActive]} />
+                                    </View>
+                                </TouchableOpacity>
+
+                                {/* Side bet amount - only show if any side bet is enabled */}
+                                {(sideBets.greenies || sideBets.sandies || sideBets.birdies) && (
+                                    <View style={{ marginTop: 16 }}>
+                                        <Text style={styles.betLabel}>Side Bet Amount</Text>
+                                        <View style={styles.betAmountPicker}>
+                                            {[1, 2, 5, 10].map((amount) => (
+                                                <TouchableOpacity
+                                                    key={amount}
+                                                    style={[
+                                                        styles.betAmountOption,
+                                                        sideBetAmountDollars === amount && styles.betAmountSelected,
+                                                    ]}
+                                                    onPress={() => setSideBetAmountDollars(amount)}
+                                                >
+                                                    <Text style={[
+                                                        styles.betAmountText,
+                                                        sideBetAmountDollars === amount && styles.betAmountTextSelected,
+                                                    ]}>
+                                                        ${amount}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                        {/* Custom Amount Input - on separate row like wager */}
+                                        <View
+                                            style={[
+                                                styles.customWagerRow,
+                                                sideBetAmountDollars > 0 && ![1, 2, 5, 10].includes(sideBetAmountDollars) && styles.customWagerRowSelected
+                                            ]}
+                                        >
+                                            <Text style={[
+                                                styles.currencyPrefix,
+                                                sideBetAmountDollars > 0 && ![1, 2, 5, 10].includes(sideBetAmountDollars) && styles.betAmountTextSelected
+                                            ]}>$</Text>
+                                            <TextInput
+                                                style={[
+                                                    styles.customWagerInput,
+                                                    sideBetAmountDollars > 0 && ![1, 2, 5, 10].includes(sideBetAmountDollars) && styles.betAmountTextSelected
+                                                ]}
+                                                placeholder="Custom"
+                                                keyboardType="numeric"
+                                                placeholderTextColor={sideBetAmountDollars > 0 && ![1, 2, 5, 10].includes(sideBetAmountDollars) ? 'white' : THEME.textSub}
+                                                value={[1, 2, 5, 10].includes(sideBetAmountDollars) ? '' : (sideBetAmountDollars > 0 ? sideBetAmountDollars.toString() : '')}
+                                                onChangeText={(text) => {
+                                                    const val = parseInt(text, 10);
+                                                    setSideBetAmountDollars(isNaN(val) ? 0 : val);
+                                                }}
+                                            />
+                                        </View>
+                                        <Text style={[styles.toggleDesc, { marginTop: 8 }]}>
+                                            Per greenie, sandy, or birdie won
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
                         </View>
                     </View>
                 )}
@@ -1263,18 +1477,34 @@ export function PreRoundFlowModal({ visible, onClose }: PreRoundFlowModalProps) 
                 </View>
                 <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Game Type</Text>
-                    <Text style={styles.summaryValue}>{gameType?.replace('_', ' ')}</Text>
+                    <Text style={styles.summaryValue}>
+                        {gameType ? gameType.replace('_', ' ') : 'Normal'}
+                    </Text>
                 </View>
                 <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Players</Text>
                     <Text style={styles.summaryValue}>
-                        {selectedPlayers.map((p) => p.name).join(', ')}
+                        {selectedPlayers.map((p) =>
+                            p.teeName ? `${p.name} (${p.teeName})` : p.name
+                        ).join(', ')}
                     </Text>
                 </View>
                 {betEnabled && (
                     <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Bet</Text>
                         <Text style={styles.summaryValue}>${betAmountDollars} {getBetUnitLabel(false)}</Text>
+                    </View>
+                )}
+                {(sideBets.greenies || sideBets.sandies || sideBets.birdies) && (
+                    <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Side Bets</Text>
+                        <Text style={styles.summaryValue}>
+                            {[
+                                sideBets.greenies && 'Greenies',
+                                sideBets.sandies && 'Sandies',
+                                sideBets.birdies && 'Birdies',
+                            ].filter(Boolean).join(', ')} (${sideBetAmountDollars} each)
+                        </Text>
                     </View>
                 )}
             </View>
@@ -2178,6 +2408,44 @@ const styles = StyleSheet.create({
     betAmountTextSelected: {
         color: THEME.primaryGreen,
     },
+    // Bet unit picker styles
+    sectionLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: THEME.textSub,
+        marginBottom: 8,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    betUnitRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    betUnitOption: {
+        flex: 1,
+        backgroundColor: THEME.surface,
+        borderRadius: 12,
+        padding: 14,
+        borderWidth: 1.5,
+        borderColor: '#EAEAEA',
+    },
+    betUnitOptionActive: {
+        borderColor: THEME.primaryGreen,
+        backgroundColor: THEME.lightGreenBg,
+    },
+    betUnitText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: THEME.textMain,
+        marginBottom: 4,
+    },
+    betUnitTextActive: {
+        color: THEME.primaryGreen,
+    },
+    betUnitDesc: {
+        fontSize: 12,
+        color: THEME.textSub,
+    },
     betAmountGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -2204,6 +2472,28 @@ const styles = StyleSheet.create({
         color: THEME.textMain,
         padding: 0,
         height: '100%',
+    },
+    customWagerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: THEME.surface,
+        borderRadius: 14,
+        borderWidth: 1.5,
+        borderColor: '#E8E8E8',
+        paddingVertical: 14,
+        paddingHorizontal: 18,
+        marginTop: 12,
+    },
+    customWagerRowSelected: {
+        backgroundColor: THEME.primaryGreen,
+        borderColor: THEME.primaryGreen,
+    },
+    customWagerInput: {
+        flex: 1,
+        fontSize: 17,
+        fontWeight: '600',
+        color: THEME.textMain,
+        padding: 0,
     },
 
     // Summary Step

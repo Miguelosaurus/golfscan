@@ -736,15 +736,39 @@ export const listWithSummary = query({
         })
       );
 
+      // If the direct course lookup doesn't have an image, try to find one by externalId
+      // This handles cases where there are duplicate course entries
+      let courseImageUrl = course?.imageUrl ?? null;
+      const externalId = (course as any)?.externalId;
+
+      const isDefaultOrMissing = (url: string | null | undefined) =>
+        !url || url.includes('unsplash.com') || url.includes('photo-1587174486073-ae5e5cff23aa');
+
+      if (isDefaultOrMissing(courseImageUrl) && externalId) {
+        // Try to find a course with the same externalId that has a real image
+        const courseByExternalId = await ctx.db
+          .query("courses")
+          .withIndex("by_externalId", (q) => q.eq("externalId", externalId))
+          .first();
+        if (courseByExternalId?.imageUrl && !isDefaultOrMissing(courseByExternalId.imageUrl)) {
+          courseImageUrl = courseByExternalId.imageUrl;
+        }
+      }
+
       results.push({
         id: round._id,
         date: round.date,
         courseId: round.courseId,
         // Also expose the externalId + imageUrl so the client can
         // reconcile Convex course ids with local deterministic ids
-        courseExternalId: (course as any)?.externalId ?? null,
-        courseImageUrl: course?.imageUrl ?? null,
+        courseExternalId: externalId ?? null,
+        courseImageUrl,
+        courseLocation: course?.location ?? null,
         courseName: course?.name ?? "Unknown Course",
+        courseHoles: course?.holes ?? [],
+        courseTeeSets: (course as any)?.teeSets ?? [],
+        courseSlope: course?.slope ?? null,
+        courseRating: course?.rating ?? null,
         players,
         notes: round.weather ?? "",
         holeCount: round.holeCount,

@@ -88,7 +88,7 @@ export default function CourseDetailsScreen() {
 
   const mappedConvexCourse = convexCourse
     ? ({
-      id: id as string,
+      id: convexCourse.externalId ?? id as string,
       name: convexCourse.name,
       location: convexCourse.location,
       holes: (convexCourse.holes ?? []).map((h: any) => ({
@@ -134,18 +134,29 @@ export default function CourseDetailsScreen() {
   // Prefer hydrated local Course (with imageUrl) when available; fall back to Convex or inferred.
   const course = hydratedCourseFromStore ?? mappedConvexCourse ?? inferredCourse;
   const currentUser = players.find(player => player.isUser);
+
+  // Determine if we're still loading from Convex
+  // convexCourseById/ByExternal return undefined while loading, null when not found
+  const isConvexLoading = id && (
+    (isConvexId(id) && convexCourseById === undefined) ||
+    (!isConvexId(id) && convexCourseByExternal === undefined)
+  );
+
+  // Only show "Unknown Course" fallback if we're not loading and truly have no course
+  const isLoading = isConvexLoading && !course;
+
   const courseData =
     course ??
     ({
       id,
-      name: "Unknown Course",
-      location: "Unknown location",
+      name: isLoading ? "Loading..." : "Unknown Course",
+      location: isLoading ? "" : "Unknown location",
       holes: [],
       imageUrl: undefined,
     } as any);
-  const notFound = !course;
+  const notFound = !course && !isLoading;
 
-  const totalPar = courseData.holes.reduce((sum: number, hole: any) => sum + (hole.par ?? 4), 0);
+  const totalPar = (courseData.holes ?? []).reduce((sum: number, hole: any) => sum + (hole.par ?? 4), 0);
 
   // Calculate stats from user's rounds only, optionally filtered by tee selection
   const userRounds = useMemo(() => {
@@ -231,7 +242,7 @@ export default function CourseDetailsScreen() {
 
   const getHoleMetaForSelectedTee = (holeNumber: number) => {
     const teeSets = ((courseData as any).teeSets ?? []) as any[];
-    const baseHole = courseData.holes.find((h: any) => h.number === holeNumber);
+    const baseHole = (courseData.holes ?? []).find((h: any) => h.number === holeNumber);
 
     if (!teeSets.length || !baseHole) {
       return {
@@ -359,7 +370,7 @@ export default function CourseDetailsScreen() {
           // Calculate 18-hole equivalent par
           let eighteenHolePar = totalPar;
           if (holeCount === 9) {
-            const nineHolePar = courseData.holes.slice(0, 9).reduce((sum: number, hole: any) => sum + hole.par, 0);
+            const nineHolePar = (courseData.holes ?? []).slice(0, 9).reduce((sum: number, hole: any) => sum + (hole.par ?? 4), 0);
             eighteenHolePar = nineHolePar + 36; // Add standard 9-hole par
           }
 
@@ -428,15 +439,21 @@ export default function CourseDetailsScreen() {
 
   const handleDeleteCourse = () => {
     if (!courseData?.id) return;
+    console.log('[CourseDetails] Delete requested:', {
+      routeId: id,
+      courseDataId: courseData.id,
+      courseDataName: courseData.name,
+    });
     Alert.alert(
       'Delete Course',
-      'This will remove the course from this device, but any rounds you have already saved will remain. Do you want to continue?',
+      `This will remove "${courseData.name}" from this device, but any rounds you have already saved will remain. Do you want to continue?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
+            console.log('[CourseDetails] Deleting course:', courseData.id);
             deleteCourse(courseData.id as string);
             router.back();
           },
@@ -529,10 +546,15 @@ export default function CourseDetailsScreen() {
         <View style={styles.sheet}>
           <View style={styles.headerContainer}>
             <Text style={styles.courseName}>{courseData.name}</Text>
-            <View style={styles.locationContainer}>
-              <MapPin size={16} color={colors.text} />
-              <Text style={styles.location}>{courseData.location}</Text>
-            </View>
+            {/* Only show location if it's valid (not undefined/Unknown) */}
+            {courseData.location &&
+              !courseData.location.includes('undefined') &&
+              !courseData.location.includes('Unknown') && (
+                <View style={styles.locationContainer}>
+                  <MapPin size={16} color={colors.text} />
+                  <Text style={styles.location}>{courseData.location}</Text>
+                </View>
+              )}
             {availableTeeNames.length > 0 && (
               <>
                 <TouchableOpacity
@@ -554,7 +576,7 @@ export default function CourseDetailsScreen() {
 
           <View style={styles.statsContainer}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{courseData.holes.length}</Text>
+              <Text style={styles.statValue}>{(courseData.holes ?? []).length}</Text>
               <Text style={styles.statLabel}>Holes</Text>
             </View>
 
@@ -649,7 +671,7 @@ export default function CourseDetailsScreen() {
           </View>
 
           <View style={styles.holesContainer}>
-            {courseData.holes.map((hole: any) => {
+            {(courseData.holes ?? []).map((hole: any) => {
               const averageEntry = currentUser ? holeAverages[hole.number] : undefined;
               const averageValue = averageEntry ? Number(averageEntry.average.toFixed(1)) : null;
               const diffFromPar = averageValue !== null ? averageValue - hole.par : null;

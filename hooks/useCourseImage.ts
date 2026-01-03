@@ -30,7 +30,27 @@ export const useCourseImage = ({
 
         const loadImage = async () => {
             try {
-                // First, check if we have a locally cached file
+                const sourceUrl = convexImageUrl || localImageUrl;
+
+                // Helper to detect if URL is a real course image (not default)
+                const isRealImage = (url?: string | null): url is string =>
+                    !!url && (url.startsWith('data:image') || (!url.includes('unsplash.com') && !url.includes('photo-1587174486073-ae5e5cff23aa')));
+
+                // If Convex has a real image, prefer it over potentially stale cache
+                if (isRealImage(sourceUrl) && !cancelled) {
+                    setImageUri(sourceUrl);
+
+                    // Cache the image for future offline use (in background)
+                    cacheCourseImage(courseId, sourceUrl).then((localPath) => {
+                        if (localPath && !cancelled) {
+                            setImageUri(localPath);
+                        }
+                    });
+                    setHasCheckedCache(true);
+                    return;
+                }
+
+                // No real Convex image - check local cache
                 const cachedPath = await getCachedCourseImage(courseId);
 
                 if (cachedPath && !cancelled) {
@@ -39,22 +59,10 @@ export const useCourseImage = ({
                     return;
                 }
 
-                // No local cache - use Convex URL if available
-                const sourceUrl = convexImageUrl || localImageUrl;
-
+                // No local cache - use source URL if available (even if default)
                 if (sourceUrl && !cancelled) {
-                    // Set the source URL immediately (even if base64, RN Image can handle it)
                     setImageUri(sourceUrl);
-
-                    // Cache the image for future offline use (in background)
-                    cacheCourseImage(courseId, sourceUrl).then((localPath) => {
-                        if (localPath && !cancelled) {
-                            // Update to use the local file path for better performance
-                            setImageUri(localPath);
-                        }
-                    });
                 } else if (!cancelled) {
-                    // No image available, use default
                     setImageUri(DEFAULT_COURSE_IMAGE);
                 }
 

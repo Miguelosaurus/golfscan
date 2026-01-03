@@ -230,7 +230,8 @@ export default function RoundDetailsScreen() {
       const scoreByPar = { par3: 0, par4: 0, par5: 0 };
 
       player.scores.forEach((score) => {
-        const hole = course.holes.find((h: { number: number }) => h.number === score.holeNumber);
+        const holes = course.holes ?? [];
+        const hole = holes.find((h: { number: number }) => h.number === score.holeNumber);
         if (!hole) return;
         const relativeToPar = score.strokes - (hole.par ?? 4);
 
@@ -619,7 +620,7 @@ export default function RoundDetailsScreen() {
                       Gross Score: {winner.totalScore} ({parText})
                     </Text>
                     <Text style={styles.winnerNetScore}>
-                      Net Score: {netScore} (Handicap: {winner.handicapUsed})
+                      Net Score: {netScore} (Course Hcp: {winner.handicapUsed})
                     </Text>
                   </View>
                 );
@@ -680,7 +681,7 @@ export default function RoundDetailsScreen() {
 
               {stats.handicap !== undefined && (
                 <View style={styles.scoreItem}>
-                  <Text style={styles.scoreLabel}>Handicap</Text>
+                  <Text style={styles.scoreLabel}>Course Hcp</Text>
                   <Text style={styles.scoreValue}>{stats.handicap}</Text>
                 </View>
               )}
@@ -859,7 +860,8 @@ export default function RoundDetailsScreen() {
 
             <View style={styles.holeScores}>
               {round.players[index].scores.map((score: { holeNumber: number; strokes: number }) => {
-                const hole = course.holes.find((h: { number: number; par?: number }) => h.number === score.holeNumber);
+                const holes = course.holes ?? [];
+                const hole = holes.find((h: { number: number; par?: number }) => h.number === score.holeNumber);
                 const relativeToPar = hole ? score.strokes - (hole.par ?? 4) : 0;
 
                 return (

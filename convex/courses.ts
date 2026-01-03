@@ -187,3 +187,20 @@ export const setImageUrl = mutation({
     });
   },
 });
+
+/**
+ * Update course location from Google Places data.
+ * Used when a course has missing/invalid location and we resolve it from Places API.
+ */
+export const setLocation = mutation({
+  args: {
+    courseId: v.id("courses"),
+    location: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.courseId, {
+      location: args.location,
+      updatedAt: Date.now(),
+    });
+  },
+});
