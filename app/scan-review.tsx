@@ -6,16 +6,17 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  FlatList as RNFlatList,
   ActivityIndicator,
   TextInput,
   Image,
   LayoutAnimation,
   Platform,
   UIManager,
-  Modal
+  Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { FlatList } from 'react-native-gesture-handler';
 // @ts-ignore - local ambient types provided via declarations
 import DraggableFlatList from 'react-native-draggable-flatlist';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,6 +31,8 @@ import {
   Link as LinkIcon,
   MapPin,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Calendar,
   Trash2,
   Flag,
@@ -37,8 +40,9 @@ import {
   Check
 } from 'lucide-react-native';
 import { colors } from '@/constants/colors';
-import { generateUniqueId, ensureValidDate } from '@/utils/helpers';
+import { generateUniqueId, ensureValidDate, formatLocalDateString, getLocalDateString, parseLocalDateString } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
+import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { Button } from '@/components/Button';
@@ -47,6 +51,7 @@ import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { useAction, useMutation, useQuery } from '@/lib/convex';
 import { searchCourses } from '@/lib/golf-course-api';
+import { trackRoundSaved, trackLimitReached } from '@/lib/analytics';
 import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/course-helpers';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
@@ -58,6 +63,8 @@ interface DetectedPlayer {
   linkedPlayerId?: string;
   isUser?: boolean;
   handicap?: number;
+  // Raw text input for handicap to support decimal typing (e.g., "11.")
+  handicapInputText?: string;
   // Preserve previous linkage/handicap to support undoing "Select as me"
   prevLinkedPlayerId?: string;
   prevHandicap?: number;
@@ -92,14 +99,21 @@ const TEE_COLORS = [
 const MAX_IMAGES = 3;
 
 export default function ScanScorecardScreen() {
-  const { courseId, editRoundId, prefilled, review } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string }>();
+  const { courseId, editRoundId, prefilled, review, onboardingMode, onboardingDemo } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string, onboardingMode?: string, onboardingDemo?: string }>();
   const router = useRouter();
   const pathname = usePathname();
+  const isOnboardingMode = onboardingMode === 'true';
+  const isOnboardingDemo = isOnboardingMode && (onboardingDemo === 'true' || onboardingDemo === '1');
   const instanceId = useRef(Math.random().toString(16).slice(2, 8));
   const insets = useSafeAreaInsets();
+  const windowDims = useWindowDimensions();
+  const onboardingDisplayName = useOnboardingStore((s) => s.displayName);
+  const onboardingHasExistingHandicap = useOnboardingStore((s) => s.hasExistingHandicap);
+  const onboardingExistingHandicap = useOnboardingStore((s) => s.existingHandicap);
   const reviewHeaderOptions = useMemo(() => {
     return {
       title: "Review Scorecard",
+      gestureEnabled: !isOnboardingMode,
       headerStyle: {
         backgroundColor: colors.background,
       },
@@ -108,7 +122,7 @@ export default function ScanScorecardScreen() {
       },
       headerTintColor: colors.text,
     };
-  }, []);
+  }, [isOnboardingMode]);
   useEffect(() => {
     console.log(`[scan-review ${instanceId.current}] mount`, {
       pathname,
@@ -153,26 +167,30 @@ export default function ScanScorecardScreen() {
     pendingScanCourseSelection,
     clearPendingScanCourseSelection,
   } = useGolfStore();
-  const profile = useQuery(api.users.getProfile);
+  const profile = useQuery(api.users.getProfile, isOnboardingMode ? "skip" : {});
   const roundsSummary = useQuery(
     api.rounds.listWithSummary,
     profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
   ) || [];
   // Get all Convex players for auto-link matching (includes aliases)
-  const convexPlayers = useQuery(api.players.list) || [];
+  const convexPlayers = useQuery(api.players.list, isOnboardingMode ? "skip" : {}) || [];
   const userGender = (profile as any)?.gender as "M" | "F" | undefined;
 
   // Get active session to pre-fill course data when scanning from pre-round flow
   // Note: activeSession is undefined while loading, null when no session exists
-  const activeSessionRaw = useQuery(api.gameSessions.getActive);
-  const activeSessionLoaded = activeSessionRaw !== undefined;
-  const activeSession = activeSessionRaw as any;
+  const activeSessionRaw = useQuery(api.gameSessions.getActive, isOnboardingMode ? "skip" : {});
+  const activeSessionLoaded = isOnboardingMode ? true : activeSessionRaw !== undefined;
+  const activeSession = isOnboardingMode ? null : (activeSessionRaw as any);
 
   // Convex actions for course lookup (to check global cache before paid API)
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
+  const getOrCreateCourseImage = useAction(api.courseImages.getOrCreate);
   const upsertCourse = useMutation(api.courses.upsert);
   const addPlayerAlias = useMutation(api.players.addAlias);
-  const completeSessionWithSettlement = useMutation(api.gameSessions.completeWithSettlement);
+  const completeSessionWithSettlement = useMutation(api.gameSessions.completeWithSettlementV2);
+  const addPressMutation = useMutation(api.gameSessions.addPress);
+  const removePressMutation = useMutation(api.gameSessions.removePress);
+  const updateBetSettingsMutation = useMutation(api.gameSessions.updateBetSettings);
   const photos = pendingScanPhotos;
   const [processingComplete, setProcessingComplete] = useState(false);
   const [detectedPlayers, setDetectedPlayers] = useState<DetectedPlayer[]>([]);
@@ -242,6 +260,7 @@ export default function ScanScorecardScreen() {
   const linkPlayerScreenOptions = useMemo(() => {
     return {
       title: "Link to Existing Player",
+      gestureEnabled: !isOnboardingMode,
       headerStyle: {
         backgroundColor: colors.background,
       },
@@ -270,15 +289,15 @@ export default function ScanScorecardScreen() {
         ) : null
       ),
     };
-  }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking]);
+  }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking, isOnboardingMode]);
   const teePickerIndexRef = useRef<number | null>(null);
   const [notes, setNotes] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  // Game type for winner calculation (only for post-round scans without pre-round setup)
+  const [gameType, setGameType] = useState<'stroke_play' | 'match_play'>('stroke_play');
+  const [date, setDate] = useState(() => getLocalDateString());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMonth, setDatePickerMonth] = useState<Date>(() => new Date());
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
-  const bottomBarOffset = useMemo(() => {
-    const baseInset = Math.max(insets.bottom, 0);
-    return activeTab === 'players' ? -(baseInset + 80) : -(baseInset + 28);
-  }, [activeTab, insets.bottom]);
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
   const [selectedApiCourse, setSelectedApiCourse] = useState<{ apiCourse: ApiCourseData; selectedTee?: string } | null>(null);
   const [isLocalCourseSelected, setIsLocalCourseSelected] = useState<boolean>(false);
@@ -286,6 +305,15 @@ export default function ScanScorecardScreen() {
   const [isDragging, setIsDragging] = useState(false);
   const [listVersion, setListVersion] = useState(0);
   const [devSimReady, setDevSimReady] = useState(false);
+  // Press modal state
+  const [showPressModal, setShowPressModal] = useState(false);
+  const [pressSegment, setPressSegment] = useState<'front' | 'back'>('front');
+  const [pressStartHole, setPressStartHole] = useState('');
+  const [isPressLoading, setIsPressLoading] = useState(false);
+  // Bet amount edit modal state
+  const [showBetEditModal, setShowBetEditModal] = useState(false);
+  const [betEditAmount, setBetEditAmount] = useState('');
+  const [betEditTarget, setBetEditTarget] = useState<'betPerUnit' | 'nassauFront' | 'nassauBack' | 'nassauOverall'>('betPerUnit');
   const lastProcessedScanId = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const isEditMode = !!editRoundId;
@@ -294,12 +322,131 @@ export default function ScanScorecardScreen() {
   const preDragPlayersRef = useRef<DetectedPlayer[] | null>(null);
   const hasInitializedPrefill = useRef(false);
   const hasAppliedCourseSelection = useRef(false);
+  const courseModalOpenPending = useRef(false);
   const currentUser = React.useMemo(
-    () => players.find((p) => p.isUser) || (profile ? ({ id: profile._id, isUser: true, handicap: (profile as any)?.handicap, name: profile.name } as any) : null),
-    [players, profile]
+    () => {
+      if (isOnboardingMode) return null;
+      return (
+        players.find((p) => p.isUser) ||
+        (profile ? ({ id: profile._id, isUser: true, handicap: (profile as any)?.handicap, name: profile.name } as any) : null)
+      );
+    },
+    [players, profile, isOnboardingMode]
   );
   const currentUserId = currentUser?.id as string | undefined;
   const currentUserName = (currentUser as any)?.name?.trim()?.toLowerCase?.();
+
+  const openDatePicker = useCallback(() => {
+    const parsed = parseLocalDateString(date) ?? new Date();
+    setDatePickerMonth(new Date(parsed.getFullYear(), parsed.getMonth(), 1));
+    setShowDatePicker(true);
+  }, [date]);
+
+  const calendarMonthLabel = useMemo(() => {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return `${months[datePickerMonth.getMonth()]} ${datePickerMonth.getFullYear()}`;
+  }, [datePickerMonth]);
+
+  const calendarWeeks = useMemo(() => {
+    const year = datePickerMonth.getFullYear();
+    const month = datePickerMonth.getMonth();
+    const firstOfMonth = new Date(year, month, 1);
+    const startDow = firstOfMonth.getDay(); // 0=Sun
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const weeks: Array<Array<string | null>> = [];
+    let day = 1;
+
+    for (let row = 0; row < 6; row++) {
+      const week: Array<string | null> = [];
+      for (let col = 0; col < 7; col++) {
+        const cellIndex = row * 7 + col;
+        if (cellIndex < startDow || day > daysInMonth) {
+          week.push(null);
+        } else {
+          week.push(getLocalDateString(new Date(year, month, day)));
+          day += 1;
+        }
+      }
+      weeks.push(week);
+    }
+    return weeks;
+  }, [datePickerMonth]);
+
+  const handleSelectDateFromPicker = useCallback((value: string) => {
+    setDate(value);
+    setShowDatePicker(false);
+  }, []);
+
+  const scrollMetricsRef = useRef({
+    players: { y: 0, contentH: 0, layoutH: 0 },
+    scores: { y: 0, contentH: 0, layoutH: 0 },
+    details: { y: 0, contentH: 0, layoutH: 0 },
+  });
+  const [scrollDebug, setScrollDebug] = useState(scrollMetricsRef.current);
+  const [rootLayoutH, setRootLayoutH] = useState<number>(0);
+  const [tabBarBottom, setTabBarBottom] = useState<number>(0);
+  useEffect(() => {
+    if (!__DEV__) return;
+    if (!devMode) return;
+    const id = setInterval(() => {
+      setScrollDebug({ ...scrollMetricsRef.current });
+    }, 250);
+    return () => clearInterval(id);
+  }, [devMode]);
+
+  const setScrollMetrics = useCallback(
+    (
+      key: keyof typeof scrollMetricsRef.current,
+      patch: Partial<(typeof scrollMetricsRef.current)[keyof typeof scrollMetricsRef.current]>
+    ) => {
+      scrollMetricsRef.current[key] = { ...scrollMetricsRef.current[key], ...patch };
+    },
+    []
+  );
+
+  const updateScrollMetrics = useCallback(
+    (key: keyof typeof scrollMetricsRef.current) => (e: any) => {
+      const n = e?.nativeEvent;
+      if (!n) return;
+      setScrollMetrics(key, {
+        y: n.contentOffset?.y ?? 0,
+        contentH: n.contentSize?.height ?? 0,
+        layoutH: n.layoutMeasurement?.height ?? 0,
+      });
+    },
+    [setScrollMetrics]
+  );
+
+  const updateLayoutMetrics = useCallback(
+    (key: keyof typeof scrollMetricsRef.current) => (e: any) => {
+      const h = e?.nativeEvent?.layout?.height;
+      if (typeof h !== 'number') return;
+      setScrollMetrics(key, { layoutH: h });
+    },
+    [setScrollMetrics]
+  );
+
+  const updateContentMetrics = useCallback(
+    (key: keyof typeof scrollMetricsRef.current) => (_w: number, h: number) => {
+      if (typeof h !== 'number') return;
+      setScrollMetrics(key, { contentH: h });
+    },
+    [setScrollMetrics]
+  );
 
   // Linkable players: mirror the Players tab (ground truth) using the same Convex summary
   // First pass: extract unique player IDs from rounds
@@ -353,7 +500,7 @@ export default function ScanScorecardScreen() {
   // Batch query for calculated Scandicaps - only query if we have player IDs
   const batchHandicaps = useQuery(
     api.players.getHandicapsBatch,
-    linkablePlayerIds.length > 0 ? { playerIds: linkablePlayerIds } : "skip"
+    isOnboardingMode ? "skip" : (linkablePlayerIds.length > 0 ? { playerIds: linkablePlayerIds } : "skip")
   ) as Record<string, { handicap: number | null; roundsPlayed: number }> | undefined;
 
   // Merge calculated Scandicaps into linkable players
@@ -371,6 +518,7 @@ export default function ScanScorecardScreen() {
 
   // Stable user id to avoid re-renders and repeated network calls
   const [userId] = useState<string>(() => {
+    if (isOnboardingMode) return generateUniqueId();
     const currentUser = players.find(p => p.isUser);
     return currentUser?.id || generateUniqueId();
   });
@@ -378,7 +526,7 @@ export default function ScanScorecardScreen() {
   const buildDevSampleResult = (): ScorecardScanResult => ({
     courseName: 'Dev National - Demo Course',
     courseNameConfidence: 0.9,
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     dateConfidence: 0.9,
     overallConfidence: 0.9,
     players: [
@@ -661,8 +809,9 @@ export default function ScanScorecardScreen() {
       hasAppliedCourseSelection: hasAppliedCourseSelection.current,
       shouldOpenModal: !selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected && activeSessionLoaded && !activeSession,
     });
-    if (!selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected && activeSessionLoaded && !activeSession) {
+    if (!selectedCourse && !selectedApiCourse && !showCourseSearchModal && !isLocalCourseSelected && activeSessionLoaded && !activeSession && !courseModalOpenPending.current) {
       console.log('[SCAN-REVIEW] Opening course search modal');
+      courseModalOpenPending.current = true;
       // Small timeout to ensure transition/mount is done
       const timer = setTimeout(() => {
         setShowCourseSearchModal(true);
@@ -694,7 +843,7 @@ export default function ScanScorecardScreen() {
 
 
   const processAIResults = (scanResult: ScorecardScanResult) => {
-    const currentUser = players.find(p => p.isUser);
+    const currentUser = isOnboardingMode ? undefined : players.find(p => p.isUser);
     const teeFromResult = (scanResult as any).teeName as string | undefined;
     const teeOverride = teeFromResult || activeScanJob?.selectedTeeName || selectedTeeName;
 
@@ -881,26 +1030,37 @@ export default function ScanScorecardScreen() {
   };
 
   // Auto-link players with exact name matches after scanning
+  // IMPORTANT: Use Convex players as source of truth, not Zustand store (which may be stale)
   const autoLinkPlayers = (detectedPlayers: DetectedPlayer[]): DetectedPlayer[] => {
     return detectedPlayers.map(player => {
       // Skip if already linked
       if (player.linkedPlayerId) return player;
 
-      // Look for exact match first
-      const exactMatch = players.find(p => p.name.toLowerCase() === player.name.toLowerCase());
+      const normalizedDetectedName = player.name.toLowerCase().trim();
+
+      // Look for exact match in Convex players (including aliases)
+      const exactMatch = convexPlayers.find((p: any) => {
+        // Check name match
+        if (p.name?.toLowerCase().trim() === normalizedDetectedName) return true;
+        // Check alias match
+        const aliases = p.aliases || [];
+        return aliases.some((alias: string) => alias.toLowerCase().trim() === normalizedDetectedName);
+      });
+
       if (exactMatch) {
+        const matchId = (exactMatch as any)._id;
         // If this exact match is the current user, treat as "You" (no Linked badge)
-        const matchesUserById = currentUserId && exactMatch.id === currentUserId;
-        const matchesUserByFlag = exactMatch.isUser;
-        const matchesUserByName = currentUserName && exactMatch.name.toLowerCase() === currentUserName;
+        const matchesUserById = currentUserId && matchId === currentUserId;
+        const matchesUserByFlag = (exactMatch as any).isSelf;
+        const matchesUserByName = currentUserName && exactMatch.name?.toLowerCase() === currentUserName;
         if (matchesUserById || matchesUserByFlag || matchesUserByName) {
           const resolvedHandicap =
-            exactMatch.handicap ??
-            (profile as any)?.handicap ??
+            (exactMatch as any).handicap ??
+            (!isOnboardingMode ? (profile as any)?.handicap : undefined) ??
             currentUser?.handicap;
           return {
             ...player,
-            linkedPlayerId: exactMatch.id,
+            linkedPlayerId: matchId,
             handicap: resolvedHandicap,
             isUser: true,
             prevLinkedPlayerId: player.prevLinkedPlayerId,
@@ -910,8 +1070,8 @@ export default function ScanScorecardScreen() {
 
         const updatedPlayer = {
           ...player,
-          linkedPlayerId: exactMatch.id,
-          handicap: exactMatch.handicap
+          linkedPlayerId: matchId,
+          handicap: (exactMatch as any).handicap
         };
         return updatedPlayer;
       }
@@ -941,17 +1101,13 @@ export default function ScanScorecardScreen() {
       if (updated[idx].linkedPlayerId) return updated;
 
       // Auto-link if exact match found in Convex players (by name or alias)
-      const exactMatch = convexPlayers.find(p => {
+      const matchedPlayer = convexPlayers.find((p: any) => {
         // Check name match
         if (p.name?.toLowerCase().trim() === normalizedName) return true;
         // Check alias match
         const aliases = (p as any).aliases || [];
         return aliases.some((alias: string) => alias.toLowerCase().trim() === normalizedName);
       });
-
-      // Also check Zustand players as fallback
-      const zustandMatch = !exactMatch ? players.find(p => p.name?.toLowerCase().trim() === normalizedName) : null;
-      const matchedPlayer = exactMatch || zustandMatch;
 
       if (matchedPlayer) {
 
@@ -967,7 +1123,7 @@ export default function ScanScorecardScreen() {
           updated[idx].linkedPlayerId = matchId;
           updated[idx].handicap =
             (matchedPlayer as any).handicap ??
-            (profile as any)?.handicap ??
+            (!isOnboardingMode ? (profile as any)?.handicap : undefined) ??
             currentUser?.handicap;
           // Preserve prior linkage/handicap for undo
           if (updated[idx].prevLinkedPlayerId === undefined) {
@@ -1070,15 +1226,29 @@ export default function ScanScorecardScreen() {
     });
   };
 
+  const sanitizeHandicapInput = (value: string) => {
+    const cleaned = value.replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    if (parts.length <= 1) return cleaned;
+    return `${parts.shift()}.${parts.join('')}`;
+  };
+
   const handleEditPlayerHandicapById = (playerId: string, handicap: string) => {
-    const handicapValue = handicap.trim() === '' ? undefined : Number(handicap);
-    const finalValue = isNaN(Number(handicap)) ? undefined : handicapValue;
+    // Store raw text to allow typing decimals (e.g., "11." while typing "11.7")
+    // Only convert to number if it's a valid complete number
+    const trimmed = sanitizeHandicapInput(handicap.trim());
+    const isValidNumber = trimmed !== '' && !isNaN(Number(trimmed)) && !trimmed.endsWith('.');
+    const handicapValue = isValidNumber ? Number(trimmed) : undefined;
 
     setDetectedPlayers(prev => {
       const idx = prev.findIndex(p => p.id === playerId);
       if (idx < 0) return prev;
       const updated = [...prev];
-      updated[idx] = { ...updated[idx], handicap: finalValue };
+      updated[idx] = {
+        ...updated[idx],
+        handicapInputText: trimmed,
+        handicap: isValidNumber ? handicapValue : updated[idx].handicap
+      };
       return updated;
     });
   };
@@ -1214,8 +1384,12 @@ export default function ScanScorecardScreen() {
   const handleMarkAsUserById = (playerId: string) => {
     const currentUser = players.find(p => p.isUser);
     // Get official Scandicap from Convex profile
-    const profileHandicap = (profile as any)?.handicap;
-    const profileName = (profile as any)?.name || currentUser?.name || 'You';
+    const profileHandicap = isOnboardingMode
+      ? (onboardingHasExistingHandicap ? onboardingExistingHandicap : undefined)
+      : (profile as any)?.handicap;
+    const profileName = isOnboardingMode
+      ? (onboardingDisplayName?.trim() || 'You')
+      : ((profile as any)?.name || currentUser?.name || 'You');
 
     setDetectedPlayers(prev => {
       const updated = prev.map(p => ({ ...p }));
@@ -1260,11 +1434,13 @@ export default function ScanScorecardScreen() {
           }
 
           // Apply user's profile data
-          if (currentUser) {
+          if (!isOnboardingMode && currentUser) {
             selected.linkedPlayerId = currentUser.id;
+          } else {
+            delete selected.linkedPlayerId;
           }
           selected.name = profileName;
-          selected.handicap = profileHandicap ?? currentUser?.handicap;
+          selected.handicap = (profileHandicap ?? undefined) ?? (!isOnboardingMode ? currentUser?.handicap : undefined);
         }
         updated[idx] = selected;
       }
@@ -1331,7 +1507,9 @@ export default function ScanScorecardScreen() {
       setListVersion(v => v + 1);
     }
     setShowCourseSearchModal(false);
-    setActiveTab('details');
+    // In onboarding mode, go to players tab so users can identify themselves
+    // In normal mode, go to details tab to confirm round info
+    setActiveTab(onboardingMode === 'true' ? 'players' : 'details');
 
     if (activeScanJob) {
       setActiveScanJob({
@@ -1459,6 +1637,17 @@ export default function ScanScorecardScreen() {
       return;
     }
 
+    // Require at least one player to be linked as the current user
+    const hasUserLinked = detectedPlayers.some(p => p.isUser);
+    if (!hasUserLinked) {
+      Alert.alert(
+        'Link Yourself',
+        'Please link at least one player as "You" by tapping on the player card and tapping the "Link as Me" button.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     // Auto-link check before save: match any unlinked players by name or alias
     const playersWithAutoLink = detectedPlayers.map(player => {
       if (player.linkedPlayerId) return player; // Already linked
@@ -1466,7 +1655,7 @@ export default function ScanScorecardScreen() {
       const normalizedName = player.name.toLowerCase().trim();
 
       // Check Convex players (by name or alias)
-      const convexMatch = convexPlayers.find(p => {
+      const convexMatch = convexPlayers.find((p: any) => {
         if (p.name?.toLowerCase().trim() === normalizedName) return true;
         const aliases = (p as any).aliases || [];
         return aliases.some((alias: string) => alias.toLowerCase().trim() === normalizedName);
@@ -1496,7 +1685,7 @@ export default function ScanScorecardScreen() {
     for (const player of playersWithAutoLink) {
       if (player.linkedPlayerId) {
         // Find the linked player to get their stored name
-        const linkedPlayer = convexPlayers.find(cp =>
+        const linkedPlayer = convexPlayers.find((cp: any) =>
           (cp as any)._id === player.linkedPlayerId || cp.name === player.linkedPlayerId
         );
         if (linkedPlayer) {
@@ -1554,7 +1743,11 @@ export default function ScanScorecardScreen() {
         const needsImage = !matchedCourse.imageUrl || matchedCourse.imageUrl === DEFAULT_COURSE_IMAGE;
         if (needsImage) {
           try {
-            const refreshedCourse = await convertApiCourseToLocal(apiCourse, { selectedTee, fetchImage: true });
+            const refreshedCourse = await convertApiCourseToLocal(apiCourse, {
+              selectedTee,
+              fetchImage: true,
+              fetchImageFn: (args) => getOrCreateCourseImage(args),
+            });
             updateCourse(refreshedCourse);
           } catch (error) {
             console.error('Failed to refresh course image on save:', error);
@@ -1609,7 +1802,11 @@ export default function ScanScorecardScreen() {
           // Not in Convex - call paid API and save to both Convex AND local
           console.log(`➕ SAVE: Course not cached. Fetching from API: "${apiCourseName}"`);
           try {
-            const newLocalCourse = await convertApiCourseToLocal(apiCourse, { selectedTee, fetchImage: true });
+            const newLocalCourse = await convertApiCourseToLocal(apiCourse, {
+              selectedTee,
+              fetchImage: true,
+              fetchImageFn: (args) => getOrCreateCourseImage(args),
+            });
             addCourse(newLocalCourse);
             finalCourseId = newLocalCourse.id;
             finalCourseName = newLocalCourse.name;
@@ -1654,8 +1851,28 @@ export default function ScanScorecardScreen() {
             } catch (convexErr) {
               console.warn('Convex upsert failed (non-fatal):', convexErr);
             }
-          } catch (error) {
+          } catch (error: any) {
             console.error('Failed to convert API course while saving round:', error);
+
+            // Extract rate limit info from ConvexError message if applicable
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (errorMessage.includes('COURSE_API_LIMIT_REACHED')) {
+              const parts = errorMessage.split(':');
+              const resetsInHours = parts[1] || 'some';
+
+              Alert.alert(
+                'Course Info Limit',
+                `Daily limit for fetching new course details reached. Resets in ${resetsInHours}h. Saving without full course data.`,
+                [{ text: 'OK' }]
+              );
+
+              trackLimitReached({
+                service: 'courseApi',
+                limitType: 'daily',
+                resetsInHours: parseInt(resetsInHours, 10),
+              });
+            }
+
             finalCourseName = apiCourseName;
             finalCourseId = deterministicId;
           }
@@ -1738,6 +1955,8 @@ export default function ScanScorecardScreen() {
       syncStatus: 'pending' as const,
       // Store session ID so RoundSyncer can link and complete it after sync
       gameSessionId: activeSession?._id as string | undefined,
+      // Store selected game type for winner calculation (post-round scans)
+      ...(gameType ? { gameType } : {}),
     };
 
     // Save detected names as aliases for better future matching
@@ -1773,7 +1992,20 @@ export default function ScanScorecardScreen() {
       // Add the round to the store and go straight to Round Details
       // Session linking and settlement will be handled by RoundSyncer after round syncs
       addRound(newRound as any);
-      router.replace(`/round/${roundId}`);
+
+      // Track round saved
+      trackRoundSaved({
+        playerCount: newRound.players.length,
+        holeCount: newRound.holeCount as 9 | 18,
+        source: 'scan',
+      });
+
+      // If in onboarding mode, pass the flag to round details for Continue button
+      if (onboardingMode === 'true') {
+        router.replace(`/round/${roundId}?onboardingMode=true`);
+      } else {
+        router.replace(`/round/${roundId}`);
+      }
     }
 
     markActiveScanReviewed();
@@ -1804,9 +2036,21 @@ export default function ScanScorecardScreen() {
     }
     router.replace('/(tabs)');
   }, [router]);
+  const handleOnboardingContinueWithoutSave = useCallback(() => {
+    // Demo onboarding: don't persist anything; just continue the onboarding flow.
+    markActiveScanReviewed();
+    clearActiveScanJob();
+    clearPendingScanPhotos();
+    clearScanData();
+    if (router.canDismiss()) {
+      router.dismissAll();
+    }
+    router.replace('/(onboarding)/paywall');
+  }, [clearActiveScanJob, clearPendingScanPhotos, clearScanData, markActiveScanReviewed, router]);
   const resultsScreenOptions = useMemo(() => {
     return {
       title: isEditMode ? "Edit Round" : "Scorecard Results",
+      gestureEnabled: !isOnboardingMode,
       headerStyle: {
         backgroundColor: colors.background,
       },
@@ -1814,8 +2058,6 @@ export default function ScanScorecardScreen() {
         color: colors.text,
       },
       headerTintColor: colors.text,
-      // Always disable modal swipe-to-dismiss while on Players tab (no-scroll zone behavior)
-      gestureEnabled: activeTab !== 'players',
       headerLeft: isEditMode ? () => (
         <TouchableOpacity
           onPress={onPressCancelEdit}
@@ -1834,7 +2076,7 @@ export default function ScanScorecardScreen() {
         </TouchableOpacity>
       )
     };
-  }, [activeTab, isEditMode, onPressCancelEdit, onPressSaveRound]);
+  }, [isEditMode, onPressCancelEdit, onPressSaveRound, isOnboardingMode]);
 
   if (showPlayerLinking) {
     return (
@@ -1874,7 +2116,7 @@ export default function ScanScorecardScreen() {
                         <Text style={styles.playerLinkName}>{player.name}</Text>
                         {(() => {
                           // Get aliases from convexPlayers
-                          const convexPlayer = convexPlayers.find(cp =>
+                          const convexPlayer = convexPlayers.find((cp: any) =>
                             (cp as any)._id === player.id || cp.name === player.name
                           );
                           const aliases = (convexPlayer as any)?.aliases || [];
@@ -1924,19 +2166,46 @@ export default function ScanScorecardScreen() {
 
   if ((isEditMode || isReviewMode) && processingComplete) {
     return (
-      <SafeAreaView style={styles.container} edges={[]}>
+      <SafeAreaView
+        style={[styles.container, { height: windowDims.height, minHeight: 0 }]}
+        edges={[]}
+        onLayout={(e) => setRootLayoutH(e.nativeEvent.layout.height)}
+      >
         <Stack.Screen options={resultsScreenOptions} />
 
         {/* Custom Modal Header */}
         <View style={styles.customHeader}>
-          <View style={{ width: 50 }} />
-          <Text style={styles.customHeaderTitle}>Scorecard Results</Text>
-          <TouchableOpacity style={styles.customHeaderButton} onPress={onPressSaveRound}>
-            <Text style={styles.customHeaderButtonText}>Save</Text>
-          </TouchableOpacity>
+          {onboardingMode === 'true' ? (
+            // Onboarding mode - centered title, no back button, Continue button
+            <>
+              <View style={{ width: 50 }} />
+              <Text style={styles.customHeaderTitle}>Review Your Round</Text>
+              <TouchableOpacity
+                style={styles.customHeaderButton}
+                onPress={isOnboardingDemo ? handleOnboardingContinueWithoutSave : onPressSaveRound}
+              >
+                <Text style={styles.customHeaderButtonText}>Continue</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            // Normal mode - standard header
+            <>
+              <View style={{ width: 50 }} />
+              <Text style={styles.customHeaderTitle}>Scorecard Results</Text>
+              <TouchableOpacity style={styles.customHeaderButton} onPress={onPressSaveRound}>
+                <Text style={styles.customHeaderButtonText}>Save</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
-        <View style={styles.tabContainer}>
+        <View
+          style={styles.tabContainer}
+          onLayout={(e) => {
+            const { y, height } = e.nativeEvent.layout;
+            setTabBarBottom(y + height);
+          }}
+        >
           <TouchableOpacity
             style={[styles.tab, activeTab === 'players' && styles.activeTab]}
             onPress={() => setActiveTab('players')}
@@ -1963,18 +2232,29 @@ export default function ScanScorecardScreen() {
         </View>
 
         {activeTab === 'players' ? (
-          <View pointerEvents="box-none">
+          <View style={styles.flexFill} pointerEvents="box-none" onLayout={updateLayoutMetrics('players')}>
             <DraggableFlatList
               data={detectedPlayers}
               extraData={listVersion}
               keyExtractor={(item: DetectedPlayer) => item.id}
               activationDistance={6}
-              contentContainerStyle={{ padding: 16, paddingBottom: 140 }}
+              // DraggableFlatList uses an internal container view; it needs flex to render/scroll
+              // properly inside formSheet with a pinned root height.
+              containerStyle={styles.flexFill}
+              style={styles.scrollView}
+              contentContainerStyle={{
+                padding: 16,
+                paddingBottom: 24 + Math.max(insets.bottom, 0),
+              }}
               autoscrollThreshold={40}
               autoscrollSpeed={280}
               bounces={false}
               scrollEnabled={true}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              scrollEventThrottle={16}
+              onScroll={updateScrollMetrics('players')}
+              onContentSizeChange={updateContentMetrics('players')}
               simultaneousHandlers={[]}
               dragItemOverflow
               onDragBegin={() => {
@@ -1993,15 +2273,26 @@ export default function ScanScorecardScreen() {
                 setIsDragging(false);
               }}
               ListHeaderComponent={
-                <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }]}>
-                  <Text style={styles.sectionTitle}>
-                    {detectedPlayers.some(p => p.isFromSession) ? 'Session Players' : 'Detected Players'}
-                  </Text>
-                  {!detectedPlayers.some(p => p.isFromSession) && (
-                    <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
-                      <Plus size={16} color={colors.primary} />
-                      <Text style={styles.addPlayerText}>Add Player</Text>
-                    </TouchableOpacity>
+                <View>
+                  <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }]}>
+                    <Text style={styles.sectionTitle}>
+                      {detectedPlayers.some(p => p.isFromSession) ? 'Session Players' : 'Detected Players'}
+                    </Text>
+                    {!detectedPlayers.some(p => p.isFromSession) && (
+                      <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
+                        <Plus size={16} color={colors.primary} />
+                        <Text style={styles.addPlayerText}>Add Player</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {/* Onboarding guidance - show when in onboarding mode and no player is marked as "You" yet */}
+                  {onboardingMode === 'true' && !detectedPlayers.some(p => p.isUser) && (
+                    <View style={styles.onboardingBanner}>
+                      <Text style={styles.onboardingBannerTitle}>Select Your Player</Text>
+                      <Text style={styles.onboardingBannerText}>
+                        Tap the person icon next to your name to link scores to your profile and track your handicap.
+                      </Text>
+                    </View>
                   )}
                 </View>
               }
@@ -2040,7 +2331,11 @@ export default function ScanScorecardScreen() {
                   <View style={styles.playerHeaderRow}>
                     {/* Only show drag handle for non-session players */}
                     {!player.isFromSession && (
-                      <TouchableOpacity style={styles.dragHandle} onLongPress={drag} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
+                      <TouchableOpacity
+                        style={styles.dragHandle}
+                        onLongPress={drag}
+                        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                      >
                         <GripVertical size={18} color={isActive ? colors.primary : colors.text} />
                       </TouchableOpacity>
                     )}
@@ -2108,11 +2403,11 @@ export default function ScanScorecardScreen() {
                       <Text style={styles.handicapLabel}>Scandicap:</Text>
                       <TextInput
                         style={[styles.handicapInput, player.isUser && styles.handicapInputDisabled]}
-                        value={player.handicap !== undefined ? String(player.handicap) : ''}
+                        value={player.handicapInputText ?? (player.handicap !== undefined ? String(player.handicap) : '')}
                         onChangeText={(text) => handleEditPlayerHandicapById(player.id, text)}
                         placeholder="Not set"
                         placeholderTextColor={colors.text}
-                        keyboardType="numeric"
+                        keyboardType="decimal-pad"
                         editable={!player.isUser}
                       />
                     </View>
@@ -2123,9 +2418,7 @@ export default function ScanScorecardScreen() {
                         onPress={() => openTeePicker(player.id, getIndex ? getIndex() : index)}
                         activeOpacity={0.9}
                       >
-                        <Text
-                          style={styles.teeColorText}
-                        >
+                        <Text style={styles.teeColorText}>
                           {player.teeColor || 'Select'}
                         </Text>
                       </TouchableOpacity>
@@ -2135,166 +2428,524 @@ export default function ScanScorecardScreen() {
               )}
             />
           </View>
-        ) : (
-          <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
-            {activeTab === 'scores' && (
-              <View style={styles.tabContent}>
-                <View style={styles.sectionHeaderColumn}>
-                  <Text style={styles.sectionTitle}>Scores</Text>
-                  <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
-                  <View style={styles.retakeRow}>
-                    <RotateCcw size={18} color={colors.text} style={{ marginRight: 10 }} />
-                    <Text style={styles.retakeRowText}>Scores look off? Retake a clearer photo.</Text>
-                    <Button
-                      title="Retake"
-                      variant="outline"
-                      size="small"
-                      onPress={handleRetake}
-                      style={styles.retakeButton}
-                    />
+        ) : activeTab === 'scores' ? (
+          <View style={styles.flexFill} onLayout={updateLayoutMetrics('scores')}>
+            <RNFlatList
+              data={detectedPlayers.length > 0 ? detectedPlayers[0].scores : []}
+              keyExtractor={(item) => String(item.holeNumber)}
+              style={styles.scrollView}
+              contentContainerStyle={[
+                styles.contentContainer,
+                { paddingBottom: 24 + Math.max(insets.bottom, 0) },
+              ]}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              scrollEventThrottle={16}
+              onScroll={updateScrollMetrics('scores')}
+              onContentSizeChange={updateContentMetrics('scores')}
+              ListHeaderComponent={
+                <View style={styles.tabContent}>
+                  <View style={styles.sectionHeaderColumn}>
+                    <Text style={styles.sectionTitle}>Scores</Text>
+                    <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
+                    <View style={styles.retakeRow}>
+                      <RotateCcw size={18} color={colors.text} style={{ marginRight: 10 }} />
+                      <Text style={styles.retakeRowText}>Scores look off? Retake a clearer photo.</Text>
+                      <Button
+                        title="Retake"
+                        variant="outline"
+                        size="small"
+                        onPress={handleRetake}
+                        style={styles.retakeButton}
+                      />
+                    </View>
                   </View>
-                </View>
 
-                <View style={styles.scoresTable}>
-                  <View style={styles.scoresTableHeader}>
-                    <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeBandCell, styles.holeHeaderLabel]}>HOLE</Text>
-                    <Text numberOfLines={1} ellipsizeMode="clip" style={[styles.scoresTableHeaderCell, styles.holeParCell, styles.headerLabel]}>PAR</Text>
-                    {detectedPlayers.map(player => (
+                  <View style={styles.scoresTable}>
+                    <View style={styles.scoresTableHeader}>
                       <Text
-                        key={player.id}
                         numberOfLines={1}
                         ellipsizeMode="clip"
-                        style={[styles.scoresTableHeaderCell, styles.playerScoreCell, styles.headerWhiteCell, styles.headerLabel]}
+                        style={[
+                          styles.scoresTableHeaderCell,
+                          styles.holeBandCell,
+                          styles.holeHeaderLabel,
+                        ]}
                       >
-                        {player.name}
-                        {player.isUser ? " (You)" : ""}
+                        HOLE
                       </Text>
-                    ))}
+                      <Text
+                        numberOfLines={1}
+                        ellipsizeMode="clip"
+                        style={[styles.scoresTableHeaderCell, styles.holeParCell, styles.headerLabel]}
+                      >
+                        PAR
+                      </Text>
+                      {detectedPlayers.map((player) => (
+                        <Text
+                          key={player.id}
+                          numberOfLines={1}
+                          ellipsizeMode="clip"
+                          style={[
+                            styles.scoresTableHeaderCell,
+                            styles.playerScoreCell,
+                            styles.headerWhiteCell,
+                            styles.headerLabel,
+                          ]}
+                        >
+                          {player.name}
+                          {player.isUser ? " (You)" : ""}
+                        </Text>
+                      ))}
+                    </View>
+                  </View>
+                </View>
+              }
+              renderItem={({ item }) => {
+                const course = selectedCourse ? courses.find((c) => c.id === selectedCourse) : null;
+                const holes = course?.holes ?? [];
+                const hole = holes.find((h) => h.number === item.holeNumber);
+                const par = hole ? hole.par : 4;
+
+                return (
+                  <View style={styles.scoresTableRow}>
+                    <Text style={[styles.scoresTableCell, styles.holeBandCell, styles.holeNumberText]}>
+                      {item.holeNumber}
+                    </Text>
+
+                    <Text style={[styles.scoresTableCell, styles.holeParCell]}>{par}</Text>
+
+                    {detectedPlayers.map((player, playerIndex) => {
+                      const playerScore = player.scores.find((s) => s.holeNumber === item.holeNumber);
+                      const strokes = playerScore ? playerScore.strokes : 0;
+
+                      let scoreColor = colors.text;
+                      if (strokes > 0) {
+                        if (strokes < par) scoreColor = colors.success;
+                        else if (strokes > par) scoreColor = colors.error;
+                      }
+
+                      return (
+                        <TextInput
+                          key={player.id}
+                          style={[
+                            styles.scoresTableCell,
+                            styles.playerScoreCell,
+                            styles.scoreInput,
+                            { color: scoreColor },
+                            getConfidenceStyle(playerScore?.confidence),
+                          ]}
+                          value={strokes > 0 ? strokes.toString() : ""}
+                          onChangeText={(text) => {
+                            const newStrokes = parseInt(text, 10);
+                            if (!isNaN(newStrokes)) {
+                              handleEditScore(playerIndex, item.holeNumber, newStrokes);
+                            } else if (text === "") {
+                              handleEditScore(playerIndex, item.holeNumber, 0);
+                            }
+                          }}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                          placeholder="-"
+                          placeholderTextColor={colors.inactive}
+                        />
+                      );
+                    })}
+                  </View>
+                );
+              }}
+            />
+          </View>
+        ) : (
+          <View style={styles.flexFill} onLayout={updateLayoutMetrics('details')}>
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={styles.contentContainer}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              scrollEventThrottle={16}
+              onScroll={updateScrollMetrics('details')}
+              onContentSizeChange={updateContentMetrics('details')}
+            >
+              {activeTab === 'details' && (
+                <View style={styles.tabContent}>
+                  <View style={styles.sectionContainer}>
+                    <Text style={styles.sectionTitle}>Course</Text>
+                    <TouchableOpacity
+                      style={styles.courseSelector}
+                      onPress={() => setShowCourseSearchModal(true)}
+                    >
+                      <Text style={selectedCourse ? styles.selectedCourseText : styles.placeholderText}>
+                        {selectedCourse ? getSelectedCourseName() : "Search for a course"}
+                      </Text>
+                      <ChevronDown size={20} color={colors.text} />
+                    </TouchableOpacity>
                   </View>
 
-                  {detectedPlayers.length > 0 && detectedPlayers[0].scores.map(score => {
-                    // Find the course to get par for this hole
-                    const course = selectedCourse ? courses.find(c => c.id === selectedCourse) : null;
-                    const holes = course?.holes ?? [];
-                    const hole = holes.find(h => h.number === score.holeNumber);
-                    const par = hole ? hole.par : 4; // Default to par 4 if not found
+	                  <View style={styles.sectionContainer}>
+	                    <Text style={styles.sectionTitle}>Date</Text>
+	                    <TouchableOpacity style={styles.dateContainer} onPress={openDatePicker} activeOpacity={0.85}>
+	                      <Calendar size={20} color={colors.text} style={styles.dateIcon} />
+	                      <Text style={styles.dateInput}>
+	                        {formatLocalDateString(date, 'short')}
+	                      </Text>
+	                      <ChevronDown size={18} color={colors.text} />
+	                    </TouchableOpacity>
+	                  </View>
 
-                    return (
-                      <View key={score.holeNumber} style={styles.scoresTableRow}>
-                        <Text style={[styles.scoresTableCell, styles.holeBandCell, styles.holeNumberText]}>
-                          {score.holeNumber}
-                        </Text>
-
-                        <Text style={[styles.scoresTableCell, styles.holeParCell]}>
-                          {par}
-                        </Text>
-
-                        {detectedPlayers.map((player, playerIndex) => {
-                          const playerScore = player.scores.find(s => s.holeNumber === score.holeNumber);
-                          const strokes = playerScore ? playerScore.strokes : 0;
-
-                          // Determine score color based on relation to par
-                          let scoreColor = colors.text;
-                          if (strokes > 0) {
-                            if (strokes < par) scoreColor = colors.success;
-                            else if (strokes > par) scoreColor = colors.error;
-                          }
-
-                          return (
-                            <TextInput
-                              key={player.id}
-                              style={[
-                                styles.scoresTableCell,
-                                styles.playerScoreCell,
-                                styles.scoreInput,
-                                { color: scoreColor },
-                                getConfidenceStyle(playerScore?.confidence)
-                              ]}
-                              value={strokes > 0 ? strokes.toString() : ""}
-                              onChangeText={(text) => {
-                                const newStrokes = parseInt(text, 10);
-                                if (!isNaN(newStrokes)) {
-                                  handleEditScore(playerIndex, score.holeNumber, newStrokes);
-                                } else if (text === '') {
-                                  handleEditScore(playerIndex, score.holeNumber, 0);
-                                }
-                              }}
-                              keyboardType="number-pad"
-                              maxLength={2}
-                              placeholder="-"
-                              placeholderTextColor={colors.inactive}
-                            />
-                          );
-                        })}
+                  {/* Game Type - only show for post-round scans (no active session) */}
+                  {!activeSession && (
+                    <View style={styles.sectionContainer}>
+                      <Text style={styles.sectionTitle}>Game Type</Text>
+                      <Text style={styles.sectionSubtitle}>How the winner will be determined</Text>
+                      <View style={styles.gameTypeDropdown}>
+                        <TouchableOpacity
+                          style={[styles.gameTypeDropdownOption, gameType === 'stroke_play' && styles.gameTypeDropdownOptionActive]}
+                          onPress={() => setGameType('stroke_play')}
+                        >
+                          <Text style={[styles.gameTypeDropdownText, gameType === 'stroke_play' && styles.gameTypeDropdownTextActive]}>Stroke Play</Text>
+                          <Text style={styles.gameTypeDropdownDesc}>Lowest score wins</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.gameTypeDropdownOption, gameType === 'match_play' && styles.gameTypeDropdownOptionActive]}
+                          onPress={() => setGameType('match_play')}
+                        >
+                          <Text style={[styles.gameTypeDropdownText, gameType === 'match_play' && styles.gameTypeDropdownTextActive]}>Match Play</Text>
+                          <Text style={styles.gameTypeDropdownDesc}>Most holes won</Text>
+                        </TouchableOpacity>
                       </View>
-                    );
-                  })}
+                    </View>
+                  )}
 
-                  {/* Totals row */}
-                  {/* Totals row intentionally removed by design */}
-                </View>
-              </View>
-            )}
+                  {/* Bets - unified bet display for active sessions */}
+                  {activeSession?.betSettings?.enabled && (
+                    <View style={styles.sectionContainer}>
+                      <View style={styles.betCardHeader}>
+                        <Text style={styles.sectionTitle}>Bets</Text>
+                        <View style={styles.betTypeBadge}>
+                          <Text style={styles.betTypeBadgeText}>
+                            {activeSession.gameType === 'nassau' ? 'Nassau' :
+                              activeSession.gameType === 'match_play' ? 'Match Play' :
+                                activeSession.gameType === 'skins' ? 'Skins' : 'Stroke Play'}
+                          </Text>
+                        </View>
+                      </View>
 
-            {activeTab === 'details' && (
-              <View style={styles.tabContent}>
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>Course</Text>
-                  <TouchableOpacity
-                    style={styles.courseSelector}
-                    onPress={() => setShowCourseSearchModal(true)}
-                  >
-                    <Text style={selectedCourse ? styles.selectedCourseText : styles.placeholderText}>
-                      {selectedCourse
-                        ? getSelectedCourseName()
-                        : "Search for a course"}
-                    </Text>
-                    <ChevronDown size={20} color={colors.text} />
-                  </TouchableOpacity>
-                </View>
+                  {/* Nassau Breakdown - tap to edit */}
+                  {activeSession.gameType === 'nassau' && (
+                        <View style={styles.nassauBreakdown}>
+                          <View style={styles.nassauRow}>
+                            <TouchableOpacity
+                              style={styles.nassauItem}
+                              onPress={() => {
+                                const frontCents = activeSession.betSettings.nassauAmounts?.frontCents ?? activeSession.betSettings.betPerUnitCents ?? 0;
+                                setBetEditTarget('nassauFront');
+                                setBetEditAmount(String(frontCents / 100));
+                                setShowBetEditModal(true);
+                              }}
+                            >
+                              <Text style={styles.nassauLabel}>Front 9</Text>
+                              <Text style={styles.nassauValue}>
+                                ${(((activeSession.betSettings.nassauAmounts?.frontCents ?? activeSession.betSettings.betPerUnitCents ?? 0)) / 100).toFixed(0)}
+                              </Text>
+                            </TouchableOpacity>
+                            <View style={styles.nassauDivider} />
+                            <TouchableOpacity
+                              style={styles.nassauItem}
+                              onPress={() => {
+                                const backCents = activeSession.betSettings.nassauAmounts?.backCents ?? activeSession.betSettings.betPerUnitCents ?? 0;
+                                setBetEditTarget('nassauBack');
+                                setBetEditAmount(String(backCents / 100));
+                                setShowBetEditModal(true);
+                              }}
+                            >
+                              <Text style={styles.nassauLabel}>Back 9</Text>
+                              <Text style={styles.nassauValue}>
+                                ${(((activeSession.betSettings.nassauAmounts?.backCents ?? activeSession.betSettings.betPerUnitCents ?? 0)) / 100).toFixed(0)}
+                              </Text>
+                            </TouchableOpacity>
+                            <View style={styles.nassauDivider} />
+                            <TouchableOpacity
+                              style={styles.nassauItem}
+                              onPress={() => {
+                                const overallCents = activeSession.betSettings.nassauAmounts?.overallCents ?? (activeSession.betSettings.betPerUnitCents ?? 0) * 2;
+                                setBetEditTarget('nassauOverall');
+                                setBetEditAmount(String(overallCents / 100));
+                                setShowBetEditModal(true);
+                              }}
+                            >
+                              <Text style={styles.nassauLabel}>Overall</Text>
+                              <Text style={styles.nassauValueTotal}>
+                                ${(((activeSession.betSettings.nassauAmounts?.overallCents ?? (activeSession.betSettings.betPerUnitCents ?? 0) * 2)) / 100).toFixed(0)}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                          {activeSession.betSettings.carryover && (
+                            <Text style={styles.carryoverBadge}>Ties carry over</Text>
+                          )}
+                          <Text style={styles.tapToEditHint}>Tap an amount to edit</Text>
+                        </View>
+                      )}
 
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>Date</Text>
-                  <View style={styles.dateContainer}>
-                    <Calendar size={20} color={colors.text} style={styles.dateIcon} />
+                      {/* Match Play / Stroke Play / Skins: Simple amount display - tap to edit */}
+                      {activeSession.gameType !== 'nassau' && (
+                        <TouchableOpacity
+                          style={styles.simpleAmountBox}
+                          onPress={() => {
+                            setBetEditTarget('betPerUnit');
+                            setBetEditAmount(String((activeSession.betSettings.betPerUnitCents || 0) / 100));
+                            setShowBetEditModal(true);
+                          }}
+                        >
+                          <Text style={styles.simpleAmountLabel}>
+                            {activeSession.gameType === 'match_play'
+                              ? (activeSession.betSettings?.betUnit === 'match' ? 'Per Match' : 'Per Hole')
+                              : activeSession.gameType === 'skins'
+                                ? 'Per Skin'
+                                : activeSession.gameType === 'stroke_play'
+                                  ? (activeSession.payoutMode === 'pot' ? 'Buy-in' : 'Per Stroke')
+                                  : 'Bet'}
+                          </Text>
+                          <View style={styles.simpleAmountRight}>
+                            <Text style={styles.simpleAmountValue}>
+                              ${((activeSession.betSettings.betPerUnitCents || 0) / 100).toFixed(0)}
+                            </Text>
+                            <Text style={styles.tapToEditHint}>Tap to edit</Text>
+                          </View>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Skins carryover info */}
+                      {activeSession.gameType === 'skins' && activeSession.betSettings.carryover && (
+                        <Text style={styles.carryoverBadge}>Tied holes carry over to next skin</Text>
+                      )}
+
+                      {/* Side Bets - applicable to all game types */}
+                      {activeSession.betSettings.sideBets &&
+                        (activeSession.betSettings.sideBets.greenies || activeSession.betSettings.sideBets.sandies) && (
+                          <View style={styles.sideBetsBox}>
+                            <Text style={styles.sideBetsTitle}>Side Bets</Text>
+                            <View style={styles.sideBetsRow}>
+                              {activeSession.betSettings.sideBets.greenies && (
+                                <View style={styles.sideBetChip}>
+                                  <Text style={styles.sideBetChipText}>🌿 Greenies</Text>
+                                </View>
+                              )}
+                              {activeSession.betSettings.sideBets.sandies && (
+                                <View style={styles.sideBetChip}>
+                                  <Text style={styles.sideBetChipText}>🏖️ Sandies</Text>
+                                </View>
+                              )}
+                              <Text style={styles.sideBetAmount}>
+                                ${((activeSession.betSettings.sideBets.amountCents || 0) / 100).toFixed(0)} each
+                              </Text>
+                            </View>
+                          </View>
+                        )}
+
+                      {/* Presses - Nassau only */}
+                      {activeSession.gameType === 'nassau' && activeSession.betSettings.pressEnabled && (
+                        <View style={styles.pressesSection}>
+                          <View style={styles.pressesSectionHeader}>
+                            <Text style={styles.pressesSectionTitle}>
+                              Presses {activeSession.presses?.length > 0 ? `(${activeSession.presses.length})` : ''}
+                            </Text>
+                            <TouchableOpacity
+                              style={styles.addPressButton}
+                              onPress={() => setShowPressModal(true)}
+                            >
+                              <Text style={styles.addPressButtonText}>+ Add</Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          {activeSession.presses && activeSession.presses.length > 0 ? (
+                            <View style={styles.pressReviewList}>
+                              {activeSession.presses.map((press: any, idx: number) => (
+                                <View key={press.pressId || idx} style={styles.pressReviewItem}>
+                                  <View style={styles.pressReviewItemLeft}>
+                                    <Text style={styles.pressReviewSegment}>
+                                      {press.segment === 'front' ? 'Front 9' : 'Back 9'}
+                                    </Text>
+                                    <Text style={styles.pressReviewHole}>
+                                      Hole {press.startHole}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.pressReviewItemRight}>
+                                    <Text style={styles.pressReviewValue}>
+                                      ${(press.valueCents / 100).toFixed(0)}
+                                    </Text>
+                                    <TouchableOpacity
+                                      style={styles.removePressButton}
+                                      onPress={async () => {
+                                        try {
+                                          await removePressMutation({
+                                            sessionId: activeSession._id,
+                                            pressId: press.pressId,
+                                          });
+                                        } catch (e: any) {
+                                          Alert.alert('Error', e.message || 'Failed to remove press');
+                                        }
+                                      }}
+                                    >
+                                      <X size={16} color={colors.error} />
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text style={styles.noPressesText}>
+                              No presses added yet
+                            </Text>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  <View style={styles.sectionContainer}>
+                    <Text style={styles.sectionTitle}>Notes</Text>
                     <TextInput
-                      style={styles.dateInput}
-                      value={date || new Date().toISOString().split('T')[0]}
-                      onChangeText={(value) => setDate(value || new Date().toISOString().split('T')[0])}
-                      placeholder="YYYY-MM-DD"
+                      style={styles.notesInput}
+                      value={notes}
+                      onChangeText={setNotes}
+                      placeholder="Add notes about this round..."
+                      multiline
+                      numberOfLines={4}
+                      textAlignVertical="top"
                     />
                   </View>
                 </View>
-
-                <View style={styles.sectionContainer}>
-                  <Text style={styles.sectionTitle}>Notes</Text>
-                  <TextInput
-                    style={styles.notesInput}
-                    value={notes}
-                    onChangeText={setNotes}
-                    placeholder="Add notes about this round..."
-                    multiline
-                    numberOfLines={4}
-                    textAlignVertical="top"
-                  />
-                </View>
-              </View>
-            )}
-          </ScrollView>
+              )}
+            </ScrollView>
+          </View>
         )}
 
-        <View
-          style={[
-            styles.bottomBar,
-            { bottom: bottomBarOffset, paddingBottom: 12 + Math.max(insets.bottom, 0) },
-          ]}
-        >
-          <Button
-            title="Save Round"
-            onPress={handleSaveRound}
-            style={styles.saveButton}
-          />
-        </View>
+        {activeTab === 'details' && (
+          <View
+            style={[
+              styles.bottomBar,
+              { paddingBottom: 44 + Math.max(insets.bottom, 0) },
+            ]}
+          >
+            <Button
+              title="Save Round"
+              onPress={handleSaveRound}
+              style={styles.saveButton}
+            />
+          </View>
+        )}
+
+        {__DEV__ && devMode && (
+          <View pointerEvents="none" style={[styles.scrollDebugOverlay, { top: tabBarBottom + 8 }]}>
+            <Text style={styles.scrollDebugText}>
+              tab:{activeTab} root:{Math.round(rootLayoutH)}/{Math.round(windowDims.height)}
+            </Text>
+            <Text style={styles.scrollDebugText}>
+              players:{detectedPlayers.length} holes:{detectedPlayers[0]?.scores?.length ?? 0}
+            </Text>
+            <Text style={styles.scrollDebugText}>
+              players y:{Math.round(scrollDebug.players.y)} h:{Math.round(scrollDebug.players.contentH)}/{Math.round(scrollDebug.players.layoutH)}
+            </Text>
+            <Text style={styles.scrollDebugText}>
+              scores y:{Math.round(scrollDebug.scores.y)} h:{Math.round(scrollDebug.scores.contentH)}/{Math.round(scrollDebug.scores.layoutH)}
+            </Text>
+            <Text style={styles.scrollDebugText}>
+              details y:{Math.round(scrollDebug.details.y)} h:{Math.round(scrollDebug.details.contentH)}/{Math.round(scrollDebug.details.layoutH)}
+            </Text>
+          </View>
+        )}
+
+	        <Modal
+	          visible={showDatePicker}
+	          animationType="slide"
+	          transparent
+	          onRequestClose={() => setShowDatePicker(false)}
+	        >
+	          <TouchableOpacity
+	            style={styles.sheetOverlay}
+	            activeOpacity={1}
+	            onPress={() => setShowDatePicker(false)}
+	          >
+	            <TouchableOpacity
+	              activeOpacity={1}
+	              style={styles.datePickerSheet}
+	              onPress={() => { }}
+	            >
+	              <View style={styles.datePickerHeader}>
+	                <TouchableOpacity
+	                  style={styles.datePickerNavButton}
+	                  onPress={() =>
+	                    setDatePickerMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+	                  }
+	                >
+	                  <ChevronLeft size={22} color={colors.text} />
+	                </TouchableOpacity>
+	                <Text style={styles.datePickerTitle}>{calendarMonthLabel}</Text>
+	                <TouchableOpacity
+	                  style={styles.datePickerNavButton}
+	                  onPress={() =>
+	                    setDatePickerMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+	                  }
+	                >
+	                  <ChevronRight size={22} color={colors.text} />
+	                </TouchableOpacity>
+	              </View>
+
+	              <View style={styles.datePickerWeekHeader}>
+	                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, index) => (
+	                  <Text key={`${d}-${index}`} style={styles.datePickerWeekday}>
+	                    {d}
+	                  </Text>
+	                ))}
+	              </View>
+
+	              <View style={styles.datePickerGrid}>
+	                {calendarWeeks.map((week, weekIndex) => (
+	                  <View key={weekIndex} style={styles.datePickerWeekRow}>
+	                    {week.map((ymd, dayIndex) => {
+	                      if (!ymd) {
+	                        return <View key={`${weekIndex}-${dayIndex}`} style={styles.datePickerDayCell} />;
+	                      }
+	                      const dayNum = Number(ymd.split('-')[2]);
+	                      const selected = ymd === date;
+	                      return (
+	                        <TouchableOpacity
+	                          key={ymd}
+	                          style={[
+	                            styles.datePickerDayCell,
+	                            selected && styles.datePickerDayCellSelected,
+	                          ]}
+	                          onPress={() => handleSelectDateFromPicker(ymd)}
+	                          activeOpacity={0.8}
+	                        >
+	                          <Text
+	                            style={[
+	                              styles.datePickerDayText,
+	                              selected && styles.datePickerDayTextSelected,
+	                            ]}
+	                          >
+	                            {dayNum}
+	                          </Text>
+	                        </TouchableOpacity>
+	                      );
+	                    })}
+	                  </View>
+	                ))}
+	              </View>
+
+	              <TouchableOpacity
+	                style={styles.datePickerDoneButton}
+	                onPress={() => setShowDatePicker(false)}
+	                activeOpacity={0.85}
+	              >
+	                <Text style={styles.datePickerDoneText}>Done</Text>
+	              </TouchableOpacity>
+	            </TouchableOpacity>
+	          </TouchableOpacity>
+	        </Modal>
 
         <Modal
           visible={showTeePicker}
@@ -2376,6 +3027,205 @@ export default function ScanScorecardScreen() {
           </TouchableOpacity>
         </Modal>
 
+        {/* Add Press Modal */}
+        <Modal
+          visible={showPressModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowPressModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowPressModal(false)}
+          >
+            <TouchableOpacity activeOpacity={1} style={styles.pressModalContent}>
+              <Text style={styles.sheetTitle}>Add Press</Text>
+
+              <View style={styles.pressModalSection}>
+                <Text style={styles.pressModalLabel}>Segment</Text>
+                <View style={styles.segmentToggle}>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      pressSegment === 'front' && styles.segmentButtonActive
+                    ]}
+                    onPress={() => setPressSegment('front')}
+                  >
+                    <Text style={[
+                      styles.segmentButtonText,
+                      pressSegment === 'front' && styles.segmentButtonTextActive
+                    ]}>Front 9</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.segmentButton,
+                      pressSegment === 'back' && styles.segmentButtonActive
+                    ]}
+                    onPress={() => setPressSegment('back')}
+                  >
+                    <Text style={[
+                      styles.segmentButtonText,
+                      pressSegment === 'back' && styles.segmentButtonTextActive
+                    ]}>Back 9</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.pressModalSection}>
+                <Text style={styles.pressModalLabel}>Starting Hole</Text>
+                <TextInput
+                  style={styles.pressModalInput}
+                  value={pressStartHole}
+                  onChangeText={setPressStartHole}
+                  placeholder={pressSegment === 'front' ? '1-9' : '10-18'}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+              </View>
+
+              <View style={styles.pressModalButtons}>
+                <TouchableOpacity
+                  style={styles.pressModalCancelButton}
+                  onPress={() => {
+                    setShowPressModal(false);
+                    setPressStartHole('');
+                  }}
+                >
+                  <Text style={styles.pressModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.pressModalAddButton, isPressLoading && { opacity: 0.6 }]}
+                  disabled={isPressLoading}
+                  onPress={async () => {
+                    if (!activeSession?._id) return;
+                    const holeNum = parseInt(pressStartHole, 10);
+                    if (isNaN(holeNum)) {
+                      Alert.alert('Error', 'Please enter a valid hole number');
+                      return;
+                    }
+                    setIsPressLoading(true);
+                    try {
+                      await addPressMutation({
+                        sessionId: activeSession._id,
+                        pressId: `press_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        segment: pressSegment,
+                        startHole: holeNum,
+                        valueCents: activeSession.betSettings?.betPerUnitCents || 1000,
+                      });
+                      setShowPressModal(false);
+                      setPressStartHole('');
+                    } catch (e: any) {
+                      Alert.alert('Error', e.message || 'Failed to add press');
+                    } finally {
+                      setIsPressLoading(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.pressModalAddText}>
+                    {isPressLoading ? 'Adding...' : 'Add Press'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Bet Amount Edit Modal */}
+        <Modal
+          visible={showBetEditModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowBetEditModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowBetEditModal(false)}
+          >
+            <TouchableOpacity activeOpacity={1} style={styles.pressModalContent}>
+              <Text style={styles.sheetTitle}>Edit Bet Amount</Text>
+
+              <View style={styles.pressModalSection}>
+                <Text style={styles.pressModalLabel}>
+                  {activeSession?.gameType === 'nassau'
+                    ? betEditTarget === 'nassauFront' ? 'Front 9 amount' :
+                      betEditTarget === 'nassauBack' ? 'Back 9 amount' :
+                        betEditTarget === 'nassauOverall' ? 'Overall amount' :
+                          'Bet amount'
+                    :
+                    activeSession?.gameType === 'match_play'
+                      ? (activeSession?.betSettings?.betUnit === 'match' ? 'Amount per match' : 'Amount per hole')
+                      : activeSession?.gameType === 'skins'
+                        ? 'Amount per skin'
+                        : activeSession?.gameType === 'stroke_play'
+                          ? (activeSession?.payoutMode === 'pot' ? 'Buy-in amount' : 'Amount per stroke')
+                          : 'Bet amount'}
+                </Text>
+                <View style={styles.betEditInputRow}>
+                  <Text style={styles.betEditDollarSign}>$</Text>
+                  <TextInput
+                    style={styles.betEditInput}
+                    value={betEditAmount}
+                    onChangeText={setBetEditAmount}
+                    placeholder="0"
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    autoFocus
+                  />
+                </View>
+              </View>
+
+              <View style={styles.pressModalButtons}>
+                <TouchableOpacity
+                  style={styles.pressModalCancelButton}
+                  onPress={() => {
+                    setShowBetEditModal(false);
+                    setBetEditAmount('');
+                  }}
+                >
+                  <Text style={styles.pressModalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.pressModalAddButton}
+                  onPress={async () => {
+                    if (!activeSession?._id) return;
+                    const amount = parseFloat(betEditAmount);
+                    if (isNaN(amount) || amount <= 0) {
+                      Alert.alert('Error', 'Please enter a valid amount');
+                      return;
+                    }
+                    try {
+                      const cents = Math.round(amount * 100);
+                      if (activeSession.gameType === 'nassau' && betEditTarget !== 'betPerUnit') {
+                        await updateBetSettingsMutation({
+                          sessionId: activeSession._id,
+                          nassauAmounts: {
+                            ...(betEditTarget === 'nassauFront' ? { frontCents: cents } : {}),
+                            ...(betEditTarget === 'nassauBack' ? { backCents: cents } : {}),
+                            ...(betEditTarget === 'nassauOverall' ? { overallCents: cents } : {}),
+                          },
+                        });
+                      } else {
+                        await updateBetSettingsMutation({
+                          sessionId: activeSession._id,
+                          betPerUnitCents: cents,
+                        });
+                      }
+                      setShowBetEditModal(false);
+                      setBetEditAmount('');
+                    } catch (e: any) {
+                      Alert.alert('Error', e.message || 'Failed to update bet');
+                    }
+                  }}
+                >
+                  <Text style={styles.pressModalAddText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
         {showCourseSearchModal && (
           <CourseSearchModal
             visible={showCourseSearchModal}
@@ -2383,7 +3233,8 @@ export default function ScanScorecardScreen() {
             onClose={() => setShowCourseSearchModal(false)}
             onSelectCourse={handleSelectCourse}
             onAddManualCourse={handleAddCourseManually}
-            showMyCoursesTab={true}
+            showMyCoursesTab={onboardingMode !== 'true'}
+            isGuest={onboardingMode === 'true'}
           />
         )}
       </SafeAreaView>
@@ -2662,14 +3513,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tabContent: {
+    width: '100%',
+  },
+  flexFill: {
     flex: 1,
+    minHeight: 0,
   },
   scrollView: {
     flex: 1,
+    minHeight: 0,
   },
   contentContainer: {
     padding: 16,
-    paddingBottom: 140,
+    paddingBottom: 200,
+  },
+  scrollDebugOverlay: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    zIndex: 9999,
+    elevation: 9999,
+  },
+  scrollDebugText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
   },
   sectionContainer: {
     marginBottom: 24,
@@ -3019,6 +3891,68 @@ const styles = StyleSheet.create({
     height: 100,
     backgroundColor: colors.background,
   },
+  gameTypeDropdown: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  gameTypeDropdownOption: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  gameTypeDropdownOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#E8F5E9',
+  },
+  gameTypeDropdownText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  gameTypeDropdownTextActive: {
+    color: colors.primary,
+  },
+  gameTypeDropdownDesc: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  // Deprecated - kept for backwards compat
+  gameTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  gameTypeOption: {
+    width: '48%',
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  gameTypeOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#E8F5E9',
+  },
+  gameTypeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  gameTypeTextActive: {
+    color: colors.primary,
+  },
+  gameTypeDesc: {
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
   retakeBox: {
     backgroundColor: `${colors.primary}08`,
     borderWidth: 1,
@@ -3068,6 +4002,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     justifyContent: 'flex-end',
+    zIndex: 1000,
+    elevation: 1000,
   },
   saveButton: {
     width: '100%',
@@ -3315,6 +4251,93 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     elevation: 8,
   },
+  datePickerSheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 8,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  datePickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  datePickerNavButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  datePickerWeekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+    marginBottom: 6,
+  },
+  datePickerWeekday: {
+    width: 36,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  datePickerGrid: {
+    paddingHorizontal: 6,
+    paddingBottom: 10,
+  },
+  datePickerWeekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  datePickerDayCell: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerDayCellSelected: {
+    backgroundColor: colors.primary,
+  },
+  datePickerDayText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  datePickerDayTextSelected: {
+    color: '#FFFFFF',
+  },
+  datePickerDoneButton: {
+    marginTop: 6,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerDoneText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -3397,5 +4420,372 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
+  },
+  onboardingBanner: {
+    backgroundColor: '#FFF5F0',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+  },
+  onboardingBannerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  onboardingBannerText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  // Session info and press review styles
+  sessionInfoCard: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sessionInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  sessionInfoLabel: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  sessionInfoValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  pressReviewList: {
+    marginTop: 8,
+  },
+  pressReviewItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  pressReviewItemLeft: {
+    flex: 1,
+  },
+  pressReviewItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pressReviewSegment: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E6059',
+  },
+  pressReviewHole: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  pressReviewValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  removePressButton: {
+    padding: 6,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: `${colors.error}33`,
+  },
+  // Your Bet card styles
+  betCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  betTypeBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  betTypeBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E6059',
+  },
+  nassauBreakdown: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 12,
+  },
+  nassauRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  nassauItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  nassauLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  nassauValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  nassauValueTotal: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1E6059',
+  },
+  nassauDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+    marginHorizontal: 8,
+  },
+  carryoverBadge: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 12,
+    fontStyle: 'italic',
+  },
+  simpleAmountBox: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  simpleAmountLabel: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  simpleAmountValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  sideBetsBox: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  sideBetsTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  sideBetsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sideBetChip: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  sideBetChipText: {
+    fontSize: 12,
+    color: colors.text,
+  },
+  sideBetAmount: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E6059',
+    marginLeft: 'auto',
+  },
+  pressesSection: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pressesSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  pressesSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  addPressButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: `${colors.primary}15`,
+    borderRadius: 16,
+  },
+  addPressButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  noPressesText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+  // Press modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  pressModalContent: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+  },
+  pressModalSection: {
+    marginTop: 16,
+  },
+  pressModalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  segmentToggle: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    backgroundColor: colors.background,
+    padding: 4,
+  },
+  segmentButton: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  segmentButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  segmentButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  segmentButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  pressModalInput: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pressModalButtons: {
+    flexDirection: 'row',
+    marginTop: 20,
+    gap: 12,
+  },
+  pressModalCancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pressModalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  pressModalAddButton: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+  },
+  pressModalAddText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Bet edit styles
+  tapToEditHint: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  simpleAmountRight: {
+    alignItems: 'flex-end',
+  },
+  betEditInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  betEditDollarSign: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
+    marginRight: 4,
+  },
+  betEditInput: {
+    flex: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.text,
   },
 });

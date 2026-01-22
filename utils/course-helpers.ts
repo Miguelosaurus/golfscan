@@ -74,6 +74,38 @@ export const getCourseDisplayName = (apiCourse: ApiCourseData): string => {
   return `${apiCourse.club_name} - ${apiCourse.course_name}`;
 };
 
+/**
+ * Cleans up duplicate course names from the Golf Course API.
+ * When a facility has only one course, the API returns names like
+ * "Dominion Country Club - Dominion Country Club". This function
+ * removes the redundant suffix.
+ * 
+ * @example
+ * cleanCourseDisplayName("Dominion Country Club - Dominion Country Club") 
+ * // Returns: "Dominion Country Club"
+ * 
+ * cleanCourseDisplayName("TPC San Antonio - Oaks") 
+ * // Returns: "TPC San Antonio - Oaks" (unchanged - different parts)
+ */
+export const cleanCourseDisplayName = (name: string): string => {
+  const separator = ' - ';
+  const separatorIndex = name.indexOf(separator);
+
+  if (separatorIndex === -1) {
+    return name;
+  }
+
+  const clubName = name.slice(0, separatorIndex).trim();
+  const courseName = name.slice(separatorIndex + separator.length).trim();
+
+  if (clubName.toLowerCase() === courseName.toLowerCase()) {
+    return clubName;
+  }
+
+  return name;
+};
+
+
 const getAllTeeBoxes = (apiCourse: ApiCourseData): TeeBox[] => {
   const maleTeesRaw = apiCourse.tees?.male;
   const femaleTeesRaw = apiCourse.tees?.female;
@@ -111,14 +143,14 @@ export const convertApiCourseToLocal = async (
     ...(apiCourse.tees.female?.map((tee) => ({ ...tee, gender: "F" })) ?? []),
   ];
 
-  const selectedTeeBox = selectedTee 
+  const selectedTeeBox = selectedTee
     ? teeBoxes.find(tee => tee.tee_name.toLowerCase() === selectedTee.toLowerCase())
     : teeBoxes[0];
-  
+
   if (!selectedTeeBox) {
     throw new Error('No tee box found for course');
   }
-  
+
   // Convert holes
   const holes: Hole[] = selectedTeeBox.holes.map((hole, index) => ({
     number: index + 1,
@@ -144,11 +176,11 @@ export const convertApiCourseToLocal = async (
       handicap: hole.handicap,
     })),
   }));
-  
+
   // Use a deterministic id so that the same course / tee combination maps to the same record
   const deterministicId = getDeterministicCourseId(apiCourse, selectedTeeBox.tee_name);
-  
-  const courseName = getCourseDisplayName(apiCourse);
+
+  const courseName = cleanCourseDisplayName(getCourseDisplayName(apiCourse));
   let imageUri = DEFAULT_COURSE_IMAGE;
 
   if (fetchImage && fetchImageFn) {

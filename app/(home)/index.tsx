@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput } from "react-nativ
 import { SignedIn, SignedOut, useOAuth } from "@clerk/clerk-expo";
 import { Redirect, useRouter } from "expo-router";
 import { colors } from "@/constants/colors";
+import { useOnboardingStore } from "@/store/useOnboardingStore";
 
 export default function HomeIndex() {
   const router = useRouter();
@@ -10,6 +11,8 @@ export default function HomeIndex() {
   const googleOAuth = useOAuth({ strategy: "oauth_google" });
   const [email, setEmail] = useState("");
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const { hasCompletedOnboarding } = useOnboardingStore();
 
   const handleOAuth = async (provider: "apple" | "google") => {
     const client = provider === "apple" ? appleOAuth : googleOAuth;
@@ -21,7 +24,7 @@ export default function HomeIndex() {
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
       } else {
-        console.warn(`${provider} OAuth flow did not complete`, result?.status);
+        console.warn(`${provider} OAuth flow did not complete`);
       }
     } catch (err) {
       console.error(`${provider} sign-in failed`, err);
@@ -36,65 +39,70 @@ export default function HomeIndex() {
       </SignedIn>
 
       <SignedOut>
-        <View style={styles.container}>
-          <View style={styles.card}>
-            <Text style={styles.title}>ScanCaddie</Text>
-            <Text style={styles.subtitle}>
-              Sign in to save rounds, sync your Scandicap, and access your history anywhere.
-            </Text>
+        {/* If not signed in and hasn't completed onboarding, go to onboarding */}
+        {!hasCompletedOnboarding ? (
+          <Redirect href="/(onboarding)/welcome" />
+        ) : (
+          <View style={styles.container}>
+            <View style={styles.card}>
+              <Text style={styles.title}>ScanCaddie</Text>
+              <Text style={styles.subtitle}>
+                Sign in to save rounds, sync your Scandicap, and access your history anywhere.
+              </Text>
 
-            <TouchableOpacity
-              style={[styles.button, styles.oauthButton]}
-              onPress={() => handleOAuth("apple")}
-            >
-              <Text style={styles.oauthIcon}></Text>
-              <Text style={styles.oauthButtonText}>Sign up with Apple</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.button, styles.oauthButton]}
-              onPress={() => handleOAuth("google")}
-            >
-              <Text style={styles.oauthIcon}>G</Text>
-              <Text style={styles.oauthButtonText}>Sign up with Google</Text>
-            </TouchableOpacity>
-
-            <View style={styles.orRow}>
-              <View style={styles.orLine} />
-              <Text style={styles.orText}>or</Text>
-              <View style={styles.orLine} />
-            </View>
-
-            <View style={styles.emailSection}>
-              <Text style={styles.emailLabel}>Email</Text>
-              <TextInput
-                style={styles.emailInput}
-                placeholder="you@example.com"
-                placeholderTextColor={colors.textSecondary}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                value={email}
-                onChangeText={setEmail}
-              />
               <TouchableOpacity
-                style={[
-                  styles.button,
-                  styles.primaryButton,
-                  !isEmailValid && styles.primaryButtonDisabled,
-                ]}
-                disabled={!isEmailValid}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(auth)/sign-up",
-                    params: { email },
-                  })
-                }
+                style={[styles.button, styles.oauthButton]}
+                onPress={() => handleOAuth("apple")}
               >
-                <Text style={styles.primaryButtonText}>Continue</Text>
+                <Text style={styles.oauthIcon}></Text>
+                <Text style={styles.oauthButtonText}>Sign up with Apple</Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.button, styles.oauthButton]}
+                onPress={() => handleOAuth("google")}
+              >
+                <Text style={styles.oauthIcon}>G</Text>
+                <Text style={styles.oauthButtonText}>Sign up with Google</Text>
+              </TouchableOpacity>
+
+              <View style={styles.orRow}>
+                <View style={styles.orLine} />
+                <Text style={styles.orText}>or</Text>
+                <View style={styles.orLine} />
+              </View>
+
+              <View style={styles.emailSection}>
+                <Text style={styles.emailLabel}>Email</Text>
+                <TextInput
+                  style={styles.emailInput}
+                  placeholder="you@example.com"
+                  placeholderTextColor={colors.textSecondary}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  value={email}
+                  onChangeText={setEmail}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.button,
+                    styles.primaryButton,
+                    !isEmailValid && styles.primaryButtonDisabled,
+                  ]}
+                  disabled={!isEmailValid}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(auth)/sign-up",
+                      params: { email },
+                    })
+                  }
+                >
+                  <Text style={styles.primaryButtonText}>Continue</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        )}
       </SignedOut>
     </View>
   );

@@ -13,12 +13,47 @@ import { useQuery, useMutation, useAction } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { useGolfStore } from "@/store/useGolfStore";
 import { Id } from "@/convex/_generated/dataModel";
-import { Alert, ImageBackground, StyleSheet } from "react-native";
+import { Alert, AppState, ImageBackground, StyleSheet } from "react-native";
 import { DEFAULT_COURSE_IMAGE } from "@/constants/images";
+import { initPostHog, identifyUser, trackScanCompleted } from "@/lib/analytics";
+import Constants from "expo-constants";
 
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
 });
+
+// Initialize PostHog on app startup
+initPostHog();
+
+/**
+ * Analytics component that identifies users with PostHog
+ */
+function AnalyticsProvider() {
+  const profile = useQuery(api.users.getProfile);
+  const identified = useRef(false);
+
+  // Use lightweight count query instead of full listWithSummary
+  const roundsCount = useQuery(
+    api.rounds.countByHost,
+    profile?._id ? { hostId: profile._id as any } : "skip"
+  ) ?? 0;
+
+  useEffect(() => {
+    if (profile && !identified.current) {
+      identified.current = true;
+      identifyUser(profile._id, {
+        name: profile.name,
+        email: profile.email,
+        handicap: profile.handicap ?? undefined,
+        roundsPlayed: roundsCount,
+        isPro: profile.isPro,
+        appVersion: Constants.expoConfig?.version || Constants.manifest2?.extra?.expoClient?.version || "1.0.0",
+      });
+    }
+  }, [profile, roundsCount]);
+
+  return null;
+}
 
 function ActiveScanPoller() {
   const router = useRouter();
@@ -82,6 +117,19 @@ function ActiveScanPoller() {
       });
       markActiveScanReviewPending();
       setIsScanning(false);
+
+      // Track scan completed
+      if (jobStatus.createdAt && jobStatus.updatedAt) {
+        const usage = (jobResult as any)?.usage;
+        trackScanCompleted({
+          durationMs: jobStatus.updatedAt - jobStatus.createdAt,
+          confidence: (jobResult as any)?.overallConfidence ?? 0,
+          promptTokens: usage?.promptTokens,
+          completionTokens: usage?.completionTokens,
+          totalTokens: usage?.totalTokens,
+        });
+      }
+
       console.log("[ActiveScanPoller] Job complete", { jobId, pathname });
       // Disable auto-navigation to avoid navigation thrash/flicker while debugging.
       // Home already shows the "Ready to review" card which opens `/scan-review`.
@@ -91,123 +139,230 @@ function ActiveScanPoller() {
   return null;
 }
 
+function StoreCleanup() {
+  const { removeLegacyPlayers, removeLegacyCourses, _hasHydrated } = useGolfStore();
+
+  useEffect(() => {
+    if (_hasHydrated) {
+      removeLegacyPlayers();
+      removeLegacyCourses();
+    }
+  }, [_hasHydrated]);
+
+  return null;
+}
+
 const isConvexId = (value: string | undefined | null) => /^[a-z0-9]{32}$/i.test(value ?? "");
 
 function RoundSyncer() {
-  const { rounds, courses, updateRound, updateCourse, deleteRound: deleteLocalRound, unhideCourse } = useGolfStore();
   const saveRoundMutation = useMutation(api.rounds.saveRound);
   const updateRoundMutation = useMutation(api.rounds.updateRound);
   const upsertCourse = useMutation(api.courses.upsert);
   const getOrCreateCourseImage = useAction(api.courseImages.getOrCreate);
   const setLocationMutation = useMutation(api.courses.setLocation);
-  // Session linking and completion mutations
   const linkRoundToSession = useMutation(api.gameSessions.linkRound);
-  const completeSessionWithSettlement = useMutation(api.gameSessions.completeWithSettlement);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [retryTick, setRetryTick] = useState(0);
+  const completeSessionWithSettlement = useMutation(api.gameSessions.completeWithSettlementV2);
+
+  const isSyncingRef = React.useRef(false);
+  const processedCoursesRef = React.useRef<Set<string>>(new Set());
+  const lastPruneRef = React.useRef<number>(0);
+  const syncTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncRoundsRef = React.useRef<(() => void) | null>(null);
+
+  const profile = useQuery(api.users.getProfile);
 
   // Helper to detect if location is missing/invalid
   const isLocationMissing = (loc?: string | null) =>
     !loc || loc === 'Unknown location' || loc.includes('undefined') || loc.includes('Unknown');
 
-  // Sync Unsplash placeholder images and missing locations with real data from Google Places
+  // Sync courses (images/locations) - runs once per course via ref tracking
   useEffect(() => {
-    (async () => {
+    if (!profile) return;
+
+    // Reset per-user to avoid skipping work after logout/login.
+    processedCoursesRef.current = new Set();
+
+    let cancelled = false;
+
+    const syncMissingCourseMeta = async () => {
+      const { courses, updateCourse } = useGolfStore.getState();
+
       for (const course of courses) {
-        // Check if course needs image or location update
-        const needsImage = course.imageUrl?.includes('unsplash.com') || course.imageUrl === DEFAULT_COURSE_IMAGE;
+        if (cancelled) return;
+        if (processedCoursesRef.current.has(course.id)) continue;
+
+        const needsImage =
+          course.imageUrl?.includes('unsplash.com') || course.imageUrl === DEFAULT_COURSE_IMAGE;
         const needsLocation = isLocationMissing(course.location);
 
         if (!needsImage && !needsLocation) continue;
 
-        // If we have a convex ID, or at least a name
+        processedCoursesRef.current.add(course.id);
+
         const convexId = isConvexId(course.id) ? (course.id as Id<"courses">) : undefined;
+        if (!convexId) continue;
 
-        if (convexId) {
-          try {
-            const result = await getOrCreateCourseImage({
-              courseId: convexId,
-              courseName: course.name,
-              // Only pass location if it's valid - don't pollute search with "undefined, Unknown"
-              locationText: needsLocation ? undefined : course.location,
-            });
+        try {
+          const result = await getOrCreateCourseImage({
+            courseId: convexId,
+            courseName: course.name,
+            locationText: needsLocation ? undefined : course.location,
+          });
 
-            // Update image if we got a new one
-            if (result?.url && result.url !== course.imageUrl) {
-              console.log('[ImageSync] Replacing Unsplash image for', course.name);
-              updateCourse({ ...course, imageUrl: result.url } as any);
-            }
-
-            // Update location if we got one and current is missing/invalid
-            if (result?.location && needsLocation) {
-              console.log('[ImageSync] Updating missing location for', course.name, '->', result.location);
-              await setLocationMutation({
-                courseId: convexId,
-                location: result.location,
-              });
-              // Also update local store
-              updateCourse({ ...course, location: result.location } as any);
-            }
-          } catch (e) {
-            console.warn("[ImageSync] Failed to fetch image/location for", course.name, e);
+          if (result?.url && result.url !== course.imageUrl) {
+            updateCourse({ ...course, imageUrl: result.url } as any);
           }
+          if (result?.location && needsLocation) {
+            await setLocationMutation({ courseId: convexId, location: result.location });
+            updateCourse({ ...course, location: result.location } as any);
+          }
+        } catch (e) {
+          console.warn("[ImageSync] Failed for", course.name, e);
         }
       }
-    })();
-  }, [courses, getOrCreateCourseImage, updateCourse, setLocationMutation]);
+    };
 
-  // Retry unsynced rounds periodically so they recover automatically when
-  // connectivity comes back (e.g., server was down at save time).
+    const run = () => {
+      void syncMissingCourseMeta();
+    };
+
+    // Run once on mount/profile ready.
+    run();
+
+    // Re-run when new courses are added (event-driven; avoids polling).
+    const unsubscribe = useGolfStore.subscribe((state, prevState) => {
+      if (state.courses.length !== prevState.courses.length) run();
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [profile, getOrCreateCourseImage, setLocationMutation]);
+
+  // Trigger sync when pending rounds appear (event-driven).
   useEffect(() => {
-    const interval = setInterval(() => setRetryTick((t) => t + 1), 15000);
-    return () => clearInterval(interval);
+    const unsubscribe = useGolfStore.subscribe((state, prevState) => {
+      const hasPending = state.rounds.some((r) => r.syncStatus && r.syncStatus !== "synced");
+      if (!hasPending) return;
+
+      const prevHasPending = prevState.rounds.some(
+        (r) => r.syncStatus && r.syncStatus !== "synced"
+      );
+
+      if (prevHasPending) return;
+
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      syncRoundsRef.current?.();
+    });
+    return unsubscribe;
   }, []);
 
-  const profile = useQuery(api.users.getProfile);
-  const convexRounds =
-    useQuery(
-      api.rounds.listWithSummary,
-      profile?._id ? { hostId: profile._id as any } : "skip"
-    ) || [];
-
-  // Keep local store in sync with Convex by pruning any rounds that
-  // were previously synced (have a remoteId) but no longer exist on
-  // the server. This lets dashboard deletions propagate into the app
-  // while still allowing offline-only local rounds.
+  // Prune local rounds whose remoteId no longer exists on the server.
+  // This preserves the original "delete on one device disappears on others" behavior
+  // without re-introducing the heavy listWithSummary subscription.
   useEffect(() => {
-    if (!convexRounds) return;
-    const serverIds = new Set<string>((convexRounds as any[]).map((r) => r.id as string));
-    rounds.forEach((r) => {
-      const remoteId = (r as any).remoteId as string | undefined;
-      if (remoteId && isConvexId(remoteId) && !serverIds.has(remoteId)) {
-        deleteLocalRound(r.id);
-      }
-    });
-  }, [convexRounds, rounds, deleteLocalRound]);
-
-  useEffect(() => {
-    const pending = rounds.filter((r) => r.syncStatus && r.syncStatus !== "synced");
-    console.log('[RoundSyncer] Pending rounds:', pending.length, 'isSyncing:', isSyncing);
-    if (!pending.length || isSyncing) return;
+    if (!profile) return;
 
     let cancelled = false;
-    setIsSyncing(true);
-    console.log('[RoundSyncer] Starting sync for', pending.length, 'rounds');
 
-    (async () => {
+    const pruneDeletedRounds = async () => {
+      if (cancelled) return;
+
+      // Rate limit: at most once per 5 minutes.
+      const now = Date.now();
+      if (now - lastPruneRef.current < 5 * 60 * 1000) return;
+      lastPruneRef.current = now;
+
+      const { rounds, deleteRound } = useGolfStore.getState();
+      const remoteIds = rounds
+        .map((r) => (r as any).remoteId as string | undefined)
+        .filter((id): id is string => !!id && isConvexId(id));
+
+      if (!remoteIds.length) return;
+
+      const uniqueRemoteIds = Array.from(new Set(remoteIds));
+      const existing = new Set<string>();
+
+      // Chunk to keep args size and server work bounded.
+      const chunkSize = 100;
+      for (let i = 0; i < uniqueRemoteIds.length; i += chunkSize) {
+        const chunk = uniqueRemoteIds.slice(i, i + chunkSize);
+        const found = await convex.query(api.rounds.existsBatch, { roundIds: chunk as any });
+        for (const id of found) existing.add(id);
+      }
+
+      for (const r of rounds) {
+        const remoteId = (r as any).remoteId as string | undefined;
+        if (!remoteId || !isConvexId(remoteId)) continue;
+        if (existing.has(remoteId)) continue;
+        deleteRound(r.id);
+      }
+    };
+
+    // Run on mount/profile ready.
+    void pruneDeletedRounds().catch((e) => console.warn("[RoundSyncer] Prune failed:", e));
+
+    // Run when app comes back to foreground.
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      void pruneDeletedRounds().catch((e) => console.warn("[RoundSyncer] Prune failed:", e));
+      syncRoundsRef.current?.();
+    });
+
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [profile]);
+
+  // Main sync effect with SMART POLLING
+  // - Fast (5s) when there are pending rounds
+  // - No polling when idle (event-driven)
+  useEffect(() => {
+    const clearSyncTimeout = () => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+    };
+
+    const scheduleSync = (delayMs: number) => {
+      clearSyncTimeout();
+      syncTimeoutRef.current = setTimeout(() => {
+        syncRoundsRef.current?.();
+      }, delayMs);
+    };
+
+    const syncRounds = async () => {
+      if (!profile) return;
+      if (isSyncingRef.current) return;
+
+      const { rounds, courses, updateRound, updateCourse, unhideCourse } = useGolfStore.getState();
+
+      const pending = rounds.filter((r) =>
+        r.syncStatus &&
+        r.syncStatus !== "synced"
+      );
+
+      if (!pending.length) {
+        clearSyncTimeout();
+        return;
+      }
+
+      isSyncingRef.current = true;
+
       for (const round of pending) {
-        if (cancelled) break;
-        console.log('[RoundSyncer] Syncing round:', round.id, 'courseId:', round.courseId);
-
         const course = courses.find((c) => c.id === round.courseId);
 
-        // If round.courseId is already a valid Convex ID, use it directly
-        // Otherwise, check if the local course has a Convex ID
         let convexCourseId: Id<"courses"> | undefined =
           isConvexId(round.courseId)
             ? (round.courseId as any)
             : (course && isConvexId(course.id) ? (course.id as any) : undefined);
-        // If this course hasn't been synced to Convex yet, upsert it now.
+
         if (!convexCourseId && course) {
           try {
             const courseId = await upsertCourse({
@@ -216,86 +371,56 @@ function RoundSyncer() {
               location: course.location || "Unknown",
               slope: (course as any).slope,
               rating: (course as any).rating,
-              teeSets: (course as any).teeSets
-                ? (course as any).teeSets.map((t: any) => ({
-                  name: t.name,
-                  rating: t.rating,
-                  slope: t.slope,
-                  gender: t.gender,
-                  holes: Array.isArray(t.holes)
-                    ? t.holes.map((h: any, index: number) => ({
-                      number: h.number ?? index + 1,
-                      par: h.par,
-                      hcp: h.handicap ?? h.hcp ?? index + 1,
-                      yardage: h.distance ?? h.yardage,
-                    }))
-                    : undefined,
-                }))
-                : undefined,
-              holes: (course.holes ?? []).map((h: any) => ({
-                number: h.number,
-                par: h.par,
-                hcp: h.handicap ?? h.hcp ?? h.number,
-                yardage: h.distance ?? h.yardage,
+              teeSets: (course as any).teeSets?.map((t: any) => ({
+                name: t.name, rating: t.rating, slope: t.slope, gender: t.gender,
+                holes: t.holes?.map((h: any, i: number) => ({
+                  number: h.number ?? i + 1, par: h.par,
+                  hcp: h.handicap ?? h.hcp ?? i + 1, yardage: h.distance ?? h.yardage,
+                })),
               })),
-              // Never overwrite Convex's cached Google image with the default Unsplash placeholder
-              imageUrl:
-                (course as any).imageUrl &&
-                  (course as any).imageUrl !== DEFAULT_COURSE_IMAGE
-                  ? (course as any).imageUrl
-                  : undefined,
+              holes: (course.holes ?? []).map((h: any) => ({
+                number: h.number, par: h.par,
+                hcp: h.handicap ?? h.hcp ?? h.number, yardage: h.distance ?? h.yardage,
+              })),
+              imageUrl: (course as any).imageUrl !== DEFAULT_COURSE_IMAGE ? (course as any).imageUrl : undefined,
             });
             convexCourseId = courseId as Id<"courses">;
           } catch (e) {
-            console.warn("Convex upsert course during round sync failed:", e);
+            console.warn("Upsert course failed:", e);
           }
         }
+
         if (!convexCourseId) {
-          // Can't sync this round without a Convex course; mark as failed for now.
-          console.warn('[RoundSyncer] No Convex course ID found for round:', round.id, 'marking as failed');
+          console.warn('[RoundSyncer] No course ID for round:', round.id);
           updateRound({ ...round, syncStatus: "failed" } as any);
           continue;
         }
 
-        // Unhide the course if it was previously hidden (deleted)
-        // This ensures the course reappears when a round with it is saved
-        if (course?.id) {
-          unhideCourse(course.id);
-        }
+        if (course?.id) unhideCourse(course.id);
 
         const courseHoles = course?.holes ?? [];
-        const holeCount =
-          round.holeCount ??
+        const holeCount = round.holeCount ??
           (round.players?.[0]?.scores?.length
             ? Math.max(...round.players[0].scores.map((s) => s.holeNumber))
             : 18);
-        const buildHoleData = (p: any) =>
-          (p.scores ?? []).map((s: any) => {
-            const hole = courseHoles.find((h) => h.number === s.holeNumber);
-            return {
-              hole: s.holeNumber,
-              score: s.strokes,
-              par: hole?.par ?? 4,
-              putts: undefined,
-              fairwayHit: undefined,
-              gir: undefined,
-            };
-          });
+
+        const buildHoleData = (p: any) => (p.scores ?? []).map((s: any) => {
+          const hole = courseHoles.find((h) => h.number === s.holeNumber);
+          return { hole: s.holeNumber, score: s.strokes, par: hole?.par ?? 4 };
+        });
 
         const playersPayload = Object.values(
           (round.players ?? []).reduce<Record<string, any>>((acc, p) => {
-            const key = p.playerId;
-            if (acc[key]) return acc;
-            acc[key] = p;
+            if (!acc[p.playerId]) acc[p.playerId] = p;
             return acc;
           }, {})
         ).map((p) => ({
           name: p.playerName,
+          playerId: isConvexId(p.playerId) ? p.playerId : undefined,
           teeName: p.teeColor,
           teeGender: (p as any).teeGender,
           handicap: p.handicapUsed,
           holeData: buildHoleData(p),
-          // Propagate "You" selection into Convex payload
           isSelf: !!(p as any).isUser,
         }));
 
@@ -304,7 +429,7 @@ function RoundSyncer() {
             await updateRoundMutation({
               roundId: (round as any).remoteId as any,
               courseId: convexCourseId,
-              date: round.date,
+              date: round.date.includes('T') ? round.date : `${round.date}T00:00:00`,
               holeCount: holeCount <= 9 ? 9 : 18,
               weather: undefined,
               players: playersPayload,
@@ -312,7 +437,7 @@ function RoundSyncer() {
           } else {
             const res = await saveRoundMutation({
               courseId: convexCourseId,
-              date: round.date,
+              date: round.date.includes('T') ? round.date : `${round.date}T00:00:00`,
               holeCount: holeCount <= 9 ? 9 : 18,
               weather: undefined,
               scanJobId: undefined,
@@ -320,31 +445,19 @@ function RoundSyncer() {
             });
             const remoteId = (res as any)?.roundId;
             if (remoteId) {
-              (round as any).remoteId = remoteId as string;
-              round.id = round.id || remoteId;
-
-              // If this round came from a game session, link and complete it
+              (round as any).remoteId = remoteId;
               const sessionId = (round as any).gameSessionId;
               if (sessionId && isConvexId(sessionId)) {
                 try {
-                  console.log('[RoundSyncer] Linking round to session:', remoteId, '->', sessionId);
-                  await linkRoundToSession({
-                    sessionId: sessionId as any,
-                    roundId: remoteId as any,
-                  });
-                  console.log('[RoundSyncer] Completing session with settlement:', sessionId);
-                  await completeSessionWithSettlement({
-                    sessionId: sessionId as any,
-                  });
-                  console.log('[RoundSyncer] Session completed successfully');
+                  await linkRoundToSession({ sessionId: sessionId as any, roundId: remoteId as any });
+                  await completeSessionWithSettlement({ sessionId: sessionId as any });
                 } catch (e) {
-                  console.error('[RoundSyncer] Failed to complete session:', e);
+                  console.error('[RoundSyncer] Session completion failed:', e);
                 }
               }
             }
           }
 
-          // Ensure we have a Google-derived image cached in Convex and mirrored locally.
           if (course) {
             try {
               const img = await getOrCreateCourseImage({
@@ -355,55 +468,66 @@ function RoundSyncer() {
               if (img?.url && course.imageUrl !== img.url) {
                 updateCourse({ ...course, imageUrl: img.url } as any);
               }
-            } catch (e) {
-              console.warn("courseImages.getOrCreate failed during round sync:", e);
-            }
+            } catch (e) { }
           }
 
-          updateRound({
-            ...round,
-            syncStatus: "synced",
-            updatedAt: new Date().toISOString(),
-          } as any);
+          updateRound({ ...round, syncStatus: "synced", updatedAt: new Date().toISOString() } as any);
         } catch (err) {
-          console.error('[RoundSyncer] Sync failed for round:', round.id, err);
-          updateRound({
-            ...round,
-            syncStatus: "failed",
-          } as any);
+          console.error('[RoundSyncer] Sync failed:', round.id, err);
+          updateRound({ ...round, syncStatus: "failed" } as any);
         }
       }
-      if (!cancelled) setIsSyncing(false);
-    })();
+
+      isSyncingRef.current = false;
+
+      const stillPending = useGolfStore
+        .getState()
+        .rounds.some((r) => r.syncStatus && r.syncStatus !== "synced");
+      if (stillPending) {
+        scheduleSync(5000);
+      } else {
+        clearSyncTimeout();
+      }
+    };
+
+    // Expose to subscriptions / AppState handlers without re-rendering.
+    syncRoundsRef.current = () => {
+      void syncRounds().catch((e) => console.warn("[RoundSyncer] Sync failed:", e));
+    };
+
+    // Run immediately on mount
+    void syncRounds().catch((e) => console.warn("[RoundSyncer] Sync failed:", e));
 
     return () => {
-      cancelled = true;
+      syncRoundsRef.current = null;
+      clearSyncTimeout();
     };
-  }, [rounds, courses, isSyncing, retryTick, saveRoundMutation, updateRoundMutation, upsertCourse, getOrCreateCourseImage, updateRound, updateCourse]);
+  }, [profile, saveRoundMutation, updateRoundMutation, upsertCourse, getOrCreateCourseImage, linkRoundToSession, completeSessionWithSettlement]);
 
   return null;
 }
 
 /**
  * CourseSyncer: Hydrates the local Zustand store with course data from Convex.
- * This ensures the local cache is a reflection of the backend.
+ * Uses lightweight listCourseRefsByHost and fetches full course data on-demand.
  */
 function CourseSyncer() {
   const { addCourse, updateCourse, getCourseById } = useGolfStore();
   const profile = useQuery(api.users.getProfile);
-  const roundsData = useQuery(
-    api.rounds.listWithSummary,
+  // Use lightweight query instead of listWithSummary
+  const courseRefs = useQuery(
+    api.rounds.listCourseRefsByHost,
     profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
   ) || [];
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
   const [syncedCourses, setSyncedCourses] = useState<Set<string>>(new Set());
 
-  // Sync courses from Convex roundsData into local Zustand store
-  // Only runs when roundsData changes, NOT when local courses change
+  // Sync courses from Convex courseRefs into local Zustand store
+  // Only runs when courseRefs changes, NOT when local courses change
   useEffect(() => {
-    if (!roundsData.length) return;
+    if (!courseRefs.length) return;
 
-    // Build a map of courses from roundsData (which now includes full course data)
+    // Build a map of unique courses from courseRefs
     const seenCourses = new Set<string>();
     const isDefaultImage = (url?: string | null) =>
       !url || url.includes('unsplash.com') || url.includes('photo-1587174486073-ae5e5cff23aa');
@@ -431,22 +555,20 @@ function CourseSyncer() {
       // Skip if we've already synced and don't need an image update
       if (syncedCourses.has(courseKey) && !needsImageUpdate) return;
 
-      // Get holes data from Convex response
-      let convexHoles = (r.courseHoles as any[] | undefined) ?? [];
-      let convexTeeSets = (r.courseTeeSets as any[] | undefined) ?? [];
+      // listCourseRefsByHost doesn't include holes/teeSets - fetch full course data
+      let convexHoles: any[] = [];
+      let convexTeeSets: any[] = [];
       let location = r.courseLocation ?? 'Unknown location';
-      let slope = r.courseSlope;
-      let rating = r.courseRating;
+      let slope: number | undefined;
+      let rating: number | undefined;
 
-      // If no holes in listWithSummary, try to fetch from Convex courses API
-      if (!convexHoles.length && externalId) {
-        console.log('[CourseSyncer] Fetching missing course data:', r.courseName, externalId);
+      // Fetch full course data from Convex (includes holes, teeSets, etc.)
+      if (externalId) {
         try {
           const fullCourse = await getConvexCourseByExternalId({ externalId });
-          console.log('[CourseSyncer] Fetched course:', externalId, 'holes:', fullCourse?.holes?.length ?? 0);
           if (fullCourse?.holes && fullCourse.holes.length > 0) {
             convexHoles = fullCourse.holes;
-            convexTeeSets = (fullCourse as any).teeSets ?? convexTeeSets;
+            convexTeeSets = (fullCourse as any).teeSets ?? [];
             location = fullCourse.location ?? location;
             slope = fullCourse.slope ?? slope;
             rating = fullCourse.rating ?? rating;
@@ -461,7 +583,6 @@ function CourseSyncer() {
 
       // Skip if still no holes data
       if (!convexHoles.length) {
-        console.log('[CourseSyncer] No holes data for:', r.courseName, 'externalId:', externalId);
         return;
       }
 
@@ -494,8 +615,8 @@ function CourseSyncer() {
     };
 
     // Process all courses
-    roundsData.forEach(processCourse);
-  }, [roundsData, addCourse, updateCourse, getCourseById, getConvexCourseByExternalId, syncedCourses]);
+    courseRefs.forEach(processCourse);
+  }, [courseRefs, addCourse, updateCourse, getCourseById, getConvexCourseByExternalId, syncedCourses]);
 
   return null;
 }
@@ -518,6 +639,8 @@ export default function RootLayout() {
             <ActiveScanPoller />
             <RoundSyncer />
             <CourseSyncer />
+            <AnalyticsProvider />
+            <StoreCleanup />
             <Stack
               screenOptions={{
                 headerBackTitle: "Back",
@@ -535,10 +658,15 @@ export default function RootLayout() {
               />
               <Stack.Screen
                 name="round/[id]"
-                options={{
-                  title: "Round Details",
-                  presentation: "fullScreenModal",
-                  animation: "slide_from_bottom"
+                options={({ route }) => {
+                  const onboarding = (route.params as any)?.onboardingMode === "true";
+                  return {
+                    title: "Round Details",
+                    presentation: "fullScreenModal",
+                    animation: "slide_from_bottom",
+                    gestureEnabled: !onboarding,
+                    fullScreenGestureEnabled: !onboarding,
+                  };
                 }}
               />
               <Stack.Screen
@@ -555,26 +683,39 @@ export default function RootLayout() {
               />
               <Stack.Screen
                 name="scan-scorecard"
-                options={{
-                  title: "Scan Scorecard",
-                  headerShown: false,
-                  presentation: "fullScreenModal",
-                  animation: "slide_from_bottom",
-                  contentStyle: { backgroundColor: "#000000" },
+                options={({ route }) => {
+                  const onboarding = (route.params as any)?.onboardingMode === "true";
+                  return {
+                    title: "Scan Scorecard",
+                    headerShown: false,
+                    presentation: "fullScreenModal",
+                    animation: "slide_from_bottom",
+                    contentStyle: { backgroundColor: "#000000" },
+                    gestureEnabled: !onboarding,
+                    fullScreenGestureEnabled: !onboarding,
+                  };
                 }}
               />
               <Stack.Screen
                 name="scan-review"
-                options={{
-                  title: "Review Scorecard",
-                  headerShown: false,
-                  presentation: "formSheet",
-                  // Full height to fully cover the home header.
-                  sheetAllowedDetents: [1],
-                  sheetInitialDetentIndex: 0,
-                  sheetGrabberVisible: false,
-                  sheetCornerRadius: 28,
-                  contentStyle: { backgroundColor: "#F5F3EF" },
+                options={({ route }) => {
+                  const onboarding = (route.params as any)?.onboardingMode === "true";
+                  return {
+                    title: "Review Scorecard",
+                    headerShown: false,
+                    presentation: "formSheet",
+                    // Full height to fully cover the home header.
+                    sheetAllowedDetents: [1],
+                    sheetInitialDetentIndex: 0,
+                    // Prevent the sheet from trying to "consume" vertical scroll gestures.
+                    sheetExpandsWhenScrolledToEdge: false,
+                    sheetGrabberVisible: false,
+                    sheetCornerRadius: 28,
+                    contentStyle: { backgroundColor: "#F5F3EF" },
+                    // Prevent dismissing the onboarding flow by swiping the sheet down.
+                    gestureEnabled: !onboarding,
+                    fullScreenGestureEnabled: !onboarding,
+                  };
                 }}
               />
               <Stack.Screen
@@ -599,6 +740,7 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: "transparent" },
                 }}
               />
+              <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
               <Stack.Screen name="(auth)" options={{ headerShown: false }} />
             </Stack>
           </GestureHandlerRootView>

@@ -130,7 +130,8 @@ export const getHandicap = query({
 
     const scores = await ctx.db
       .query("scores")
-      .withIndex("by_player", (q) => q.eq("playerId", args.playerId))
+      .withIndex("by_player_createdAt", (q) => q.eq("playerId", args.playerId))
+      .order("desc")
       .collect();
 
     // Ignore synthesized/ghost scores
@@ -186,7 +187,8 @@ export const getHandicapsBatch = query({
 
       const scores = await ctx.db
         .query("scores")
-        .withIndex("by_player", (q) => q.eq("playerId", playerId))
+        .withIndex("by_player_createdAt", (q) => q.eq("playerId", playerId))
+        .order("desc")
         .collect();
 
       const realScores = scores.filter((s) => !s.isSynthesized);
@@ -232,7 +234,8 @@ export const getStats = query({
 
     const scores = await ctx.db
       .query("scores")
-      .withIndex("by_player", (q) => q.eq("playerId", args.playerId))
+      .withIndex("by_player_createdAt", (q) => q.eq("playerId", args.playerId))
+      .order("desc")
       .collect();
 
     // Ignore synthesized/ghost scores when computing performance stats.
@@ -326,10 +329,14 @@ export const getStats = query({
       totalEighteenPar += holeCount === 18 ? coursePar : coursePar9 + 36;
       roundsPlayed += 1;
 
-      const courseRating = course.rating ?? coursePar;
-      const courseSlope = course.slope ?? 113;
-      const differential = ((score.grossScore - courseRating) * 113) / courseSlope;
-      differentials.push(differential);
+      if (typeof score.handicapDifferential === "number") {
+        differentials.push(score.handicapDifferential);
+      } else {
+        const courseRating = course.rating ?? coursePar;
+        const courseSlope = course.slope ?? 113;
+        const differential = ((score.grossScore - courseRating) * 113) / courseSlope;
+        differentials.push(differential);
+      }
 
       let countedRound = false;
       for (const h of score.holeData) {
@@ -444,7 +451,7 @@ export const getHeadToHead = query({
     // Find shared rounds (rounds where both players participated)
     const myRoundIds = new Set(myScores.map((s) => s.roundId));
     const theirRoundIds = new Set(theirScores.map((s) => s.roundId));
-    const sharedRoundIds = [...myRoundIds].filter((id) => theirRoundIds.has(id));
+    const sharedRoundIds = Array.from(myRoundIds).filter((id) => theirRoundIds.has(id));
 
     if (sharedRoundIds.length === 0) {
       return {
@@ -490,8 +497,8 @@ export const getHeadToHead = query({
     const sortedRounds = roundsInfo
       .filter((r) => r.round)
       .sort((a, b) => {
-        const dateA = new Date(a.round!.date).getTime();
-        const dateB = new Date(b.round!.date).getTime();
+        const dateA = new Date((a.round as any).date).getTime();
+        const dateB = new Date((b.round as any).date).getTime();
         return dateB - dateA;
       });
 
@@ -528,11 +535,11 @@ export const getHeadToHead = query({
 
       // Add to recent rounds (limit to 5)
       if (recentRounds.length < 5) {
-        const course = await ctx.db.get(round.courseId);
+        const course = await ctx.db.get((round as any).courseId);
         recentRounds.push({
           roundId: roundId as string,
-          date: round.date,
-          courseName: course?.name ?? "Unknown Course",
+          date: (round as any).date,
+          courseName: (course as any)?.name ?? "Unknown Course",
           myScore: myGross,
           theirScore: theirGross,
           winner,
@@ -645,5 +652,120 @@ export const create = mutation({
     });
 
     return playerId;
+  },
+});
+
+/**
+ * Delete a player (only if they are not the "self" player)
+ * This will also delete all associated scores to maintain data integrity.
+ */
+export const deletePlayer = mutation({
+  args: {
+    playerId: v.id("players"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const player = await ctx.db.get(args.playerId);
+    if (!player) {
+      throw new Error("Player not found");
+    }
+
+    // Prevent deleting self player
+    if (player.isSelf) {
+      throw new Error("Cannot delete your own player profile");
+    }
+
+    // Get all scores for this player
+    const scores = await ctx.db
+      .query("scores")
+      .withIndex("by_player", (q) => q.eq("playerId", args.playerId))
+      .collect();
+
+    // Delete all scores for this player
+    for (const score of scores) {
+      await ctx.db.delete(score._id);
+    }
+
+    // Delete the player
+    await ctx.db.delete(args.playerId);
+
+    return { success: true, deletedScoresCount: scores.length };
+  },
+});
+
+/**
+ * Merge two players into one.
+ * All scores from the source player are reassigned to the target player.
+ * The source player is deleted after merging.
+ */
+export const mergePlayers = mutation({
+  args: {
+    targetPlayerId: v.id("players"),
+    sourcePlayerId: v.id("players"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    if (args.targetPlayerId === args.sourcePlayerId) {
+      throw new Error("Cannot merge a player with themselves");
+    }
+
+    const targetPlayer = await ctx.db.get(args.targetPlayerId);
+    const sourcePlayer = await ctx.db.get(args.sourcePlayerId);
+
+    if (!targetPlayer || !sourcePlayer) {
+      throw new Error("One or both players not found");
+    }
+
+    // Prevent merging into a player if both are "self" (shouldn't happen but safeguard)
+    if (sourcePlayer.isSelf && targetPlayer.isSelf) {
+      throw new Error("Cannot merge two self players");
+    }
+
+    // Get all scores for the source player
+    const sourceScores = await ctx.db
+      .query("scores")
+      .withIndex("by_player", (q) => q.eq("playerId", args.sourcePlayerId))
+      .collect();
+
+    // Reassign all source player's scores to the target player
+    for (const score of sourceScores) {
+      await ctx.db.patch(score._id, {
+        playerId: args.targetPlayerId,
+        updatedAt: Date.now(),
+      });
+    }
+
+    // Merge aliases: add source player's name and aliases to target
+    const targetAliases = targetPlayer.aliases || [];
+    const sourceAliases = sourcePlayer.aliases || [];
+    const allAliases = Array.from(new Set([
+      ...targetAliases,
+      ...sourceAliases,
+      sourcePlayer.name, // Add source player's main name as an alias
+    ])).filter(alias =>
+      alias.toLowerCase().trim() !== targetPlayer.name.toLowerCase().trim()
+    );
+
+    await ctx.db.patch(args.targetPlayerId, {
+      aliases: allAliases,
+      updatedAt: Date.now(),
+    });
+
+    // Delete the source player
+    await ctx.db.delete(args.sourcePlayerId);
+
+    return {
+      success: true,
+      mergedScoresCount: sourceScores.length,
+      targetPlayerId: args.targetPlayerId,
+    };
   },
 });

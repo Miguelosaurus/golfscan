@@ -14,3 +14,15 @@ export const generateUploadUrl = mutation({
         return await ctx.storage.generateUploadUrl();
     },
 });
+
+/**
+ * Guest version for unauthenticated onboarding flow.
+ * Allows file uploads without requiring authentication.
+ */
+export const generateUploadUrlGuest = mutation({
+    args: {},
+    handler: async (ctx) => {
+        // No authentication required for guest uploads
+        return await ctx.storage.generateUploadUrl();
+    },
+});

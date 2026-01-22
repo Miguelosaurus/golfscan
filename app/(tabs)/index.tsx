@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,8 @@ import {
   Image,
   Modal,
   TextInput,
-  Alert
+  Alert,
+  Animated,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +31,8 @@ import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
 import { SessionBanner } from '@/components/SessionBanner';
 import { useCourseImage } from '@/hooks/useCourseImage';
+import { useOnboardingStore } from '@/store/useOnboardingStore';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -59,6 +62,9 @@ export default function HomeScreen() {
   // Scan flow state - for course selection during scan
   const [selectedScanCourse, setSelectedScanCourse] = useState<{ id: string; teeName: string } | null>(null);
 
+  // Ref to track if we've already navigated to scan-review in onboarding (prevents duplicate navigation)
+  const hasNavigatedToReviewRef = React.useRef(false);
+
   // Scan flow: when modal closes AND results are ready, navigate to review
   useEffect(() => {
     console.log('[HOME] Scan flow check:', {
@@ -85,6 +91,27 @@ export default function HomeScreen() {
       setSelectedScanCourse(null);
     }
   }, [shouldShowScanCourseModal, activeScanJob, selectedScanCourse, router, setPendingScanCourseSelection]);
+
+  // Onboarding mode: auto-navigate to scan-review when scan completes
+  // (In onboarding, we skip the course modal on home and go straight to scan-review)
+  useEffect(() => {
+    const isInOnboarding = !useOnboardingStore.getState().hasCompletedOnboarding;
+    if (!isInOnboarding) return;
+
+    // Use ref to immediately guard against duplicate navigation (faster than state)
+    if (hasNavigatedToReviewRef.current) return;
+
+    // Check if scan just completed and requires review
+    if (activeScanJob?.requiresReview && activeScanJob.result && activeScanJob.status !== 'processing') {
+      console.log('[HOME] Onboarding: scan complete, navigating to scan-review');
+      // Set ref immediately to prevent any re-runs from navigating again
+      hasNavigatedToReviewRef.current = true;
+      // Also mark in store for persistence
+      markActiveScanReviewPending();
+      router.push('/scan-review?onboardingMode=true');
+    }
+  }, [activeScanJob, router, markActiveScanReviewPending]);
+
   const { user, isLoaded: isUserLoaded } = useUser();
   const updateProfile = useMutation(api.users.updateProfile);
   const seedHandicap = useMutation(api.handicap.seedHandicap);
@@ -95,6 +122,63 @@ export default function HomeScreen() {
   const [profileGender, setProfileGender] = useState<"M" | "F" | null>(null);
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const [hasCheckedProfile, setHasCheckedProfile] = useState(false);
+
+  // Animated progress and status messages for processing card
+  // Using Animated.Value for smooth interpolation (prevents re-renders)
+  const progressAnim = useRef(new Animated.Value(30)).current;
+  const [displayProgress, setDisplayProgress] = useState(30);
+  const [processingMessageIndex, setProcessingMessageIndex] = useState(0);
+  const processingMessages = [
+    'AI is reading your scorecard...',
+    'Detecting scorecard format...',
+    'Analyzing handwriting...',
+    'Identifying players...',
+    'Extracting scores...',
+    'Calculating stats...',
+  ];
+
+  // Animate progress smoothly when processing
+  useEffect(() => {
+    if (activeScanJob?.status !== 'processing') {
+      // Reset when not processing
+      progressAnim.setValue(30);
+      setDisplayProgress(30);
+      setProcessingMessageIndex(0);
+      return;
+    }
+
+    let targetProgress = 30;
+    const animateToTarget = () => {
+      // Slow down as we approach 95%
+      const increment = targetProgress < 50 ? 8 : targetProgress < 75 ? 5 : 2;
+      targetProgress = Math.min(targetProgress + increment, 95);
+
+      Animated.timing(progressAnim, {
+        toValue: targetProgress,
+        duration: 800, // Smooth 800ms transition
+        useNativeDriver: false,
+      }).start();
+
+      // Update display value for percentage text
+      setDisplayProgress(Math.round(targetProgress));
+    };
+
+    // Start first animation immediately
+    animateToTarget();
+
+    // Continue animating every 800ms
+    const progressInterval = setInterval(animateToTarget, 800);
+
+    // Message cycling: change every 2 seconds
+    const messageInterval = setInterval(() => {
+      setProcessingMessageIndex(prev => (prev + 1) % processingMessages.length);
+    }, 2000);
+
+    return () => {
+      clearInterval(progressInterval);
+      clearInterval(messageInterval);
+    };
+  }, [activeScanJob?.status]);
 
 
   const profile = useQuery(api.users.getProfile);
@@ -111,10 +195,8 @@ export default function HomeScreen() {
   // Get current user
   const currentUser = players.find(p => p.isUser);
   const selfPlayer = useQuery(api.players.getSelf, {}) as any;
-  const selfStats = useQuery(
-    api.players.getStats,
-    selfPlayer?._id ? ({ playerId: selfPlayer._id as Id<'players'> } as any) : "skip"
-  ) as any;
+  // Removed: players.getStats subscription - too expensive for home screen (172.6 MB)
+  // Use handicapSummary.roundsCount instead for "rounds played" display
   const convexRounds = useQuery(
     api.rounds.listWithSummary,
     profile?._id ? { hostId: profile._id as Id<'users'> } : 'skip'
@@ -190,13 +272,14 @@ export default function HomeScreen() {
   const pendingLocalRounds = rounds.filter(
     (r: any) => !r.remoteId && !serverRoundIds.has(r.id)
   );
-  const isRoundsLoading = convexRounds === undefined;
+  // During onboarding (no profile), don't block on convexRounds - use local rounds only
+  const isOnboardingMode = !useOnboardingStore.getState().hasCompletedOnboarding;
+  const isRoundsLoading = !isOnboardingMode && convexRounds === undefined;
   const serverRounds = convexRounds ?? [];
   // Deduplicate: prefer server rounds, exclude local rounds that match
   const userRounds = [...serverRounds, ...pendingLocalRounds] as Round[];
 
   const totalRounds = userRounds.length;
-  const roundsPlayed = selfStats?.roundsPlayed ?? 0;
 
   // Calculate average score with proper 9-hole vs 18-hole adjustment
   const averageScore = totalRounds > 0 ?
@@ -212,14 +295,14 @@ export default function HomeScreen() {
     ) : 0;
 
   // Handicap: use the CALCULATED Scandicap index (same as Scandicap details page)
-  // This is the ground truth that incorporates real rounds + seeded rounds via WHS algorithm
-  const handicapDetails = useQuery(
-    api.handicap.getDetails,
+  // Using lightweight getSummary instead of getDetails to reduce bandwidth by 97%
+  const handicapSummary = useQuery(
+    api.handicap.getSummary,
     profile?._id ? { userId: profile._id as any } : "skip"
   );
   const userHandicapValue =
-    typeof handicapDetails?.currentHandicap === 'number'
-      ? handicapDetails.currentHandicap
+    typeof handicapSummary?.currentHandicap === 'number'
+      ? handicapSummary.currentHandicap
       : (typeof profile?.handicap === 'number' ? profile.handicap : 0);
   const displayName = profile?.name ?? currentUser?.name ?? 'Golf Player';
   const avatarUrl = profile?.avatarUrl ?? currentUser?.photoUrl;
@@ -373,27 +456,31 @@ export default function HomeScreen() {
 
     console.log('[HOME] Card Render State:', { isProcessing, isError, isReady, status, jobStatus: scanJob.status });
 
-    // Show user-friendly message, never raw backend errors
+    // Show user-friendly message with cycling messages during processing
     const message = isError
       ? 'Something went wrong. Please try again.'
       : isReady
         ? 'Ready for review'
-        : scanJob.message || 'Processing your scorecard...';
+        : processingMessages[processingMessageIndex];
     const subtext = isProcessing
       ? "We'll notify you when done."
       : isError
         ? 'Tap to try again.'
         : 'Tap to review and save your round.';
 
+    // Use animated progress when processing, otherwise use actual progress
+    const progressValue = isProcessing ? displayProgress : (scanJob.progress ?? 100);
+
     const handlePress = () => {
-      console.log('[HOME] Card pressed, state:', { isProcessing, isError, status });
+      console.log('[HOME] Card pressed, state:', { isProcessing, isError, status, isOnboardingMode });
       if (isProcessing) return;
       if (isError) {
         clearActiveScanJob();
         router.push('/scan-scorecard');
         return;
       }
-      router.push('/scan-review');
+      // Pass onboarding mode to scan-review if in onboarding
+      router.push(isOnboardingMode ? '/scan-review?onboardingMode=true' : '/scan-review');
     };
 
     const isDevJob =
@@ -443,18 +530,20 @@ export default function HomeScreen() {
         onPress={handlePress}
         disabled={cardDisabled}
       >
-        {/* Dismiss button - always visible to allow cancellation */}
-        <TouchableOpacity
-          style={styles.scanCardDismiss}
-          onPress={() => {
-            clearActiveScanJob();
-            setScannedData(null);
-            setIsScanning(false);
-          }}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <X size={18} color={colors.text} />
-        </TouchableOpacity>
+        {/* Dismiss button - hidden during onboarding to prevent breaking the flow */}
+        {!isOnboardingMode && (
+          <TouchableOpacity
+            style={styles.scanCardDismiss}
+            onPress={() => {
+              clearActiveScanJob();
+              setScannedData(null);
+              setIsScanning(false);
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <X size={18} color={colors.text} />
+          </TouchableOpacity>
+        )}
 
         <View style={styles.scanCardImageWrapper}>
           {scanJob.thumbnailUri ? (
@@ -466,7 +555,7 @@ export default function HomeScreen() {
           )}
           <View style={styles.scanCardDimmer} />
           <View style={styles.scanCardProgressOverlay}>
-            <ProgressRing percentage={scanJob.progress ?? 0} status={status} />
+            <ProgressRing percentage={progressValue} status={status} />
           </View>
         </View>
 
@@ -546,7 +635,7 @@ export default function HomeScreen() {
     return '0.0';
   };
 
-  const RoundListItem: React.FC<{ item: Round & { userWon: boolean } }> = ({ item }) => {
+  const RoundListItem = React.memo(({ item }: { item: Round & { userWon: boolean } }) => {
     const courseExternalId = (item as any).courseExternalId as string | undefined;
     const remoteCourseImage = (item as any).courseImageUrl as string | undefined;
     const remoteCourseLocation = (item as any).courseLocation as string | undefined;
@@ -606,7 +695,11 @@ export default function HomeScreen() {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, (prevProps, nextProps) => {
+    // Only re-render if the item itself changed
+    return prevProps.item.id === nextProps.item.id &&
+      prevProps.item.userWon === nextProps.item.userWon;
+  });
 
   const HomeSkeleton: React.FC = () => (
     <View style={{ paddingHorizontal: 6, paddingBottom: 24 }}>
@@ -690,80 +783,113 @@ export default function HomeScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={navigateToProfile}
-        >
-          <User size={24} color={colors.text} />
-        </TouchableOpacity>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={['#F5F3EF', '#E8F5E9', '#F5F3EF']}
+        locations={[0.3, 0.8, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={navigateToProfile}
+          >
+            <User size={24} color={colors.text} />
+          </TouchableOpacity>
 
-        <Text style={styles.headerTitle}>ScanCaddie</Text>
+          <Text style={styles.headerTitle}>ScanCaddie</Text>
 
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={navigateToSettings}
-        >
-          <Settings size={24} color={colors.text} />
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={navigateToSettings}
+          >
+            <Settings size={24} color={colors.text} />
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.profileSection}>
-        <View style={[styles.avatarContainer, styles.homeAvatarContainer]}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.homeAvatarImage} />
+        <View style={styles.profileSection}>
+          <View style={[styles.avatarContainer, styles.homeAvatarContainer]}>
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.homeAvatarImage} />
+            ) : (
+              <View style={styles.homeAvatarFallback}>
+                <Text style={styles.avatarText}>{displayName?.charAt(0) || 'G'}</Text>
+              </View>
+            )}
+          </View>
+
+          <Text style={styles.userName}>{displayName}</Text>
+        </View>
+
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{formatAverageScore()}</Text>
+            </View>
+            <Text style={styles.statLabel}>AVG SCORE</Text>
+          </View>
+
+          <View style={styles.statItem}>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{totalRounds}</Text>
+            </View>
+            <Text style={styles.statLabel}>ROUNDS</Text>
+          </View>
+
+          <TouchableOpacity style={styles.statItem} onPress={handleHandicapPress}>
+            <View style={[styles.statBox, styles.statBoxInteractive]}>
+              <Text style={styles.statValue}>{userHandicapValue.toFixed(1)}</Text>
+              <View style={styles.statEditBadge}>
+                <Info size={14} color={colors.text} />
+              </View>
+            </View>
+            <Text style={styles.statLabel}>SCANDICAP</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.roundsSection}>
+          <Text style={styles.sectionTitle}>My rounds</Text>
+
+
+
+          {isRoundsLoading ? (
+            <HomeSkeleton />
+          ) : recentRounds.length > 0 ? (
+            <FlatList
+              data={recentRounds}
+              renderItem={({ item }) => <RoundListItem item={item} />}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.roundsList}
+              showsVerticalScrollIndicator={false}
+              ListHeaderComponent={() => (
+                <View style={styles.scanCardHeader}>
+                  {activeSession && !hasActiveScanCard && (
+                    <View style={{ marginBottom: 12 }}>
+                      <SessionBanner
+                        sessionId={activeSession._id}
+                        courseName={activeSession.course?.name || 'Unknown Course'}
+                        gameType={activeSession.gameType}
+                        playerCount={activeSession.participants?.length || 0}
+                        status={activeSession.status}
+                        onResume={() => router.push(`/active-session?sessionId=${activeSession._id}`)}
+                        onDismiss={async () => {
+                          try {
+                            await cancelSession({ sessionId: activeSession._id });
+                          } catch (error) {
+                            console.error('Failed to cancel session:', error);
+                          }
+                        }}
+                      />
+                    </View>
+                  )}
+                  {hasActiveScanCard && renderActiveScanCard()}
+                </View>
+              )}
+              ListHeaderComponentStyle={null}
+            />
           ) : (
-            <View style={styles.homeAvatarFallback}>
-              <Text style={styles.avatarText}>{displayName?.charAt(0) || 'G'}</Text>
-            </View>
-          )}
-        </View>
-
-        <Text style={styles.userName}>{displayName}</Text>
-      </View>
-
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{formatAverageScore()}</Text>
-          </View>
-          <Text style={styles.statLabel}>AVG SCORE</Text>
-        </View>
-
-        <View style={styles.statItem}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValue}>{totalRounds}</Text>
-          </View>
-          <Text style={styles.statLabel}>ROUNDS</Text>
-        </View>
-
-        <TouchableOpacity style={styles.statItem} onPress={handleHandicapPress}>
-          <View style={[styles.statBox, styles.statBoxInteractive]}>
-            <Text style={styles.statValue}>{userHandicapValue.toFixed(1)}</Text>
-            <View style={styles.statEditBadge}>
-              <Info size={14} color={colors.text} />
-            </View>
-          </View>
-          <Text style={styles.statLabel}>SCANDICAP</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.roundsSection}>
-        <Text style={styles.sectionTitle}>My rounds</Text>
-
-
-
-        {isRoundsLoading ? (
-          <HomeSkeleton />
-        ) : recentRounds.length > 0 ? (
-          <FlatList
-            data={recentRounds}
-            renderItem={({ item }) => <RoundListItem item={item} />}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.roundsList}
-            showsVerticalScrollIndicator={false}
-            ListHeaderComponent={() => (
+            <View style={styles.emptyWrapper}>
               <View style={styles.scanCardHeader}>
                 {activeSession && !hasActiveScanCard && (
                   <View style={{ marginBottom: 12 }}>
@@ -786,224 +912,228 @@ export default function HomeScreen() {
                 )}
                 {hasActiveScanCard && renderActiveScanCard()}
               </View>
-            )}
-            ListHeaderComponentStyle={null}
-          />
-        ) : (
-          <View style={styles.emptyWrapper}>
-            <View style={styles.scanCardHeader}>
-              {activeSession && !hasActiveScanCard && (
-                <View style={{ marginBottom: 12 }}>
-                  <SessionBanner
-                    sessionId={activeSession._id}
-                    courseName={activeSession.course?.name || 'Unknown Course'}
-                    gameType={activeSession.gameType}
-                    playerCount={activeSession.participants?.length || 0}
-                    status={activeSession.status}
-                    onResume={() => router.push(`/active-session?sessionId=${activeSession._id}`)}
-                    onDismiss={async () => {
-                      try {
-                        await cancelSession({ sessionId: activeSession._id });
-                      } catch (error) {
-                        console.error('Failed to cancel session:', error);
-                      }
-                    }}
-                  />
+
+              {(!hasActiveScanCard && !activeSession) && (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyTitle}>No rounds yet</Text>
+                  <Text style={styles.emptyMessage}>
+                    Scan your scorecard with AI to add your scores and get your round summary
+                  </Text>
+                  <CurvedArrow />
                 </View>
               )}
-              {hasActiveScanCard && renderActiveScanCard()}
             </View>
+          )}
+        </View>
 
-            {(!hasActiveScanCard && !activeSession) && (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyTitle}>No rounds yet</Text>
-                <Text style={styles.emptyMessage}>
-                  Scan your scorecard with AI to add your scores and get your round summary
+        {/* Onboarding processing overlay - blocks interaction during scanning */}
+        <Modal
+          visible={isOnboardingMode && hasActiveScanCard && scanJob?.status === 'processing'}
+          transparent
+          animationType="fade"
+        >
+          <View style={styles.onboardingOverlay}>
+            <SafeAreaView style={styles.onboardingOverlayContent}>
+              <Text style={styles.onboardingOverlayTitle}>Processing your scorecard...</Text>
+              <Text style={styles.onboardingOverlaySubtitle}>
+                Our AI is reading handwritten scores and identifying players
+              </Text>
+
+              {/* Render the scan card inside the modal */}
+              <View style={styles.onboardingCardContainer}>
+                {renderActiveScanCard()}
+              </View>
+
+              <View style={styles.onboardingExplanationBox}>
+                <Text style={styles.onboardingExplanationTitle}>💡 How it works</Text>
+                <Text style={styles.onboardingExplanationText}>
+                  ScanCaddie uses AI to read handwritten scorecards, identify players,
+                  and automatically calculate your stats - all in seconds!
                 </Text>
-                <CurvedArrow />
               </View>
-            )}
+            </SafeAreaView>
           </View>
-        )}
-      </View>
+        </Modal>
 
-      <Modal
-        visible={showProfileSetup}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowProfileSetup(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Set up your profile</Text>
-            <TouchableOpacity
-              style={[styles.avatarContainer, styles.profileSetupAvatar]}
-              onPress={handlePickProfilePhoto}
-            >
-              {profilePhotoUri ? (
-                <Image
-                  source={{ uri: profilePhotoUri }}
-                  style={{ width: 76, height: 76, borderRadius: 38 }}
-                />
-              ) : (
-                <Camera size={28} color={colors.text} />
-              )}
-              <View style={styles.profileSetupEditBadge}>
-                <Edit3 size={14} color={colors.card} />
-              </View>
-            </TouchableOpacity>
-            <Text style={styles.inputLabel}>Name</Text>
-            <TextInput
-              style={styles.input}
-              value={profileNameInput}
-              onChangeText={setProfileNameInput}
-              placeholder="Enter your name"
-            />
-            <View style={[styles.modalButtons, { justifyContent: 'center' }]}>
+        <Modal
+          visible={showProfileSetup}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowProfileSetup(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Set up your profile</Text>
               <TouchableOpacity
-                disabled={!canSaveProfileName}
-                style={[
-                  styles.modalButton,
-                  styles.saveButton,
-                  !canSaveProfileName && styles.saveButtonDisabled,
-                ]}
-                onPress={async () => {
-                  const trimmed = profileNameInput.trim();
-                  if (!user || !isUserLoaded) {
-                    Alert.alert('Sign in required', 'Please sign in again to save your profile.');
-                    return;
-                  }
-                  try {
-                    // 1) Update Convex profile (app's own profile)
-                    await updateProfile({
-                      name: trimmed,
-                      avatarUrl: profilePhotoUri ?? undefined,
-                      profileSetupComplete: true,
-                      gender: profileGender ?? undefined,
-                    });
-
-                    // 2) Keep Clerk profile in sync so the dashboard
-                    //    and future sessions see the same name.
-                    const parts = trimmed.split(/\s+/).filter(Boolean);
-                    const firstName = parts[0] ?? trimmed;
-                    const lastName = parts.slice(1).join(' ');
-                    const updatePayload: any = { firstName };
-                    if (lastName) updatePayload.lastName = lastName;
-                    await user.update(updatePayload);
-
-                    setShowProfileSetup(false);
-                    setProfileSetupSeen(true);
-                  } catch {
-                    Alert.alert('Error', 'Could not save your profile. Please try again.');
-                  }
-                }}
+                style={[styles.avatarContainer, styles.profileSetupAvatar]}
+                onPress={handlePickProfilePhoto}
               >
-                <Text
+                {profilePhotoUri ? (
+                  <Image
+                    source={{ uri: profilePhotoUri }}
+                    style={{ width: 76, height: 76, borderRadius: 38 }}
+                  />
+                ) : (
+                  <Camera size={28} color={colors.text} />
+                )}
+                <View style={styles.profileSetupEditBadge}>
+                  <Edit3 size={14} color={colors.card} />
+                </View>
+              </TouchableOpacity>
+              <Text style={styles.inputLabel}>Name</Text>
+              <TextInput
+                style={styles.input}
+                value={profileNameInput}
+                onChangeText={setProfileNameInput}
+                placeholder="Enter your name"
+              />
+              <View style={[styles.modalButtons, { justifyContent: 'center' }]}>
+                <TouchableOpacity
+                  disabled={!canSaveProfileName}
                   style={[
-                    styles.saveButtonText,
-                    !canSaveProfileName && styles.saveButtonTextDisabled,
+                    styles.modalButton,
+                    styles.saveButton,
+                    !canSaveProfileName && styles.saveButtonDisabled,
                   ]}
+                  onPress={async () => {
+                    const trimmed = profileNameInput.trim();
+                    if (!user || !isUserLoaded) {
+                      Alert.alert('Sign in required', 'Please sign in again to save your profile.');
+                      return;
+                    }
+                    try {
+                      // 1) Update Convex profile (app's own profile)
+                      await updateProfile({
+                        name: trimmed,
+                        avatarUrl: profilePhotoUri ?? undefined,
+                        profileSetupComplete: true,
+                        gender: profileGender ?? undefined,
+                      });
+
+                      // 2) Keep Clerk profile in sync so the dashboard
+                      //    and future sessions see the same name.
+                      const parts = trimmed.split(/\s+/).filter(Boolean);
+                      const firstName = parts[0] ?? trimmed;
+                      const lastName = parts.slice(1).join(' ');
+                      const updatePayload: any = { firstName };
+                      if (lastName) updatePayload.lastName = lastName;
+                      await user.update(updatePayload);
+
+                      setShowProfileSetup(false);
+                      setProfileSetupSeen(true);
+                    } catch {
+                      Alert.alert('Error', 'Could not save your profile. Please try again.');
+                    }
+                  }}
                 >
-                  Save
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={[
+                      styles.saveButtonText,
+                      !canSaveProfileName && styles.saveButtonTextDisabled,
+                    ]}
+                  >
+                    Save
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      <Modal
-        visible={showHandicapModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowHandicapModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Set Your Handicap</Text>
+        <Modal
+          visible={showHandicapModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowHandicapModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Set Your Handicap</Text>
 
-            <Text style={styles.inputLabel}>Handicap Index</Text>
-            <TextInput
-              style={styles.input}
-              value={handicapInput}
-              onChangeText={setHandicapInput}
-              placeholder="Enter your current index"
-              keyboardType="decimal-pad"
-            />
-            <Text style={styles.ghinNote}>
-              This seeds your Scandicap so future rounds can adjust it over time.
-            </Text>
+              <Text style={styles.inputLabel}>Handicap Index</Text>
+              <TextInput
+                style={styles.input}
+                value={handicapInput}
+                onChangeText={setHandicapInput}
+                placeholder="Enter your current index"
+                keyboardType="decimal-pad"
+              />
+              <Text style={styles.ghinNote}>
+                This seeds your Scandicap so future rounds can adjust it over time.
+              </Text>
 
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => setShowHandicapModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setShowHandicapModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
-                onPress={async () => {
-                  const parsed = parseFloat(handicapInput);
-                  if (isNaN(parsed)) {
-                    Alert.alert('Error', 'Please enter a valid handicap');
-                    return;
-                  }
-                  try {
-                    await seedHandicap({ initialHandicap: parsed });
-                    setShowHandicapModal(false);
-                    Alert.alert('Success', 'Your Scandicap has been seeded.');
-                  } catch (e: any) {
-                    Alert.alert(
-                      'Error',
-                      e?.message || 'Could not seed handicap. Please try again.'
-                    );
-                  }
-                }}
-              >
-                <Text style={styles.saveButtonText}>Save</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.saveButton]}
+                  onPress={async () => {
+                    const parsed = parseFloat(handicapInput);
+                    if (isNaN(parsed)) {
+                      Alert.alert('Error', 'Please enter a valid handicap');
+                      return;
+                    }
+                    try {
+                      await seedHandicap({ initialHandicap: parsed });
+                      setShowHandicapModal(false);
+                      Alert.alert('Success', 'Your Scandicap has been seeded.');
+                    } catch (e: any) {
+                      Alert.alert(
+                        'Error',
+                        e?.message || 'Could not seed handicap. Please try again.'
+                      );
+                    }
+                  }}
+                >
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* Course selection modal for scan flow */}
-      <CourseSearchModal
-        visible={shouldShowScanCourseModal}
-        testID="home-scan-course-modal"
-        onClose={() => {
-          setShouldShowScanCourseModal(false);
-        }}
-        onSelectCourse={(course, meta) => {
-          console.log('[HOME] onSelectCourse callback, course:', course?.name, 'meta:', meta);
-          console.log('[HOME] selectedTee from meta:', meta?.selectedTee);
-          // Store course id and tee name for navigation
-          setSelectedScanCourse({
-            id: course.id,
-            teeName: meta?.selectedTee || '',
-          });
-          setShouldShowScanCourseModal(false);
-        }}
-      />
-
-      {/* Game setup modal (triggered from camera screen's "Setup Game Instead") */}
-      {pendingGameSetupIntent && (
-        <PreRoundFlowModal
-          visible={true}
-          onClose={() => setPendingGameSetupIntent(null)}
-          initialIntent={pendingGameSetupIntent}
+        {/* Course selection modal for scan flow */}
+        <CourseSearchModal
+          visible={shouldShowScanCourseModal}
+          testID="home-scan-course-modal"
+          onClose={() => {
+            setShouldShowScanCourseModal(false);
+          }}
+          onSelectCourse={(course, meta) => {
+            console.log('[HOME] onSelectCourse callback, course:', course?.name, 'meta:', meta);
+            console.log('[HOME] selectedTee from meta:', meta?.selectedTee);
+            // Store course id and tee name for navigation
+            setSelectedScanCourse({
+              id: course.id,
+              teeName: meta?.selectedTee || '',
+            });
+            setShouldShowScanCourseModal(false);
+          }}
+          showMyCoursesTab={!useOnboardingStore.getState().hasCompletedOnboarding ? false : true}
+          isGuest={!useOnboardingStore.getState().hasCompletedOnboarding}
         />
-      )}
-    </SafeAreaView >
+
+        {/* Game setup modal (triggered from camera screen's "Setup Game Instead") */}
+        {pendingGameSetupIntent && (
+          <PreRoundFlowModal
+            visible={true}
+            onClose={() => setPendingGameSetupIntent(null)}
+            initialIntent={pendingGameSetupIntent}
+          />
+        )}
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
     paddingTop: 74,
   },
   header: {
@@ -1554,5 +1684,54 @@ const styles = StyleSheet.create({
   saveButtonTextDisabled: {
     color: '#FFFFFF',
     opacity: 0.8,
+  },
+  // Onboarding processing overlay styles
+  onboardingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  onboardingOverlayContent: {
+    width: '100%',
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  onboardingOverlayTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  onboardingOverlaySubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  onboardingCardContainer: {
+    width: '100%',
+    marginBottom: 24,
+  },
+  onboardingExplanationBox: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  onboardingExplanationTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  onboardingExplanationText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    lineHeight: 20,
   },
 });

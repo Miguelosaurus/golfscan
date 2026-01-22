@@ -10,6 +10,7 @@ import {
   Alert,
   Modal
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
@@ -17,8 +18,8 @@ import { RoundCard } from '@/components/RoundCard';
 import { CourseCard } from '@/components/CourseCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Round, Player, PlayerSummary, Course } from '@/types';
-import { History, Camera, Search, Users, Flag, Check, X, Link, Edit, Calendar as CalendarIcon } from 'lucide-react-native';
-import { useQuery } from '@/lib/convex';
+import { History, Camera, Search, Users, Flag, Check, X, Link, Edit, Calendar as CalendarIcon, Trash2 } from 'lucide-react-native';
+import { useQuery, useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { useGolfStore } from '@/store/useGolfStore';
@@ -46,6 +47,7 @@ export default function HistoryScreen() {
     api.rounds.listWithSummary,
     profile?._id ? { hostId: profile._id as Id<"users"> } : "skip"
   ) || [];
+  const convexPlayers = useQuery(api.players.list) || [];
 
   // Ensure the signed-in user always has a Player entry flagged as isUser for UI highlighting
   useEffect(() => {
@@ -111,14 +113,14 @@ export default function HistoryScreen() {
   };
 
   const filteredRounds = roundsData
-    .filter(round =>
+    .filter((round: any) =>
       round.courseName.toLowerCase().includes(roundsSearchQuery.toLowerCase()) ||
-      round.players.some(player =>
+      round.players.some((player: any) =>
         player.playerName.toLowerCase().includes(roundsSearchQuery.toLowerCase())
       )
     )
-    .filter(round => withinRange(round.date))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()) as Round[];
+    .filter((round: any) => withinRange(round.date))
+    .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()) as Round[];
 
   const derivedCourses: Course[] = useMemo(() => {
     const map = new Map<string, Course>();
@@ -188,8 +190,8 @@ export default function HistoryScreen() {
   const getUniquePlayers = (): PlayerSummary[] => {
     const playerMap = new Map<string, PlayerSummary>();
 
-    roundsData.forEach(round => {
-      round.players.forEach(player => {
+    roundsData.forEach((round: any) => {
+      round.players.forEach((player: any) => {
         // Compute 18-hole equivalent score for this round/player
         const holeCount = (round as any).holeCount ?? (
           player.scores && player.scores.length
@@ -211,14 +213,14 @@ export default function HistoryScreen() {
           : player.totalScore;
 
         const existing = playerMap.get(player.playerId);
-        const storePlayer = players.find((p) => p.id === player.playerId);
+        const convexPlayer = convexPlayers.find((p) => (p as any)._id === player.playerId);
         playerMap.set(player.playerId, {
           id: player.playerId,
           name: player.playerName,
           roundsPlayed: (existing?.roundsPlayed || 0) + 1,
           totalScore: (existing?.totalScore || 0) + eighteenEq,
-          isUser: storePlayer?.isUser || false,
-          handicap: player.handicapUsed || storePlayer?.handicap || existing?.handicap,
+          isUser: (convexPlayer as any)?.isSelf || false,
+          handicap: player.handicapUsed || (convexPlayer as any)?.handicap || existing?.handicap,
         });
       });
     });
@@ -301,8 +303,108 @@ export default function HistoryScreen() {
     );
   };
 
+  // Mutations for player management
+  const deletePlayerMutation = useMutation(api.players.deletePlayer);
+  const mergePlayersMutation = useMutation(api.players.mergePlayers);
+
+  const handleDeletePlayer = (playerId: string, playerName: string, isUser: boolean) => {
+    if (isUser) {
+      Alert.alert('Cannot Delete', 'You cannot delete your own player profile.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Player',
+      `Are you sure you want to delete "${playerName}"? This will also delete all their round scores. This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deletePlayerMutation({ playerId: playerId as Id<'players'> });
+              Alert.alert('Success', `"${playerName}" has been deleted.`);
+              setSelectedPlayerIds([]);
+              setIsSelectMode(false);
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to delete player');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleMergePlayers = () => {
-    Alert.alert('Not available', 'Player merge is not available in the cloud version yet.');
+    if (selectedPlayerIds.length !== 2) {
+      Alert.alert('Select 2 Players', 'Please select exactly 2 players to merge.');
+      return;
+    }
+
+    const [firstId, secondId] = selectedPlayerIds;
+    const firstPlayer = playersForList.find(p => p.id === firstId);
+    const secondPlayer = playersForList.find(p => p.id === secondId);
+
+    if (!firstPlayer || !secondPlayer) {
+      Alert.alert('Error', 'Could not find selected players.');
+      return;
+    }
+
+    // Prevent merging if one is the self player and would be deleted
+    Alert.alert(
+      'Merge Players',
+      `Which player should be kept? The other player's scores will be merged into them and then deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: `Keep "${firstPlayer.name}"`,
+          onPress: async () => {
+            if (secondPlayer.isUser) {
+              Alert.alert('Cannot Delete', 'Cannot delete your own player profile during merge.');
+              return;
+            }
+            try {
+              const result = await mergePlayersMutation({
+                targetPlayerId: firstId as Id<'players'>,
+                sourcePlayerId: secondId as Id<'players'>,
+              });
+              Alert.alert(
+                'Success',
+                `Merged ${result.mergedScoresCount} scores from "${secondPlayer.name}" into "${firstPlayer.name}".`
+              );
+              setSelectedPlayerIds([]);
+              setIsSelectMode(false);
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to merge players');
+            }
+          },
+        },
+        {
+          text: `Keep "${secondPlayer.name}"`,
+          onPress: async () => {
+            if (firstPlayer.isUser) {
+              Alert.alert('Cannot Delete', 'Cannot delete your own player profile during merge.');
+              return;
+            }
+            try {
+              const result = await mergePlayersMutation({
+                targetPlayerId: secondId as Id<'players'>,
+                sourcePlayerId: firstId as Id<'players'>,
+              });
+              Alert.alert(
+                'Success',
+                `Merged ${result.mergedScoresCount} scores from "${firstPlayer.name}" into "${secondPlayer.name}".`
+              );
+              setSelectedPlayerIds([]);
+              setIsSelectMode(false);
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to merge players');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderRoundItem = ({ item }: { item: Round }) => (
@@ -489,155 +591,175 @@ export default function HistoryScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'rounds' && styles.activeTab]}
-          onPress={() => setActiveTab('rounds')}
-        >
-          <History size={18} color={colors.text} />
-          <Text style={[styles.tabText, activeTab === 'rounds' && styles.activeTabText]}>Rounds</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'players' && styles.activeTab]}
-          onPress={() => setActiveTab('players')}
-        >
-          <Users size={18} color={colors.text} />
-          <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'courses' && styles.activeTab]}
-          onPress={() => setActiveTab('courses')}
-        >
-          <Flag size={18} color={colors.text} />
-          <Text style={[styles.tabText, activeTab === 'courses' && styles.activeTabText]}>Courses</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchContainer}>
-        <Search size={20} color={colors.textSecondary} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder={getPlaceholder()}
-          placeholderTextColor={colors.textSecondary}
-          value={
-            activeTab === 'rounds'
-              ? roundsSearchQuery
-              : activeTab === 'players'
-                ? playersSearchQuery
-                : coursesSearchQuery
-          }
-          onChangeText={(text) => {
-            if (activeTab === 'rounds') setRoundsSearchQuery(text);
-            else if (activeTab === 'players') setPlayersSearchQuery(text);
-            else setCoursesSearchQuery(text);
-          }}
-        />
-        {activeTab === 'rounds' && (
-          <TouchableOpacity
-            style={styles.manageInlineButton}
-            onPress={() => setShowDateFilter(true)}
-          >
-            <CalendarIcon size={16} color={colors.primary} />
-            <Text style={styles.manageInlineButtonText}>
-              {datePreset === 'all' ? 'Dates' :
-                datePreset === 'week' ? 'This week' :
-                  datePreset === 'month' ? 'This month' :
-                    datePreset === 'year' ? 'This year' :
-                      datePreset === 'last30' ? 'Last 30d' : 'Custom'}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {activeTab === 'players' && getUniquePlayers().length > 1 && (
-          <TouchableOpacity
-            style={[styles.manageInlineButton, isSelectMode && styles.manageInlineButtonActive]}
-            onPress={toggleSelectMode}
-          >
-            <Edit size={16} color={isSelectMode ? colors.background : colors.primary} />
-            <Text style={[styles.manageInlineButtonText, isSelectMode && styles.manageInlineButtonTextActive]}>
-              {isSelectMode ? 'Cancel' : 'Manage'}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {activeTab === 'players' && isSelectMode && (
-          <TouchableOpacity
-            style={[styles.manageInlineButton, styles.mergeInlineButton, selectedPlayerIds.length < 2 && styles.disabledButton]}
-            onPress={handleMergePlayers}
-            disabled={selectedPlayerIds.length < 2}
-          >
-            <Link size={16} color={selectedPlayerIds.length >= 2 ? colors.background : colors.textSecondary} />
-            <Text style={[styles.manageInlineButtonText, styles.mergeButtonText, selectedPlayerIds.length < 2 && styles.disabledButtonText]}>
-              {`Merge ${selectedPlayerIds.length > 0 ? selectedPlayerIds.length : ''}`.trim()}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <FlatList
-        data={getData()}
-        renderItem={renderItem}
-        keyExtractor={(item, index) => `${activeTab}-${item.id}-${index}`}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={getEmptyState()}
-        ListHeaderComponent={null}
+    <View style={styles.container}>
+      <LinearGradient
+        colors={['#F5F3EF', '#E8F5E9', '#F5F3EF']}
+        locations={[0.3, 0.8, 1]}
+        style={StyleSheet.absoluteFill}
       />
-      <Modal visible={showDateFilter} transparent animationType="fade" onRequestClose={() => setShowDateFilter(false)}>
-        <View style={styles.dateModalBackdrop}>
-          <View style={styles.dateModal}>
-            <Text style={styles.dateModalTitle}>Filter by date</Text>
-            <View style={styles.datePresetRow}>
-              {['all', 'week', 'month', 'year', 'last30', 'custom'].map(p => (
-                <TouchableOpacity
-                  key={p}
-                  style={[styles.presetChip, datePreset === p && styles.presetChipActive]}
-                  onPress={() => setDatePreset(p as any)}
-                >
-                  <Text style={[styles.presetChipText, datePreset === p && styles.presetChipTextActive]}>
-                    {p === 'all' ? 'All' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : p === 'year' ? 'This Year' : p === 'last30' ? 'Last 30 Days' : 'Custom'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            {datePreset === 'custom' && (
-              <View style={styles.customRow}>
-                <TextInput
-                  style={styles.dateInputBox}
-                  placeholder="Start YYYY-MM-DD"
-                  placeholderTextColor={colors.textSecondary}
-                  value={customStart || ''}
-                  onChangeText={setCustomStart}
-                />
-                <TextInput
-                  style={styles.dateInputBox}
-                  placeholder="End YYYY-MM-DD"
-                  placeholderTextColor={colors.textSecondary}
-                  value={customEnd || ''}
-                  onChangeText={setCustomEnd}
-                />
+      <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+        <View style={styles.tabContainer}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'rounds' && styles.activeTab]}
+            onPress={() => setActiveTab('rounds')}
+          >
+            <History size={18} color={colors.text} />
+            <Text style={[styles.tabText, activeTab === 'rounds' && styles.activeTabText]}>Rounds</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'players' && styles.activeTab]}
+            onPress={() => setActiveTab('players')}
+          >
+            <Users size={18} color={colors.text} />
+            <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'courses' && styles.activeTab]}
+            onPress={() => setActiveTab('courses')}
+          >
+            <Flag size={18} color={colors.text} />
+            <Text style={[styles.tabText, activeTab === 'courses' && styles.activeTabText]}>Courses</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.searchContainer}>
+          <Search size={20} color={colors.textSecondary} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder={getPlaceholder()}
+            placeholderTextColor={colors.textSecondary}
+            value={
+              activeTab === 'rounds'
+                ? roundsSearchQuery
+                : activeTab === 'players'
+                  ? playersSearchQuery
+                  : coursesSearchQuery
+            }
+            onChangeText={(text) => {
+              if (activeTab === 'rounds') setRoundsSearchQuery(text);
+              else if (activeTab === 'players') setPlayersSearchQuery(text);
+              else setCoursesSearchQuery(text);
+            }}
+          />
+          {activeTab === 'rounds' && (
+            <TouchableOpacity
+              style={styles.manageInlineButton}
+              onPress={() => setShowDateFilter(true)}
+            >
+              <CalendarIcon size={16} color={colors.primary} />
+              <Text style={styles.manageInlineButtonText}>
+                {datePreset === 'all' ? 'Dates' :
+                  datePreset === 'week' ? 'This week' :
+                    datePreset === 'month' ? 'This month' :
+                      datePreset === 'year' ? 'This year' :
+                        datePreset === 'last30' ? 'Last 30d' : 'Custom'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {activeTab === 'players' && getUniquePlayers().length > 1 && (
+            <TouchableOpacity
+              style={[styles.manageInlineButton, isSelectMode && styles.manageInlineButtonActive]}
+              onPress={toggleSelectMode}
+            >
+              <Edit size={16} color={isSelectMode ? colors.background : colors.primary} />
+              <Text style={[styles.manageInlineButtonText, isSelectMode && styles.manageInlineButtonTextActive]}>
+                {isSelectMode ? 'Cancel' : 'Manage'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {activeTab === 'players' && isSelectMode && (
+            <TouchableOpacity
+              style={[styles.manageInlineButton, styles.mergeInlineButton, selectedPlayerIds.length < 2 && styles.disabledButton]}
+              onPress={handleMergePlayers}
+              disabled={selectedPlayerIds.length < 2}
+            >
+              <Link size={16} color={selectedPlayerIds.length >= 2 ? colors.background : colors.textSecondary} />
+              <Text style={[styles.manageInlineButtonText, styles.mergeButtonText, selectedPlayerIds.length < 2 && styles.disabledButtonText]}>
+                {`Merge ${selectedPlayerIds.length > 0 ? selectedPlayerIds.length : ''}`.trim()}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {activeTab === 'players' && isSelectMode && selectedPlayerIds.length === 1 && (
+            <TouchableOpacity
+              style={[styles.manageInlineButton, styles.deleteInlineButton]}
+              onPress={() => {
+                const player = playersForList.find(p => p.id === selectedPlayerIds[0]);
+                if (player) {
+                  handleDeletePlayer(player.id, player.name, player.isUser || false);
+                }
+              }}
+            >
+              <Trash2 size={16} color={colors.background} />
+              <Text style={[styles.manageInlineButtonText, styles.deleteButtonText]}>Delete</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <FlatList
+          data={getData()}
+          renderItem={renderItem}
+          keyExtractor={(item, index) => `${activeTab}-${item.id}-${index}`}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={getEmptyState()}
+          ListHeaderComponent={null}
+        />
+        <Modal visible={showDateFilter} transparent animationType="fade" onRequestClose={() => setShowDateFilter(false)}>
+          <View style={styles.dateModalBackdrop}>
+            <View style={styles.dateModal}>
+              <Text style={styles.dateModalTitle}>Filter by date</Text>
+              <View style={styles.datePresetRow}>
+                {['all', 'week', 'month', 'year', 'last30', 'custom'].map(p => (
+                  <TouchableOpacity
+                    key={p}
+                    style={[styles.presetChip, datePreset === p && styles.presetChipActive]}
+                    onPress={() => setDatePreset(p as any)}
+                  >
+                    <Text style={[styles.presetChipText, datePreset === p && styles.presetChipTextActive]}>
+                      {p === 'all' ? 'All' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : p === 'year' ? 'This Year' : p === 'last30' ? 'Last 30 Days' : 'Custom'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-            )}
-            <View style={styles.dateModalActions}>
-              <TouchableOpacity style={[styles.manageInlineButton, styles.mergeInlineButton]} onPress={() => setShowDateFilter(false)}>
-                <Text style={[styles.manageInlineButtonText, styles.mergeButtonText]}>Apply</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.manageInlineButton} onPress={() => { setDatePreset('all'); setCustomStart(null); setCustomEnd(null); }}>
-                <Text style={styles.manageInlineButtonText}>Clear</Text>
-              </TouchableOpacity>
+              {datePreset === 'custom' && (
+                <View style={styles.customRow}>
+                  <TextInput
+                    style={styles.dateInputBox}
+                    placeholder="Start YYYY-MM-DD"
+                    placeholderTextColor={colors.textSecondary}
+                    value={customStart || ''}
+                    onChangeText={setCustomStart}
+                  />
+                  <TextInput
+                    style={styles.dateInputBox}
+                    placeholder="End YYYY-MM-DD"
+                    placeholderTextColor={colors.textSecondary}
+                    value={customEnd || ''}
+                    onChangeText={setCustomEnd}
+                  />
+                </View>
+              )}
+              <View style={styles.dateModalActions}>
+                <TouchableOpacity style={[styles.manageInlineButton, styles.mergeInlineButton]} onPress={() => setShowDateFilter(false)}>
+                  <Text style={[styles.manageInlineButtonText, styles.mergeButtonText]}>Apply</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.manageInlineButton} onPress={() => { setDatePreset('all'); setCustomStart(null); setCustomEnd(null); }}>
+                  <Text style={styles.manageInlineButtonText}>Clear</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+        </Modal>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
     paddingTop: 60,
   },
   tabContainer: {
@@ -848,6 +970,13 @@ const styles = StyleSheet.create({
   mergeInlineButton: {
     backgroundColor: colors.primary,
     marginLeft: 8,
+  },
+  deleteInlineButton: {
+    backgroundColor: '#DC3545',
+    marginLeft: 8,
+  },
+  deleteButtonText: {
+    color: colors.background,
   },
   dateModalBackdrop: {
     position: 'absolute',

@@ -64,7 +64,7 @@ interface GolfUIState {
   updateRound: (round: Round) => void;
   deleteRound: (roundId: string) => void;
   linkPlayerToUser: (playerId: string) => void;
-  mergePlayerData: (targetPlayerId: string, sourcePlayerId: string, finalName: string) => void;
+  removeLegacyPlayers: () => void;
   getCourseById: (courseId: string) => Course | undefined;
   getFrequentCourses: () => any[];
   trackCourseUsage: (courseId: string, courseName: string) => void;
@@ -95,6 +95,9 @@ interface GolfUIState {
 
   // Game setup intent action
   setPendingGameSetupIntent: (intent: 'new_game' | 'quick_strokes' | null) => void;
+
+  // Reset all local data (used on logout/account switch)
+  resetGolfStore: () => void;
 }
 
 export const useGolfStore = create<GolfUIState>()(
@@ -154,11 +157,17 @@ export const useGolfStore = create<GolfUIState>()(
         set((state) => ({
           players: state.players.map((p) => ({ ...p, isUser: p.id === playerId })),
         })),
-      mergePlayerData: () => undefined,
-      getCourseById: (courseId) => get().courses.find((c) => c.id === courseId),
+      removeLegacyPlayers: () =>
+        set((state) => {
+          const isConvexId = (id: string) => /^[a-z0-9]{15,}$/i.test(id);
+          return {
+            players: state.players.filter((p) => isConvexId(p.id)),
+          };
+        }),
+      getCourseById: (courseId: string) => get().courses.find((c) => c.id === courseId),
       getFrequentCourses: () =>
         [...get().courseUsage].sort((a, b) => b.count - a.count).slice(0, 5),
-      trackCourseUsage: (courseId, courseName) =>
+      trackCourseUsage: (courseId: string, courseName: string) =>
         set((state) => ({
           courseUsage: [
             ...state.courseUsage,
@@ -198,7 +207,7 @@ export const useGolfStore = create<GolfUIState>()(
       markActiveScanReviewPending: () =>
         set((state) =>
           state.activeScanJob
-            ? { activeScanJob: { ...state.activeScanJob, requiresReview: true } }
+            ? { activeScanJob: { ...state.activeScanJob, autoReviewLaunched: true } }
             : {}
         ),
       markActiveScanReviewed: () =>
@@ -214,6 +223,27 @@ export const useGolfStore = create<GolfUIState>()(
       setPendingScanCourseSelection: (selection) => set({ pendingScanCourseSelection: selection }),
       clearPendingScanCourseSelection: () => set({ pendingScanCourseSelection: null }),
       setPendingGameSetupIntent: (intent: 'new_game' | 'quick_strokes' | null) => set({ pendingGameSetupIntent: intent }),
+
+      resetGolfStore: () =>
+        set((state) => ({
+          courses: [],
+          players: [],
+          rounds: [],
+          courseUsage: [],
+          devMode: false,
+          profileSetupSeen: false,
+          _hasHydrated: state._hasHydrated,
+
+          scannedData: null,
+          isScanning: false,
+          remainingScans: 50,
+          pendingScanPhotos: [],
+          activeScanJob: null,
+          shouldShowScanCourseModal: false,
+          pendingScanCourseSelection: null,
+          pendingGameSetupIntent: null,
+          hiddenCourseIds: [],
+        })),
     }),
     {
       name: "golfscan-store",

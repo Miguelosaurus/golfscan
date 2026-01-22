@@ -69,8 +69,8 @@ export const upsert = mutation({
         holes: args.holes,
         updatedAt: now,
       };
-      // Only update imageUrl if provided; otherwise keep existing (cached) URL.
-      if (args.imageUrl !== undefined) {
+      // Only update imageUrl if provided and NOT a base64 data URL; otherwise keep existing.
+      if (args.imageUrl !== undefined && !args.imageUrl.startsWith("data:")) {
         patch.imageUrl = args.imageUrl;
       }
       console.log("[courses.upsert] patch existing", {
@@ -89,7 +89,7 @@ export const upsert = mutation({
       rating: args.rating,
       teeSets: args.teeSets,
       holes: args.holes,
-      imageUrl: args.imageUrl,
+      imageUrl: args.imageUrl?.startsWith("data:") ? undefined : args.imageUrl,
       createdAt: now,
       updatedAt: now,
     });
@@ -108,12 +108,15 @@ export const getById = query({
   args: { courseId: v.id("courses") },
   handler: async (ctx, args) => {
     const course = await ctx.db.get(args.courseId);
-    console.log("[courses.getById]", {
-      courseId: args.courseId,
-      hasImage: !!course?.imageUrl,
-      imageUrl: truncate(course?.imageUrl),
-    });
-    return course;
+    if (!course) return null;
+
+    let imageUrl = course.imageUrl;
+    if ((course as any).imageStorageId) {
+      const storageUrl = await ctx.storage.getUrl((course as any).imageStorageId);
+      if (storageUrl) imageUrl = storageUrl;
+    }
+
+    return { ...course, imageUrl };
   },
 });
 
@@ -125,12 +128,15 @@ export const getByExternalId = query({
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .unique();
 
-    console.log("[courses.getByExternalId]", {
-      externalId: args.externalId,
-      found: !!course,
-    });
+    if (!course) return null;
 
-    return course;
+    let imageUrl = course.imageUrl;
+    if ((course as any).imageStorageId) {
+      const storageUrl = await ctx.storage.getUrl((course as any).imageStorageId);
+      if (storageUrl) imageUrl = storageUrl;
+    }
+
+    return { ...course, imageUrl };
   },
 });
 
@@ -140,20 +146,30 @@ export const searchByName = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const term = args.term.trim().toLowerCase();
-    if (!term) return [];
+    const term = args.term.trim();
+    if (!term || term.length < 2) return [];
 
     const limit = args.limit ?? 20;
 
-    // Simple case-insensitive "contains" search using name index
+    // Use Convex search index for efficient full-text search (avoids full table scan).
+    // Note: Search index uses tokenization, not substring matching.
+    // The UI falls back to paid API when results are insufficient.
     const results = await ctx.db
       .query("courses")
-      .withIndex("by_name", (q) => q)
-      .collect();
+      .withSearchIndex("search_name", (q) => q.search("name", term))
+      .take(limit);
 
-    return results
-      .filter((c) => c.name.toLowerCase().includes(term))
-      .slice(0, limit);
+    // Resolve image URL on-demand when Storage is present (URLs can expire).
+    return await Promise.all(
+      results.map(async (c) => {
+        let imageUrl = c.imageUrl;
+        if ((c as any).imageStorageId) {
+          const storageUrl = await ctx.storage.getUrl((c as any).imageStorageId);
+          if (storageUrl) imageUrl = storageUrl;
+        }
+        return { ...c, imageUrl };
+      })
+    );
   },
 });
 
@@ -162,7 +178,7 @@ export const searchByNameAction = action({
     term: v.string(),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<any[]> => {
     return await ctx.runQuery(api.courses.searchByName, args);
   },
 });
@@ -170,7 +186,7 @@ export const searchByNameAction = action({
 // Action wrapper for imperative calls (e.g., in save round flow)
 export const getByExternalIdAction = action({
   args: { externalId: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<any> => {
     return await ctx.runQuery(api.courses.getByExternalId, args);
   },
 });
@@ -185,6 +201,29 @@ export const setImageUrl = mutation({
       imageUrl: args.imageUrl,
       updatedAt: Date.now(),
     });
+  },
+});
+
+export const setImageStorageId = mutation({
+  args: {
+    courseId: v.id("courses"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const course = await ctx.db.get(args.courseId);
+    if (!course) return;
+
+    const patch: any = {
+      imageStorageId: args.storageId,
+      updatedAt: Date.now(),
+    };
+
+    // Clear legacy base64 blobs to reclaim document size (the Storage ID is the source of truth).
+    if (typeof course.imageUrl === "string" && course.imageUrl.startsWith("data:")) {
+      patch.imageUrl = undefined;
+    }
+
+    await ctx.db.patch(args.courseId, patch);
   },
 });
 

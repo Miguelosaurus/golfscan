@@ -122,17 +122,59 @@ export function validateDifferential(
 }
 
 /**
+ * Calculate handicap strokes received on a specific hole.
+ * Based on WHS rules: strokes allocated by comparing hole's stroke index to course handicap.
+ */
+export function getStrokesReceivedOnHole(
+    holeStrokeIndex: number,
+    courseHandicap: number
+): number {
+    if (courseHandicap <= 0) return 0;
+
+    let strokes = 0;
+    // First allocation: holes 1-18 where stroke index <= course handicap
+    if (holeStrokeIndex <= courseHandicap) strokes++;
+    // Second allocation: if course handicap > 18, get extra stroke on holes where stroke index <= (CH - 18)
+    if (courseHandicap > 18 && holeStrokeIndex <= (courseHandicap - 18)) strokes++;
+    // Third allocation: if course handicap > 36, get extra stroke on holes where stroke index <= (CH - 36)
+    if (courseHandicap > 36 && holeStrokeIndex <= (courseHandicap - 36)) strokes++;
+
+    return strokes;
+}
+
+/**
+ * Apply WHS Net Double Bogey adjustment.
+ * Maximum score per hole = Par + 2 + Handicap Strokes Received on that hole.
+ * This replaces the old simplified ESC (Par+3) cap.
+ */
+export function applyNetDoubleBogey(
+    holeScores: { hole: number; score: number; par: number; hcp?: number }[],
+    courseHandicap: number
+): { hole: number; score: number; adjustedScore: number; par: number; hcp?: number; wasAdjusted: boolean }[] {
+    return holeScores.map(h => {
+        const strokeIndex = h.hcp ?? 18; // Default stroke index if not provided
+        const strokesReceived = getStrokesReceivedOnHole(strokeIndex, courseHandicap);
+        const netDoubleBogey = h.par + 2 + strokesReceived;
+        const adjustedScore = Math.min(h.score, netDoubleBogey);
+
+        return {
+            ...h,
+            adjustedScore,
+            wasAdjusted: h.score > adjustedScore
+        };
+    });
+}
+
+/**
+ * @deprecated Use applyNetDoubleBogey instead. Kept for backward compatibility.
  * Apply equitable stroke control (ESC) cap per WHS.
- * Caps the maximum score on any hole to Par + N based on Course Handicap.
  */
 export function applyESC(
     holeScores: { hole: number; score: number; par: number }[],
     courseHandicap?: number
 ): { hole: number; score: number; par: number }[] {
-    // Default cap: Par + 3 (double bogey + 1)
-    // This is a simplified version - full WHS has different caps based on handicap
+    // Fall back to simplified cap if no course handicap provided
     const cap = 3;
-
     return holeScores.map(h => ({
         ...h,
         score: Math.min(h.score, h.par + cap)
@@ -140,15 +182,24 @@ export function applyESC(
 }
 
 /**
- * Compute adjusted gross score with ESC applied.
+ * Compute adjusted gross score with Net Double Bogey applied.
+ * Requires hole stroke indexes (hcp) and course handicap for accurate calculation.
  */
 export function computeAdjustedGross(
-    holeData: { hole: number; score: number; par: number }[]
+    holeData: { hole: number; score: number; par: number; hcp?: number }[],
+    courseHandicap?: number
 ): number {
+    // If we have course handicap and hole data with stroke indexes, use proper Net Double Bogey
+    if (typeof courseHandicap === 'number' && holeData.some(h => typeof h.hcp === 'number')) {
+        const adjusted = applyNetDoubleBogey(holeData, courseHandicap);
+        return adjusted.reduce((sum, h) => sum + h.adjustedScore, 0);
+    }
+
+    // Fallback to simplified Par+3 cap if missing required data
     let adjusted = 0;
     for (const hole of holeData) {
         const par = hole.par ?? 4;
-        const cap = par + 3;  // Simplified ESC cap
+        const cap = par + 3;  // Simplified fallback
         adjusted += hole.score > cap ? cap : hole.score;
     }
     return adjusted;

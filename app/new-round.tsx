@@ -21,7 +21,6 @@ export default function NewRoundScreen() {
       <PreRoundFlowModal
         visible={true}
         onClose={handleClose}
-        embedded={true}
       />
     </View>
   );

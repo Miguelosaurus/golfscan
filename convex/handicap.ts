@@ -7,6 +7,71 @@ import {
 } from "./lib/handicapUtils";
 import { getClerkIdFromIdentity } from "./lib/authUtils";
 
+/**
+ * Lightweight handicap query for home screen / pre-round modal.
+ * Returns only currentHandicap, isProvisional, and roundsCount.
+ * 
+ * IMPORTANT: This must match getDetails semantics exactly:
+ * - Compute currentHandicap from diffs (not user.handicap cache)
+ * - Sort scores by createdAt descending
+ * - Cap roundsCount at 20
+ * - Use user.handicap only as fallback if no valid diffs
+ * 
+ * This avoids the expensive course/round joins that make getDetails costly.
+ */
+export const getSummary = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) return null;
+
+    const selfPlayer = await ctx.db
+      .query("players")
+      .withIndex("by_owner", (q) => q.eq("ownerId", args.userId))
+      .filter((q) => q.eq(q.field("isSelf"), true))
+      .first();
+
+    if (!selfPlayer) {
+      return {
+        currentHandicap: user.handicap ?? null,
+        isProvisional: false,
+        roundsCount: 0,
+      };
+    }
+
+    const scores = await ctx.db
+      .query("scores")
+      .withIndex("by_player_createdAt", (q) => q.eq("playerId", selfPlayer._id))
+      .order("desc")
+      .take(50);
+
+    // Filter to scores with valid handicapDifferential (already ordered by createdAt desc)
+    const scored = scores.filter((s) => typeof s.handicapDifferential === "number");
+
+    const roundsCount = Math.min(20, scored.length);
+    const isProvisional = roundsCount > 0 && roundsCount < 3;
+
+    // Compute currentHandicap from diffs (not user.handicap cache)
+    // This ensures we match getDetails even if user.handicap is stale
+    if (roundsCount === 0) {
+      return {
+        currentHandicap: user.handicap ?? null, // Fallback only if no diffs
+        isProvisional: false,
+        roundsCount: 0,
+      };
+    }
+
+    const diffs = scored.slice(0, 20).map((s) => s.handicapDifferential as number);
+    const computedHandicap = calculateHandicapFromDiffs(diffs);
+
+    return {
+      currentHandicap: computedHandicap ?? user.handicap ?? null,
+      isProvisional,
+      roundsCount,
+    };
+  },
+});
+
 export const recalculate = internalMutation({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
@@ -24,12 +89,12 @@ export const recalculate = internalMutation({
       return null;
     }
 
-    // Fetch scores for this player (latest first)
+    // Use by_player_createdAt index for deterministic newest-first ordering
     const scores = await ctx.db
       .query("scores")
-      .withIndex("by_player", (q) => q.eq("playerId", selfPlayer._id))
+      .withIndex("by_player_createdAt", (q) => q.eq("playerId", selfPlayer._id))
       .order("desc")
-      .take(50); // safe upper bound
+      .take(50);
 
     if (!scores.length) {
       // No scores at all - clear handicap AND history
@@ -279,9 +344,14 @@ export const seedHandicap = mutation({
       await ctx.db.delete(round._id);
     }
 
-    // Find the earliest ROUND date to place seeds before it (not createdAt)
+    // Find the earliest ROUND date to place seeds before it (not createdAt).
+    // If the user has no real rounds yet, place seeds well before account creation
+    // so they don't appear to overlap with a user's first real round.
     const realScores = existingScores.filter((s) => !s.isSynthesized);
-    let baseDate = now;
+    const SEED_BUFFER_DAYS = 30;
+    let baseDate = user.createdAt
+      ? user.createdAt - SEED_BUFFER_DAYS * 24 * 60 * 60 * 1000
+      : now;
     if (realScores.length > 0) {
       // Get the round dates for real scores
       const roundDates: number[] = [];
@@ -293,7 +363,7 @@ export const seedHandicap = mutation({
       }
       if (roundDates.length > 0) {
         const earliestRoundDate = Math.min(...roundDates);
-        baseDate = earliestRoundDate - 30 * 24 * 60 * 60 * 1000; // 1 month before earliest round
+        baseDate = earliestRoundDate - SEED_BUFFER_DAYS * 24 * 60 * 60 * 1000;
       }
     }
 
@@ -326,24 +396,24 @@ export const seedHandicap = mutation({
 
     if (!seedCourse) throw new Error("Failed to prepare seed course");
 
-    // Create a single round container to hold the seeded scores.
-    const seedRoundId = await ctx.db.insert("rounds", {
-      hostId: user._id,
-      courseId: seedCourse!._id,
-      date: new Date(baseDate).toISOString(),
-      weather: "Seed",
-      holeCount: 18,
-      scanJobId: undefined,
-      isSynthesized: true,
-      createdAt: baseDate,
-      updatedAt: baseDate,
-    });
-
-    // Insert 20 ghost scores with the provided differential, spaced before baseDate.
+    // Insert 20 synthesized rounds with a single synthesized score each, spaced weekly.
+    // This matches the user's mental model of "seed rounds" and keeps history ordering clear.
     for (let i = 0; i < 20; i++) {
       const createdAt = baseDate - i * 7 * 24 * 60 * 60 * 1000; // spaced by a week going backward
+      const roundId = await ctx.db.insert("rounds", {
+        hostId: user._id,
+        courseId: seedCourse!._id,
+        date: new Date(createdAt).toISOString(),
+        weather: "Seed",
+        holeCount: 18,
+        scanJobId: undefined,
+        isSynthesized: true,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
       await ctx.db.insert("scores", {
-        roundId: seedRoundId,
+        roundId,
         playerId: selfPlayer!._id,
         courseId: seedCourse!._id,
         grossScore: 0,
@@ -467,16 +537,15 @@ export const getDetails = query({
       };
     }
 
+    // Use by_player_createdAt index for deterministic newest-first ordering
     const scores = await ctx.db
       .query("scores")
-      .withIndex("by_player", (q) => q.eq("playerId", selfPlayer._id))
+      .withIndex("by_player_createdAt", (q) => q.eq("playerId", selfPlayer._id))
+      .order("desc")
       .take(50);
 
-    // Sort by createdAt descending (most recent first) - Convex's .order("desc") 
-    // doesn't order by date, so we must sort after fetching
-    const scored = scores
-      .filter((s) => typeof s.handicapDifferential === "number")
-      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    // Filter to scores with valid handicapDifferential (already ordered by createdAt desc)
+    const scored = scores.filter((s) => typeof s.handicapDifferential === "number");
 
     if (!scored.length) {
       return {

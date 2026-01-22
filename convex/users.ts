@@ -1,7 +1,8 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { getClerkIdFromIdentity, deriveNameFromEmail } from "./lib/authUtils";
 import { ensureSelfPlayer } from "./lib/playerUtils";
+import { checkAndConsume } from "./lib/rateLimit";
 
 // Monthly scan limit for free users
 const DEFAULT_MONTHLY_SCANS = 30;
@@ -29,7 +30,7 @@ export const getProfile = query({
   },
 });
 
-export const upsertFromClerk = mutation({
+export const upsertFromClerk = internalMutation({
   args: { data: v.any() },
   handler: async (ctx, args) => {
     const data = args.data as any;
@@ -76,22 +77,23 @@ export const upsertFromClerk = mutation({
       return existing._id;
     }
 
-    return await ctx.db.insert("users", {
-      clerkId,
-      tokenIdentifier: clerkId,
-      name,
-      email,
-      avatarUrl,
-      handicap: undefined,
-      handicapIndexHistory: [],
-      isPro: false,
-      scansRemaining: DEFAULT_MONTHLY_SCANS,
-      stats: undefined,
-      createdAt: now,
-      updatedAt: now,
-    });
-  },
-});
+	    return await ctx.db.insert("users", {
+	      clerkId,
+	      tokenIdentifier: clerkId,
+	      name,
+	      email,
+	      avatarUrl,
+	      handicap: undefined,
+	      handicapIndexHistory: [],
+	      isPro: false,
+	      scansRemaining: DEFAULT_MONTHLY_SCANS,
+	      preferredAiModel: "gemini-3-flash-preview",
+	      stats: undefined,
+	      createdAt: now,
+	      updatedAt: now,
+	    });
+	  },
+	});
 
 export const updateProfile = mutation({
   args: {
@@ -127,39 +129,41 @@ export const updateProfile = mutation({
       "New Golfer";
 
     // If user record doesn't exist yet (e.g., first-time login from Apple), create it.
-    if (!user) {
-      const insertedId = await ctx.db.insert("users", {
-        clerkId,
-        tokenIdentifier: identity.tokenIdentifier,
-        name: fallbackName,
-        email: identity.email ?? "",
-        avatarUrl: args.avatarUrl ?? identity.profileUrl ?? undefined,
-        handicap: undefined,
-        handicapIndexHistory: [],
-        isPro: false,
-        scansRemaining: DEFAULT_MONTHLY_SCANS,
-        stats: undefined,
-        createdAt: now,
-        updatedAt: now,
-      });
-      await ensureSelfPlayer(ctx, insertedId, fallbackName, now, args.gender);
-      return {
-        _id: insertedId,
-        clerkId,
-        tokenIdentifier: identity.tokenIdentifier,
-        name: fallbackName,
-        email: identity.email ?? "",
-        avatarUrl: args.avatarUrl ?? identity.profileUrl ?? undefined,
-        gender: args.gender ?? undefined,
-        handicap: undefined,
-        handicapIndexHistory: [],
-        isPro: false,
-        scansRemaining: DEFAULT_MONTHLY_SCANS,
-        stats: undefined,
-        createdAt: now,
-        updatedAt: now,
-      };
-    }
+	    if (!user) {
+	      const insertedId = await ctx.db.insert("users", {
+	        clerkId,
+	        tokenIdentifier: identity.tokenIdentifier,
+	        name: fallbackName,
+	        email: identity.email ?? "",
+	        avatarUrl: args.avatarUrl ?? identity.profileUrl ?? undefined,
+	        handicap: undefined,
+	        handicapIndexHistory: [],
+	        isPro: false,
+	        scansRemaining: DEFAULT_MONTHLY_SCANS,
+	        preferredAiModel: "gemini-3-flash-preview",
+	        stats: undefined,
+	        createdAt: now,
+	        updatedAt: now,
+	      });
+	      await ensureSelfPlayer(ctx, insertedId, fallbackName, now, args.gender);
+	      return {
+	        _id: insertedId,
+	        clerkId,
+	        tokenIdentifier: identity.tokenIdentifier,
+	        name: fallbackName,
+	        email: identity.email ?? "",
+	        avatarUrl: args.avatarUrl ?? identity.profileUrl ?? undefined,
+	        gender: args.gender ?? undefined,
+	        handicap: undefined,
+	        handicapIndexHistory: [],
+	        isPro: false,
+	        scansRemaining: DEFAULT_MONTHLY_SCANS,
+	        preferredAiModel: "gemini-3-flash-preview",
+	        stats: undefined,
+	        createdAt: now,
+	        updatedAt: now,
+	      };
+	    }
 
     const updates: Record<string, unknown> = {
       updatedAt: now,
@@ -246,7 +250,35 @@ export const setPreferredAiModel = mutation({
   },
 });
 
-export const deleteFromClerk = mutation({
+/**
+ * Check and consume rate limit for a service.
+ * Called by actions before performing rate-limited operations.
+ */
+export const checkRateLimit = mutation({
+  args: {
+    service: v.union(v.literal("scan"), v.literal("courseApi"), v.literal("googlePlaces")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const clerkId = identity.subject;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    return await checkAndConsume(ctx, user._id, args.service);
+  },
+});
+
+export const deleteFromClerk = internalMutation({
   args: { clerkUserId: v.string() },
   handler: async (ctx, args) => {
     const existing = await ctx.db

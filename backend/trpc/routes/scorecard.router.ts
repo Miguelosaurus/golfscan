@@ -94,7 +94,11 @@ const calculateOverallConfidence = (data: ScorecardScanResult): number => {
 };
 
 // Shared scan implementation used by both direct call and background job
-async function scanScorecardImpl(input: { images?: string[]; files?: { path: string; mimeType: string }[]; userId: string }): Promise<{ data: ScorecardScanResult; remainingScans: number }> {
+async function scanScorecardImpl(input: { images?: string[]; files?: { path: string; mimeType: string }[]; userId: string }): Promise<{
+  data: ScorecardScanResult;
+  remainingScans: number;
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+}> {
   try {
     const routeStart = Date.now();
     console.log(`[SCAN] start ${new Date(routeStart).toLocaleTimeString()} user=${input.userId}`);
@@ -302,7 +306,12 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
       console.log(`[SCAN] success total ${routeElapsed}ms`);
       return {
         data: parsedJson,
-        remainingScans
+        remainingScans,
+        usage: usage ? {
+          promptTokens: usage.promptTokenCount ?? 0,
+          completionTokens: usage.candidatesTokenCount ?? 0,
+          totalTokens: usage.totalTokenCount ?? 0,
+        } : undefined
       };
     } finally {
       // Cleanup local temp files

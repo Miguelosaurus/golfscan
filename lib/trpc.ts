@@ -31,7 +31,7 @@ export const trpcClient = trpc.createClient({
           );
         } catch { }
         const id = setTimeout(() => controller.abort(), timeoutMs);
-        return fetch(input as any, { ...init, signal: controller.signal as any })
+        return fetch(input as RequestInfo, { ...(init as RequestInit), signal: controller.signal } as RequestInit)
           .then((res) => {
             const elapsed = Date.now() - startedAt;
             try { console.log(`tRPC HTTP end ${new Date().toLocaleTimeString()} | ${res.status} | ${elapsed}ms`); } catch { }

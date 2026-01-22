@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     View,
     Text,
@@ -6,6 +6,8 @@ import {
     ScrollView,
     TouchableOpacity,
     SafeAreaView,
+    Modal,
+    TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQuery, useMutation } from '@/lib/convex';
@@ -24,6 +26,8 @@ import {
     Leaf,       // Greenie
     Waves,      // Sandy (bunker)
     Bird,       // Birdie
+    TrendingDown, // Press
+    X,           // Close modal
 } from 'lucide-react-native';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -104,6 +108,25 @@ export default function ActiveSessionScreen() {
         sessionId ? { sessionId: sessionId as Id<'gameSessions'> } : 'skip'
     ) as SessionData | null;
 
+    // Get current user profile to determine initiatedBy
+    const profile = useQuery(api.users.getProfile);
+
+    // Compute current user's playerId from session participants
+    const currentPlayerId = useMemo(() => {
+        if (!session?.playerDetails || !profile?._id) return null;
+
+        // Get full session with participants (cast to access participants array)
+        const sessionWithParticipants = session as any;
+        const participants = sessionWithParticipants.participants || [];
+
+        // Match by userId from profile
+        const match = participants.find((p: any) => p.userId === profile._id);
+        if (match) return match.playerId as string;
+
+        // Fallback: use first player if no match (shouldn't happen in normal use)
+        return session.playerDetails[0]?.playerId || null;
+    }, [session, profile?._id]);
+
     // Side bet tracking state - must be declared before any early return
     const [sideBetCounts, setSideBetCounts] = useState<{
         [playerId: string]: { greenies: number; sandies: number };
@@ -131,6 +154,105 @@ export default function ActiveSessionScreen() {
 
     // Mutation to persist side bet counts
     const updateSideBetCountsMutation = useMutation(api.gameSessions.updateSideBetCounts);
+
+    // Press modal state and mutation
+    const [pressModalVisible, setPressModalVisible] = useState(false);
+    const [pressSegment, setPressSegment] = useState<'front' | 'back'>('front');
+    const [pressStartHole, setPressStartHole] = useState('');
+    const [selectedPairingId, setSelectedPairingId] = useState<string | null>(null);
+    const [pressLoading, setPressLoading] = useState(false);
+    const addPressMutation = useMutation(api.gameSessions.addPress);
+
+    // Generate pairings for individual mode (round-robin)
+    const pairings = useMemo(() => {
+        if (!session || session.gameMode !== 'individual') return [];
+
+        const players = session.playerDetails || [];
+        const result: { pairingId: string; playerA: string; playerB: string; playerAId: string; playerBId: string }[] = [];
+
+        // Sort by playerId for deterministic ordering
+        const sortedPlayers = [...players].sort((a, b) =>
+            a.playerId.localeCompare(b.playerId)
+        );
+
+        for (let i = 0; i < sortedPlayers.length; i++) {
+            for (let j = i + 1; j < sortedPlayers.length; j++) {
+                const pA = sortedPlayers[i];
+                const pB = sortedPlayers[j];
+                result.push({
+                    pairingId: `${pA.playerId}_vs_${pB.playerId}`,
+                    playerA: pA.name,
+                    playerB: pB.name,
+                    playerAId: pA.playerId,
+                    playerBId: pB.playerId,
+                });
+            }
+        }
+        return result;
+    }, [session?.playerDetails, session?.gameMode]);
+
+    // Handle adding a press
+    const handleAddPress = async () => {
+        if (!session || !sessionId) return;
+
+        const startHoleNum = parseInt(pressStartHole, 10);
+        if (isNaN(startHoleNum)) {
+            alert('Please enter a valid hole number');
+            return;
+        }
+
+        // Validate segment is valid for round's holeSelection
+        if (session.holeSelection === 'front_9' && pressSegment !== 'front') {
+            alert('This is a front 9 round - only front segment presses are allowed');
+            return;
+        }
+        if (session.holeSelection === 'back_9' && pressSegment !== 'back') {
+            alert('This is a back 9 round - only back segment presses are allowed');
+            return;
+        }
+
+        // Validate hole is in correct range for segment
+        if (pressSegment === 'front' && (startHoleNum < 1 || startHoleNum > 9)) {
+            alert('Front segment presses must start on holes 1-9');
+            return;
+        }
+        if (pressSegment === 'back' && (startHoleNum < 10 || startHoleNum > 18)) {
+            alert('Back segment presses must start on holes 10-18');
+            return;
+        }
+
+        // For individual mode, require pairing selection
+        if (session.gameMode === 'individual' && !selectedPairingId) {
+            alert('Please select which matchup to press');
+            return;
+        }
+
+        // Validate current user is identified
+        if (!currentPlayerId) {
+            alert('Unable to identify current user. Please try again.');
+            return;
+        }
+
+        setPressLoading(true);
+        try {
+            await addPressMutation({
+                sessionId: sessionId as Id<'gameSessions'>,
+                pressId: `press_${Date.now()}`,
+                startHole: startHoleNum,
+                segment: pressSegment,
+                // initiatedBy is now derived server-side from authenticated user
+                valueCents: session.betSettings?.betPerUnitCents || 500,
+                pairingId: session.gameMode === 'individual' ? selectedPairingId ?? undefined : undefined,
+            });
+            setPressModalVisible(false);
+            setPressStartHole('');
+            setSelectedPairingId(null);
+        } catch (error: any) {
+            alert(error.message || 'Failed to add press');
+        } finally {
+            setPressLoading(false);
+        }
+    };
 
     const updateSideBetCount = async (playerId: string, type: 'greenies' | 'sandies', delta: number) => {
         const newCount = Math.max(0, (sideBetCounts[playerId]?.[type] || 0) + delta);
@@ -211,30 +333,58 @@ export default function ActiveSessionScreen() {
 
     // Calculate strokes based on course handicap differences (for display purposes)
     // The lowest HCP player gives strokes to others
+    // When strokes > 18, player gets 2 strokes on some holes
     const calculateDisplayStrokes = () => {
         if (!session.playerDetails || session.playerDetails.length < 2) return [];
 
         const minCourseHcp = Math.min(...session.playerDetails.map(p => p.courseHandicap));
 
+        // Get hole handicaps from course (sorted by difficulty - lowest hcp = hardest)
+        // Check multiple possible sources for hole data: course.holes, teeSets holes
+        let holes: any[] = session.course?.holes || [];
+
+        // If holes is empty, try to get from first tee set
+        if (holes.length === 0 && (session.course as any)?.teeSets?.[0]?.holes) {
+            holes = (session.course as any).teeSets[0].holes;
+        }
+
+        const holesByDifficulty = [...Array(18)].map((_, i) => {
+            const hole = holes.find((h: any) => h.number === i + 1);
+            // Check for hcp first (Convex format), then handicap (local format), then fallback
+            const hcp = hole?.hcp ?? hole?.handicap ?? (i + 1);
+            return { number: i + 1, hcp };
+        }).sort((a, b) => a.hcp - b.hcp);
+
         return session.playerDetails.map(player => {
             const strokesReceived = player.courseHandicap - minCourseHcp;
-            // Get holes where strokes are received (based on HCP ranking)
-            const strokeHoles: number[] = [];
-            if (strokesReceived > 0 && session.course?.holes) {
-                // Sort holes by handicap (HCP)
-                const sortedHoles = [...session.course.holes].sort((a, b) => a.hcp - b.hcp);
-                for (let i = 0; i < Math.min(strokesReceived, 18); i++) {
-                    if (sortedHoles[i]) {
-                        strokeHoles.push(sortedHoles[i].number);
-                    }
-                }
-                strokeHoles.sort((a, b) => a - b); // Sort by hole number for display
+
+            // Calculate 1-stroke and 2-stroke holes
+            // If strokes <= 18: get 1 stroke on the hardest N holes
+            // If strokes > 18: get 1 stroke on ALL holes + 2 strokes on (strokes - 18) hardest
+            const singleStrokeHoles: number[] = [];
+            const doubleStrokeHoles: number[] = [];
+
+            if (strokesReceived > 0 && strokesReceived <= 18) {
+                // Simple case: N strokes on N hardest holes
+                holesByDifficulty.slice(0, strokesReceived).forEach(h => {
+                    singleStrokeHoles.push(h.number);
+                });
+            } else if (strokesReceived > 18) {
+                // More than 18 strokes: 1 on all + 2 on extra
+                const extraStrokes = strokesReceived - 18;
+                // The hardest (extraStrokes) holes get 2 strokes
+                holesByDifficulty.slice(0, extraStrokes).forEach(h => {
+                    doubleStrokeHoles.push(h.number);
+                });
             }
+
             return {
                 playerId: player.playerId,
                 name: player.name,
                 strokesReceived,
-                strokeHoles,
+                singleStrokeHoles: singleStrokeHoles.sort((a, b) => a - b),
+                doubleStrokeHoles: doubleStrokeHoles.sort((a, b) => a - b),
+                getsStrokeOnAllHoles: strokesReceived > 18,
             };
         });
     };
@@ -285,11 +435,31 @@ export default function ActiveSessionScreen() {
                                 <Text style={styles.scratchLabel}>Scratch</Text>
                             )}
                         </View>
-                        {player.strokesReceived > 0 && player.strokeHoles.length > 0 && (
+                        {/* High handicap: gets stroke on all holes + double on some */}
+                        {player.getsStrokeOnAllHoles && (
+                            <View style={styles.strokeHolesSection}>
+                                <Text style={styles.strokeHolesLabel}>
+                                    1 stroke on all holes
+                                    {player.doubleStrokeHoles.length > 0 && `, plus 2nd stroke on:`}
+                                </Text>
+                                {player.doubleStrokeHoles.length > 0 && (
+                                    <View style={styles.strokeHolesRow}>
+                                        {player.doubleStrokeHoles.map((hole: number) => (
+                                            <View key={hole} style={[styles.strokeHolePill, { backgroundColor: THEME.accentOrange + '20' }]}>
+                                                <Text style={[styles.strokeHolePillText, { color: THEME.accentOrange }]}>{hole}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+                        )}
+
+                        {/* Normal handicap: show specific holes */}
+                        {!player.getsStrokeOnAllHoles && player.singleStrokeHoles.length > 0 && (
                             <View style={styles.strokeHolesSection}>
                                 <Text style={styles.strokeHolesLabel}>Strokes on holes:</Text>
                                 <View style={styles.strokeHolesRow}>
-                                    {player.strokeHoles.map((hole) => (
+                                    {player.singleStrokeHoles.map((hole: number) => (
                                         <View key={hole} style={styles.strokeHolePill}>
                                             <Text style={styles.strokeHolePillText}>{hole}</Text>
                                         </View>
@@ -361,6 +531,39 @@ export default function ActiveSessionScreen() {
                                 <Text style={styles.betDetail}>
                                     Presses enabled (threshold: {session.betSettings.pressThreshold ?? 2} down)
                                 </Text>
+                            )}
+                            {/* Press Button for Nassau games */}
+                            {session.gameType === 'nassau' && session.betSettings.pressEnabled && (
+                                <TouchableOpacity
+                                    style={styles.pressButton}
+                                    onPress={() => setPressModalVisible(true)}
+                                >
+                                    <TrendingDown size={16} color="white" />
+                                    <Text style={styles.pressButtonText}>Add Press</Text>
+                                </TouchableOpacity>
+                            )}
+                            {/* Existing Presses List */}
+                            {(session as any).presses && (session as any).presses.length > 0 && (
+                                <View style={styles.pressListContainer}>
+                                    <Text style={styles.pressListTitle}>
+                                        Active Presses ({(session as any).presses.length})
+                                    </Text>
+                                    {(session as any).presses.map((press: any, idx: number) => (
+                                        <View key={press.pressId || idx} style={styles.pressListItem}>
+                                            <View style={styles.pressListItemLeft}>
+                                                <Text style={styles.pressListSegment}>
+                                                    {press.segment === 'front' ? 'Front 9' : 'Back 9'}
+                                                </Text>
+                                                <Text style={styles.pressListHole}>
+                                                    Starting Hole {press.startHole}
+                                                </Text>
+                                            </View>
+                                            <Text style={styles.pressListValue}>
+                                                ${(press.valueCents / 100).toFixed(0)}
+                                            </Text>
+                                        </View>
+                                    ))}
+                                </View>
                             )}
                         </View>
                     </>
@@ -486,6 +689,95 @@ export default function ActiveSessionScreen() {
                     <Text style={styles.scanButtonText}>Scan Scorecard</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* Press Modal */}
+            <Modal
+                visible={pressModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setPressModalVisible(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Add Press</Text>
+                            <TouchableOpacity
+                                style={styles.modalCloseButton}
+                                onPress={() => setPressModalVisible(false)}
+                            >
+                                <X size={24} color={THEME.textSub} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Segment Selection */}
+                        <View style={styles.modalField}>
+                            <Text style={styles.modalLabel}>Segment</Text>
+                            <View style={styles.segmentRow}>
+                                <TouchableOpacity
+                                    style={[styles.segmentButton, pressSegment === 'front' && styles.segmentButtonActive]}
+                                    onPress={() => setPressSegment('front')}
+                                >
+                                    <Text style={[styles.segmentButtonText, pressSegment === 'front' && styles.segmentButtonTextActive]}>
+                                        Front 9
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.segmentButton, pressSegment === 'back' && styles.segmentButtonActive]}
+                                    onPress={() => setPressSegment('back')}
+                                >
+                                    <Text style={[styles.segmentButtonText, pressSegment === 'back' && styles.segmentButtonTextActive]}>
+                                        Back 9
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* Start Hole */}
+                        <View style={styles.modalField}>
+                            <Text style={styles.modalLabel}>
+                                Start Hole ({pressSegment === 'front' ? '1-9' : '10-18'})
+                            </Text>
+                            <TextInput
+                                style={styles.holeInput}
+                                value={pressStartHole}
+                                onChangeText={setPressStartHole}
+                                placeholder={pressSegment === 'front' ? '1-9' : '10-18'}
+                                keyboardType="number-pad"
+                                placeholderTextColor={THEME.textSub}
+                            />
+                        </View>
+
+                        {/* Pairing Selection for Individual Mode */}
+                        {session?.gameMode === 'individual' && pairings.length > 0 && (
+                            <View style={styles.modalField}>
+                                <Text style={styles.modalLabel}>Choose Matchup</Text>
+                                {pairings.map((p) => (
+                                    <TouchableOpacity
+                                        key={p.pairingId}
+                                        style={[styles.pairingButton, selectedPairingId === p.pairingId && styles.pairingButtonActive]}
+                                        onPress={() => setSelectedPairingId(p.pairingId)}
+                                    >
+                                        <Text style={styles.pairingButtonText}>
+                                            {p.playerA} vs {p.playerB}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        )}
+
+                        {/* Confirm Button */}
+                        <TouchableOpacity
+                            style={[styles.confirmPressButton, pressLoading && styles.confirmPressButtonDisabled]}
+                            onPress={handleAddPress}
+                            disabled={pressLoading}
+                        >
+                            <Text style={styles.confirmPressButtonText}>
+                                {pressLoading ? 'Adding...' : 'Confirm Press'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -846,5 +1138,170 @@ const styles = StyleSheet.create({
         color: 'white',
         fontSize: 17,
         fontWeight: '700',
+    },
+    // Press button styles
+    pressButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: THEME.accentOrange,
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        marginTop: 12,
+        gap: 8,
+    },
+    pressButtonText: {
+        color: 'white',
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    // Press modal styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        width: '90%',
+        maxWidth: 400,
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 24,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.25,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: THEME.textMain,
+    },
+    modalCloseButton: {
+        padding: 4,
+    },
+    modalField: {
+        marginBottom: 16,
+    },
+    modalLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: THEME.textMain,
+        marginBottom: 8,
+    },
+    segmentRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    segmentButton: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: THEME.border,
+        alignItems: 'center',
+    },
+    segmentButtonActive: {
+        borderColor: THEME.primaryGreen,
+        backgroundColor: THEME.lightGreenBg,
+    },
+    segmentButtonText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: THEME.textSub,
+    },
+    segmentButtonTextActive: {
+        color: THEME.primaryGreen,
+    },
+    holeInput: {
+        borderWidth: 2,
+        borderColor: THEME.border,
+        borderRadius: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        fontSize: 16,
+        color: THEME.textMain,
+    },
+    pairingButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: THEME.border,
+        marginBottom: 8,
+    },
+    pairingButtonActive: {
+        borderColor: THEME.primaryGreen,
+        backgroundColor: THEME.lightGreenBg,
+    },
+    pairingButtonText: {
+        fontSize: 15,
+        fontWeight: '500',
+        color: THEME.textMain,
+    },
+    confirmPressButton: {
+        backgroundColor: THEME.accentOrange,
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginTop: 8,
+    },
+    confirmPressButtonDisabled: {
+        backgroundColor: THEME.border,
+    },
+    confirmPressButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    // Press list styles
+    pressListContainer: {
+        marginTop: 16,
+        paddingTop: 16,
+        borderTopWidth: 1,
+        borderTopColor: THEME.border,
+    },
+    pressListTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: THEME.textMain,
+        marginBottom: 8,
+    },
+    pressListItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: THEME.lightGreenBg,
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        marginBottom: 6,
+    },
+    pressListItemLeft: {
+        flex: 1,
+    },
+    pressListSegment: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: THEME.primaryGreen,
+    },
+    pressListHole: {
+        fontSize: 12,
+        color: THEME.textSub,
+        marginTop: 2,
+    },
+    pressListValue: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: THEME.textMain,
     },
 });

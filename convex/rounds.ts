@@ -4,6 +4,7 @@ import {
   calculateHandicapFromDiffs,
   validateDifferential,
   computeAdjustedGross,
+  applyNetDoubleBogey,
   pickTeeMeta,
   getRatingSlopeForScore,
 } from "./lib/handicapUtils";
@@ -48,8 +49,37 @@ const computeStats = (
   return { grossScore, blowUpHoles, par3Score, par4Score, par5Score };
 };
 
-// For Scandicap: adjusted gross score with a cap of Par + 3 on each hole.
-const computeAdjustedGrossForHandicap = (
+// For Scandicap: Apply Net Double Bogey and return both adjusted gross and per-hole adjusted data.
+const computeNetDoubleBogeyAdjustment = (
+  holeData: Array<{ hole: number; score: number; par: number; hcp?: number }>,
+  courseHoles: Array<{ number: number; par: number; hcp: number }>,
+  courseHandicap: number
+): { adjustedGross: number; adjustedHoleData: Array<{ hole: number; score: number; par: number; adjustedScore?: number; hcp?: number }> } => {
+  // Merge course hole stroke indexes into holeData
+  const holeDataWithHcp = holeData.map(h => {
+    const courseHole = courseHoles.find(ch => ch.number === h.hole);
+    return {
+      ...h,
+      hcp: h.hcp ?? courseHole?.hcp ?? 18 // fallback to stroke index 18 if not found
+    };
+  });
+
+  // Apply Net Double Bogey adjustment
+  const adjusted = applyNetDoubleBogey(holeDataWithHcp, courseHandicap);
+  const adjustedGross = adjusted.reduce((sum, h) => sum + h.adjustedScore, 0);
+  const adjustedHoleData = adjusted.map(h => ({
+    hole: h.hole,
+    score: h.score,
+    par: h.par,
+    adjustedScore: h.adjustedScore,
+    hcp: h.hcp
+  }));
+
+  return { adjustedGross, adjustedHoleData };
+};
+
+// Fallback for when we don't have course handicap - uses Par+3 cap
+const computeAdjustedGrossFallback = (
   holeData: Array<{ hole: number; score: number; par: number }>
 ) => {
   let adjusted = 0;
@@ -92,9 +122,10 @@ const computePlayerHandicap = async (
   playerId: string,
   coursesCache: Map<string, any>
 ) => {
+  // Use by_player_createdAt index for deterministic newest-first ordering
   const scores = await ctx.db
     .query("scores")
-    .withIndex("by_player", (q: any) => q.eq("playerId", playerId))
+    .withIndex("by_player_createdAt", (q: any) => q.eq("playerId", playerId))
     .order("desc")
     .take(50);
 
@@ -153,10 +184,14 @@ export const saveRound = mutation({
     if (!course) throw new Error("Course not found");
 
     const now = Date.now();
+    const canonicalDate = (() => {
+      const match = /(\d{4}-\d{2}-\d{2})/.exec(args.date);
+      return match ? match[1] : args.date;
+    })();
     const roundId = await ctx.db.insert("rounds", {
       hostId: user._id,
       courseId: args.courseId,
-      date: args.date,
+      date: canonicalDate,
       weather: args.weather,
       holeCount: args.holeCount,
       scanJobId: args.scanJobId ?? undefined,
@@ -267,7 +302,6 @@ export const saveRound = mutation({
       const holeData = normalizeHoles(player.holeData, holeCount);
       const stats = computeStats(holeData);
 
-      const adjustedGross = computeAdjustedGrossForHandicap(holeData);
       const teeMeta = pickTeeMeta(player.teeName, player.teeGender);
 
       // Warn if tee not found but was specified
@@ -276,6 +310,29 @@ export const saveRound = mutation({
       }
 
       const { ratingUsed, slopeUsed, scaleTo18 } = getRatingSlopeForScore(teeMeta, holeData);
+
+      // Calculate course handicap first - needed for Net Double Bogey
+      // Course Handicap = Handicap Index × (Slope / 113)
+      const courseHandicap = player.handicap !== undefined && slopeUsed
+        ? Math.round(player.handicap * (slopeUsed / 113))
+        : player.handicap;
+
+      // Apply Net Double Bogey adjustment using course handicap and hole stroke indexes
+      const hasValidCourseHandicap = typeof courseHandicap === 'number' && courseHandicap >= 0;
+      const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+
+      let adjustedGross: number;
+      let adjustedHoleData: Array<{ hole: number; score: number; par: number; adjustedScore?: number; hcp?: number }>;
+
+      if (hasValidCourseHandicap && courseHoles.length > 0) {
+        const adjustment = computeNetDoubleBogeyAdjustment(holeData, courseHoles, courseHandicap);
+        adjustedGross = adjustment.adjustedGross;
+        adjustedHoleData = adjustment.adjustedHoleData;
+      } else {
+        // Fallback to Par+3 cap if missing required data
+        adjustedGross = computeAdjustedGrossFallback(holeData);
+        adjustedHoleData = holeData.map(h => ({ ...h })); // No adjustment
+      }
 
       let handicapDifferential: number | undefined = undefined;
       if (ratingUsed && slopeUsed) {
@@ -287,12 +344,6 @@ export const saveRound = mutation({
 
         handicapDifferential = scaled;
       }
-
-      // Calculate course handicap from handicap index using slope
-      // Course Handicap = Handicap Index × (Slope / 113)
-      const courseHandicap = player.handicap !== undefined && slopeUsed
-        ? Math.round(player.handicap * (slopeUsed / 113))
-        : player.handicap;
 
       await ctx.db.insert("scores", {
         roundId,
@@ -308,11 +359,12 @@ export const saveRound = mutation({
         courseRatingUsed: ratingUsed,
         courseSlopeUsed: slopeUsed,
         handicapDifferential,
+        adjustedGrossScore: adjustedGross,
         blowUpHoles: stats.blowUpHoles,
         par3Score: stats.par3Score,
         par4Score: stats.par4Score,
         par5Score: stats.par5Score,
-        holeData,
+        holeData: adjustedHoleData,
         createdAt: now,
         updatedAt: now,
       });
@@ -437,9 +489,13 @@ export const updateRound = mutation({
     };
 
     const now = Date.now();
+    const canonicalDate = (() => {
+      const match = /(\d{4}-\d{2}-\d{2})/.exec(args.date);
+      return match ? match[1] : args.date;
+    })();
     await ctx.db.patch(args.roundId, {
       courseId: args.courseId,
-      date: args.date,
+      date: canonicalDate,
       weather: args.weather,
       holeCount: args.holeCount,
       updatedAt: now,
@@ -512,20 +568,37 @@ export const updateRound = mutation({
       const holeData = normalizeHoles(player.holeData, args.holeCount);
       const stats = computeStats(holeData);
 
-      const adjustedGross = computeAdjustedGrossForHandicap(holeData);
       const teeMeta = pickTeeMeta(player.teeName, player.teeGender);
       const { ratingUsed, slopeUsed, scaleTo18 } = getRatingSlopeForScore(teeMeta, holeData);
+
+      // Calculate course handicap first - needed for Net Double Bogey
+      // Course Handicap = Handicap Index × (Slope / 113)
+      const courseHandicap = player.handicap !== undefined && slopeUsed
+        ? Math.round(player.handicap * (slopeUsed / 113))
+        : player.handicap;
+
+      // Apply Net Double Bogey adjustment using course handicap and hole stroke indexes
+      const hasValidCourseHandicap = typeof courseHandicap === 'number' && courseHandicap >= 0;
+      const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+
+      let adjustedGross: number;
+      let adjustedHoleData: Array<{ hole: number; score: number; par: number; adjustedScore?: number; hcp?: number }>;
+
+      if (hasValidCourseHandicap && courseHoles.length > 0) {
+        const adjustment = computeNetDoubleBogeyAdjustment(holeData, courseHoles, courseHandicap);
+        adjustedGross = adjustment.adjustedGross;
+        adjustedHoleData = adjustment.adjustedHoleData;
+      } else {
+        // Fallback to Par+3 cap if missing required data
+        adjustedGross = computeAdjustedGrossFallback(holeData);
+        adjustedHoleData = holeData.map(h => ({ ...h })); // No adjustment
+      }
+
       let handicapDifferential: number | undefined = undefined;
       if (ratingUsed && slopeUsed) {
         const rawDiff = ((adjustedGross - ratingUsed) * 113) / slopeUsed;
         handicapDifferential = rawDiff * (scaleTo18 || 1);
       }
-
-      // Calculate course handicap from handicap index using slope
-      // Course Handicap = Handicap Index × (Slope / 113)
-      const courseHandicap = player.handicap !== undefined && slopeUsed
-        ? Math.round(player.handicap * (slopeUsed / 113))
-        : player.handicap;
 
       await ctx.db.insert("scores", {
         roundId: args.roundId,
@@ -540,11 +613,12 @@ export const updateRound = mutation({
         courseRatingUsed: ratingUsed,
         courseSlopeUsed: slopeUsed,
         handicapDifferential,
+        adjustedGrossScore: adjustedGross,
         blowUpHoles: stats.blowUpHoles,
         par3Score: stats.par3Score,
         par4Score: stats.par4Score,
         par5Score: stats.par5Score,
-        holeData,
+        holeData: adjustedHoleData,
         createdAt: now,
         updatedAt: now,
       });
@@ -602,7 +676,7 @@ export const deleteRound = mutation({
     }
 
     // Cleanup orphaned players: delete if no remaining scores AND not isSelf
-    for (const playerId of affectedPlayerIds) {
+    for (const playerId of Array.from(affectedPlayerIds)) {
       const remainingScores = await ctx.db
         .query("scores")
         .withIndex("by_player", (q) => q.eq("playerId", playerId))
@@ -610,7 +684,7 @@ export const deleteRound = mutation({
 
       if (!remainingScores) {
         const player = await ctx.db.get(playerId);
-        if (player && !player.isSelf) {
+        if (player && !(player as any).isSelf) {
           await ctx.db.delete(playerId);
         }
       }
@@ -654,6 +728,7 @@ export const getDetail = query({
           scores: s.holeData.map((h) => ({
             holeNumber: h.hole,
             strokes: h.score,
+            adjustedScore: h.adjustedScore,
             confidence: undefined,
           })),
           totalScore: s.grossScore,
@@ -666,17 +741,27 @@ export const getDetail = query({
       })
     );
 
+    // Resolve course image: prefer Storage ID, fallback to legacy imageUrl
+    let courseImageUrl: string | null = null;
+    if ((course as any)?.imageStorageId) {
+      courseImageUrl = await ctx.storage.getUrl((course as any).imageStorageId);
+    }
+    if (!courseImageUrl) {
+      courseImageUrl = course?.imageUrl ?? null;
+    }
+
     return {
       id: args.roundId,
       date: round.date,
       courseId: round.courseId,
       courseName: course?.name ?? "Unknown Course",
       courseExternalId: (course as any)?.externalId ?? null,
-      courseImageUrl: course?.imageUrl ?? null,
+      courseImageUrl,
       courseLocation: course?.location ?? "Unknown location",
       holes: course?.holes ?? [],
       players,
-      notes: round.weather ?? "",
+      // Notes are intentionally local-only; keep empty on the server payload.
+      notes: "",
       weather: round.weather,
       holeCount: round.holeCount,
       scorecardPhotos: [],
@@ -727,6 +812,7 @@ export const listWithSummary = query({
             scores: s.holeData.map((h) => ({
               holeNumber: h.hole,
               strokes: h.score,
+              adjustedScore: h.adjustedScore,
               confidence: undefined,
             })),
             handicapUsed: s.handicapUsed,
@@ -736,10 +822,16 @@ export const listWithSummary = query({
         })
       );
 
-      // If the direct course lookup doesn't have an image, try to find one by externalId
-      // This handles cases where there are duplicate course entries
-      let courseImageUrl = course?.imageUrl ?? null;
+      // Resolve course image: prefer Storage ID, fallback to legacy imageUrl
+      let courseImageUrl: string | null = null;
       const externalId = (course as any)?.externalId;
+
+      if ((course as any)?.imageStorageId) {
+        courseImageUrl = await ctx.storage.getUrl((course as any).imageStorageId);
+      }
+      if (!courseImageUrl) {
+        courseImageUrl = course?.imageUrl ?? null;
+      }
 
       const isDefaultOrMissing = (url: string | null | undefined) =>
         !url || url.includes('unsplash.com') || url.includes('photo-1587174486073-ae5e5cff23aa');
@@ -750,7 +842,13 @@ export const listWithSummary = query({
           .query("courses")
           .withIndex("by_externalId", (q) => q.eq("externalId", externalId))
           .first();
-        if (courseByExternalId?.imageUrl && !isDefaultOrMissing(courseByExternalId.imageUrl)) {
+        // Prefer Storage image, then legacy imageUrl
+        if ((courseByExternalId as any)?.imageStorageId) {
+          const storageUrl = await ctx.storage.getUrl((courseByExternalId as any).imageStorageId);
+          if (storageUrl) {
+            courseImageUrl = storageUrl;
+          }
+        } else if (courseByExternalId?.imageUrl && !isDefaultOrMissing(courseByExternalId.imageUrl)) {
           courseImageUrl = courseByExternalId.imageUrl;
         }
       }
@@ -777,5 +875,149 @@ export const listWithSummary = query({
     }
 
     return results;
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIGHTWEIGHT QUERIES (for bandwidth optimization)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * LIGHTWEIGHT: Returns just the count of rounds for a host.
+ * Used by AnalyticsProvider instead of listWithSummary.
+ */
+export const countByHost = query({
+  args: { hostId: v.id("users") },
+  handler: async (ctx, args) => {
+    const rounds = await ctx.db
+      .query("rounds")
+      .withIndex("by_host", (q) => q.eq("hostId", args.hostId))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("isSynthesized"), undefined),
+          q.eq(q.field("isSynthesized"), false)
+        )
+      )
+      .collect();
+    return rounds.length;
+  },
+});
+
+/**
+ * LIGHTWEIGHT: Returns only round dates for a host.
+ * Used by ActivityCalendar instead of listWithSummary.
+ */
+export const listDatesByHost = query({
+  args: { hostId: v.id("users"), year: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const rounds = await ctx.db
+      .query("rounds")
+      .withIndex("by_host", (q) => q.eq("hostId", args.hostId))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("isSynthesized"), undefined),
+          q.eq(q.field("isSynthesized"), false)
+        )
+      )
+      .collect();
+
+    // Filter by year if provided
+    const dates = rounds.map((r) => r.date);
+    if (args.year) {
+      return dates.filter((d) => new Date(d).getFullYear() === args.year);
+    }
+    return dates;
+  },
+});
+
+/**
+ * LIGHTWEIGHT: Returns minimal course references for each round.
+ * Used by CourseSearchModal "My Courses" tab instead of listWithSummary.
+ * Does NOT include players, scores, holes, or teeSets.
+ */
+export const listCourseRefsByHost = query({
+  args: { hostId: v.id("users") },
+  handler: async (ctx, args) => {
+    const rounds = await ctx.db
+      .query("rounds")
+      .withIndex("by_host", (q) => q.eq("hostId", args.hostId))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("isSynthesized"), undefined),
+          q.eq(q.field("isSynthesized"), false)
+        )
+      )
+      .collect();
+
+    // Cache course docs (and resolved image URLs) to avoid re-reading the same
+    // course for users who have multiple rounds on the same course.
+    const courseCache = new Map<string, any>();
+    const courseImageCache = new Map<string, string | null>();
+
+    const loadCourse = async (courseId: string) => {
+      if (courseCache.has(courseId)) return courseCache.get(courseId);
+      const c = await ctx.db.get(courseId as any);
+      courseCache.set(courseId, c);
+      return c;
+    };
+
+    const resolveCourseImageUrl = async (courseId: string, course: any) => {
+      if (courseImageCache.has(courseId)) return courseImageCache.get(courseId) ?? null;
+      let url: string | null = null;
+      if (course?.imageStorageId) {
+        url = await ctx.storage.getUrl(course.imageStorageId);
+      }
+      if (!url) {
+        url = course?.imageUrl ?? null;
+      }
+      courseImageCache.set(courseId, url);
+      return url;
+    };
+
+    const results: Array<{
+      roundId: string;
+      courseId: string;
+      courseExternalId: string | null;
+      courseName: string;
+      courseImageUrl: string | null;
+      courseLocation: string | null;
+      date: string;
+    }> = [];
+
+    for (const round of rounds) {
+      const courseId = round.courseId as any as string;
+      const course = await loadCourse(courseId);
+      const courseImageUrl = await resolveCourseImageUrl(courseId, course);
+
+      results.push({
+        roundId: round._id,
+        courseId: round.courseId,
+        courseExternalId: (course as any)?.externalId ?? null,
+        courseName: course?.name ?? "Unknown Course",
+        courseImageUrl,
+        courseLocation: course?.location ?? null,
+        date: round.date,
+      });
+    }
+
+    return results;
+  },
+});
+
+/**
+ * LIGHTWEIGHT: Check which round IDs exist in the database.
+ * Used by RoundSyncer to prune deleted rounds without fetching full data.
+ */
+export const existsBatch = query({
+  args: { roundIds: v.array(v.id("rounds")) },
+  handler: async (ctx, args) => {
+    const existing: string[] = [];
+    for (const roundId of args.roundIds) {
+      const round = await ctx.db.get(roundId);
+      if (round) {
+        existing.push(roundId);
+      }
+    }
+    return existing;
   },
 });

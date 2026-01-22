@@ -13,11 +13,11 @@ interface ActivityCalendarProps {
 export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new Date().getFullYear() }) => {
   const [showInfo, setShowInfo] = useState(false);
 
-  // Fetch rounds from Convex backend
+  // Fetch only round dates from Convex backend (lightweight query)
   const profile = useQuery(api.users.getProfile);
-  const hostRounds = useQuery(
-    api.rounds.listWithSummary,
-    profile?._id ? { hostId: profile._id as Id<'users'> } : "skip"
+  const roundDates = useQuery(
+    api.rounds.listDatesByHost,
+    profile?._id ? { hostId: profile._id as Id<'users'>, year } : "skip"
   ) || [];
 
   // Get all dates in the year
@@ -27,8 +27,8 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
   // Create a map of dates to round counts
   const activityMap = new Map<string, number>();
 
-  hostRounds.forEach((round: any) => {
-    const roundDate = new Date(round.date);
+  roundDates.forEach((dateStr: string) => {
+    const roundDate = new Date(dateStr);
     if (roundDate.getFullYear() === year) {
       const dateKey = roundDate.toISOString().split('T')[0];
       activityMap.set(dateKey, (activityMap.get(dateKey) || 0) + 1);

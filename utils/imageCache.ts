@@ -48,13 +48,19 @@ export const cacheCourseImage = async (
     imageUrl: string
 ): Promise<string | null> => {
     try {
+        const cachePath = getCourseImageCachePath(courseId);
+
+        // Early exit: if file already exists, don't re-download
+        const existingInfo = await FileSystem.getInfoAsync(cachePath);
+        if (existingInfo.exists) {
+            return cachePath;
+        }
+
         // Ensure cache directory exists
         const dirInfo = await FileSystem.getInfoAsync(IMAGE_CACHE_DIR);
         if (!dirInfo.exists) {
             await FileSystem.makeDirectoryAsync(IMAGE_CACHE_DIR, { intermediates: true });
         }
-
-        const cachePath = getCourseImageCachePath(courseId);
 
         // Handle base64 data URLs
         if (imageUrl.startsWith('data:')) {

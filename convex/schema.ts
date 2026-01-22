@@ -35,6 +35,20 @@ export default defineSchema({
         blowUpHolesPerRound: v.number(),
       })
     ),
+    // Rate limiting tracking for API usage
+    rateLimit: v.optional(v.object({
+      // Scans: 50/month, 10/day
+      scansDailyCount: v.number(),
+      scansDailyResetAt: v.number(),
+      scansMonthlyCount: v.number(),
+      scansMonthlyResetAt: v.number(),
+      // Course API: 15/day (paid API calls only)
+      courseApiDailyCount: v.number(),
+      courseApiDailyResetAt: v.number(),
+      // Google Places: 10/day (new courses only)
+      googlePlacesDailyCount: v.number(),
+      googlePlacesDailyResetAt: v.number(),
+    })),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -94,12 +108,14 @@ export default defineSchema({
         yardage: v.optional(v.number()),
       })
     ),
+    imageStorageId: v.optional(v.id("_storage")),
     imageUrl: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_externalId", ["externalId"])
-    .index("by_name", ["name"]),
+    .index("by_name", ["name"])
+    .searchIndex("search_name", { searchField: "name", filterFields: [] }),
 
   rounds: defineTable({
     hostId: v.id("users"),
@@ -130,6 +146,8 @@ export default defineSchema({
     courseRatingUsed: v.optional(v.number()),
     courseSlopeUsed: v.optional(v.number()),
     handicapDifferential: v.optional(v.number()),
+    // Adjusted gross score with Net Double Bogey applied (for handicap calculation)
+    adjustedGrossScore: v.optional(v.number()),
     isSynthesized: v.optional(v.boolean()),
     blowUpHoles: v.number(),
     par3Score: v.number(),
@@ -140,6 +158,10 @@ export default defineSchema({
         hole: v.number(),
         score: v.number(),
         par: v.number(),
+        // Net Double Bogey adjusted score for handicap purposes
+        adjustedScore: v.optional(v.number()),
+        // Hole stroke index for handicap stroke allocation
+        hcp: v.optional(v.number()),
         putts: v.optional(v.number()),
         fairwayHit: v.optional(v.boolean()),
         gir: v.optional(v.boolean()),
@@ -149,6 +171,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_player", ["playerId"])
+    .index("by_player_createdAt", ["playerId", "createdAt"])
     .index("by_round", ["roundId"]),
 
   scanJobs: defineTable({
@@ -219,6 +242,8 @@ export default defineSchema({
     participants: v.array(
       v.object({
         playerId: v.id("players"),
+        // Optional userId to identify which Clerk user this participant is (for press attribution)
+        userId: v.optional(v.id("users")),
         handicapIndex: v.number(),
         teeName: v.optional(v.string()),
         teeGender: v.optional(v.string()),
@@ -259,6 +284,12 @@ export default defineSchema({
         carryover: v.optional(v.boolean()),
         pressEnabled: v.optional(v.boolean()),
         pressThreshold: v.optional(v.number()),
+        // Nassau-specific: separate amounts for each segment
+        nassauAmounts: v.optional(v.object({
+          frontCents: v.number(),
+          backCents: v.number(),
+          overallCents: v.number(),
+        })),
         sideBets: v.optional(v.object({
           greenies: v.boolean(),
           sandies: v.boolean(),
@@ -277,6 +308,8 @@ export default defineSchema({
           segment: v.union(v.literal("front"), v.literal("back")),
           initiatedBy: v.id("players"),
           valueCents: v.number(),
+          // Required for individual mode (round-robin), optional for head-to-head/teams
+          pairingId: v.optional(v.string()),
         })
       )
     ),
@@ -297,20 +330,74 @@ export default defineSchema({
 
     linkedRoundId: v.optional(v.id("rounds")),
 
-    // Settlement (money in CENTS)
+    // Settlement (money in CENTS) - supports v1 (legacy) and v2 (new)
     settlement: v.optional(
+      v.union(
+        // V1: Legacy format (simple transactions array)
+        v.object({
+          settlementVersion: v.optional(v.literal("v1")),
+          calculated: v.boolean(),
+          transactions: v.array(
+            v.object({
+              fromPlayerId: v.id("players"),
+              toPlayerId: v.id("players"),
+              amountCents: v.number(),
+              reason: v.string(),
+            })
+          ),
+        }),
+        // V2: New format with raw transactions, netting, and explanations
+        v.object({
+          settlementVersion: v.literal("v2"),
+          calculated: v.boolean(),
+          calculatedAt: v.optional(v.number()),
+          configSnapshot: v.optional(v.any()),
+          rawTransactions: v.array(
+            v.object({
+              id: v.string(),
+              fromPlayerId: v.id("players"),
+              toPlayerId: v.id("players"),
+              amountCents: v.number(),
+              reason: v.string(),
+              explanation: v.string(),
+              gameType: v.string(),
+              segment: v.optional(v.string()),
+              pairingId: v.optional(v.string()),
+              pressId: v.optional(v.string()),
+            })
+          ),
+          nettedPayments: v.array(
+            v.object({
+              fromPlayerId: v.id("players"),
+              toPlayerId: v.id("players"),
+              amountCents: v.number(),
+              breakdown: v.string(),
+              allocatedContributions: v.array(v.any()),
+            })
+          ),
+          matchResults: v.optional(v.array(v.any())),
+        })
+      )
+    ),
+
+    // V2 Press configuration
+    pressConfig: v.optional(
       v.object({
-        calculated: v.boolean(),
-        transactions: v.array(
-          v.object({
-            fromPlayerId: v.id("players"),
-            toPlayerId: v.id("players"),
-            amountCents: v.number(),
-            reason: v.string(),
-          })
-        ),
+        pressEnabled: v.boolean(),
+        pressMode: v.union(v.literal("manual"), v.literal("autoDown2")),
+        pressTriggerDownBy: v.number(),
+        pressStart: v.union(v.literal("nextHole"), v.literal("immediateHole")),
+        maxPressesPerSegment: v.number(),
+        pressAppliesToOverall: v.boolean(),
+        pressValueCents: v.optional(v.number()),
       })
     ),
+
+    // V2 Team scoring mode
+    teamScoring: v.optional(
+      v.union(v.literal("bestBall"), v.literal("aggregate"))
+    ),
+
 
     createdAt: v.number(),
     updatedAt: v.number(),

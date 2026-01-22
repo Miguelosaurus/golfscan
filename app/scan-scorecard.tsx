@@ -18,7 +18,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { PanGestureHandler, State, FlatList } from 'react-native-gesture-handler';
+import { PanGestureHandler, PinchGestureHandler, State } from 'react-native-gesture-handler';
 // @ts-ignore - local ambient types provided via declarations
 import DraggableFlatList from 'react-native-draggable-flatlist';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
@@ -47,7 +47,7 @@ import {
 } from 'lucide-react-native';
 import { Check } from 'lucide-react-native';
 import { colors } from '@/constants/colors';
-import { generateUniqueId, ensureValidDate } from '@/utils/helpers';
+import { generateUniqueId, ensureValidDate, getLocalDateString } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
 import { mockCourses } from '@/mocks/courses';
 import { CourseSearchModal } from '@/components/CourseSearchModal';
@@ -59,6 +59,7 @@ import { Id } from '@/convex/_generated/dataModel';
 import { useAction, useMutation, useQuery } from '@/lib/convex';
 import { searchCourses } from '@/lib/golf-course-api';
 import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/course-helpers';
+import { trackScanStarted, trackScanFailed, trackLimitReached, trackRoundSaved } from '@/lib/analytics';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 
@@ -179,7 +180,7 @@ const ScanBracket = ({ position }: { position: 'topLeft' | 'topRight' | 'bottomL
 };
 
 export default function ScanScorecardScreen() {
-  const { courseId, editRoundId, prefilled, review } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string }>();
+  const { courseId, editRoundId, prefilled, review, onboardingMode } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string, onboardingMode?: string }>();
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
@@ -205,6 +206,7 @@ export default function ScanScorecardScreen() {
       if (editRoundId) params.set('editRoundId', editRoundId);
       if (prefilled) params.set('prefilled', prefilled);
       if (courseId) params.set('courseId', courseId);
+      if (onboardingMode) params.set('onboardingMode', onboardingMode);
 
       const queryString = params.toString();
       console.log(`[scan-scorecard ${instanceId.current}] seatbelt redirect -> /scan-review`, {
@@ -216,7 +218,7 @@ export default function ScanScorecardScreen() {
       });
       router.replace(`/scan-review${queryString ? '?' + queryString : ''}` as any);
     }
-  }, [review, editRoundId, prefilled, courseId, router]);
+  }, [review, editRoundId, prefilled, courseId, onboardingMode, router]);
 
   const {
     players,
@@ -274,6 +276,11 @@ export default function ScanScorecardScreen() {
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
   const upsertCourse = useMutation(api.courses.upsert);
   const [facing, setFacing] = useState<CameraType>('back');
+  const [zoom, setZoom] = useState(0);
+  const [availableLenses, setAvailableLenses] = useState<string[]>([]);
+  const [selectedLens, setSelectedLens] = useState<string | undefined>(undefined);
+  const [zoomSliderWidth, setZoomSliderWidth] = useState(0);
+  const pinchStartZoomRef = useRef(0);
   const photos = pendingScanPhotos;
   const scanning = storeScanningState;
   const [processingComplete, setProcessingComplete] = useState(false);
@@ -372,7 +379,7 @@ export default function ScanScorecardScreen() {
   }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking]);
   const teePickerIndexRef = useRef<number | null>(null);
   const [notes, setNotes] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => getLocalDateString());
   const [activeTab, setActiveTab] = useState<'players' | 'scores' | 'details'>('players');
   const [draggingPlayerIndex, setDraggingPlayerIndex] = useState<number | null>(null);
   const [selectedApiCourse, setSelectedApiCourse] = useState<{ apiCourse: ApiCourseData; selectedTee?: string } | null>(null);
@@ -472,12 +479,14 @@ export default function ScanScorecardScreen() {
 
   // Convex actions/mutations
   const processScanAction = useAction(api.scorecard.processScan);
+  const processScanGuestAction = useAction(api.scorecard.processScanGuest);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  const generateUploadUrlGuest = useMutation(api.files.generateUploadUrlGuest);
 
   const buildDevSampleResult = (): ScorecardScanResult => ({
     courseName: 'Dev National - Demo Course',
     courseNameConfidence: 0.9,
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     dateConfidence: 0.9,
     overallConfidence: 0.9,
     players: [
@@ -743,8 +752,108 @@ export default function ScanScorecardScreen() {
     return {};
   };
 
+  const handleAvailableLensesChanged = useCallback((event: any) => {
+    const lenses = Array.isArray(event?.lenses)
+      ? event.lenses
+      : Array.isArray(event?.nativeEvent?.lenses)
+        ? event.nativeEvent.lenses
+        : [];
+    if (lenses.length) {
+      setAvailableLenses(lenses);
+    }
+  }, []);
+
+  const handleCameraReady = useCallback(async () => {
+    if (Platform.OS !== 'ios') return;
+    try {
+      const lenses = await cameraRef.current?.getAvailableLensesAsync();
+      if (Array.isArray(lenses) && lenses.length) {
+        setAvailableLenses(lenses);
+      }
+    } catch { }
+  }, []);
+
+  const ultraWideLens = useMemo(() => {
+    return availableLenses.find((lens) => lens.toLowerCase().includes('ultra'));
+  }, [availableLenses]);
+
+  const wideAngleLens = useMemo(() => {
+    return availableLenses.find(
+      (lens) => lens.toLowerCase().includes('wide') && !lens.toLowerCase().includes('ultra')
+    );
+  }, [availableLenses]);
+
+  const telephotoLens = useMemo(() => {
+    return availableLenses.find((lens) => lens.toLowerCase().includes('telephoto'));
+  }, [availableLenses]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (!availableLenses.length) return;
+
+    if (!selectedLens && wideAngleLens) {
+      setSelectedLens(wideAngleLens);
+      return;
+    }
+
+    if (selectedLens && !availableLenses.includes(selectedLens)) {
+      setSelectedLens(undefined);
+      setZoom(0);
+    }
+  }, [availableLenses, selectedLens, wideAngleLens]);
+
+  const iosLensOptions = useMemo(() => {
+    const options: Array<{ key: string; label: string; lens: string | null }> = [];
+    if (ultraWideLens) options.push({ key: '0.5x', label: '0.5×', lens: ultraWideLens });
+    if (wideAngleLens) {
+      options.push({ key: '1x', label: '1×', lens: wideAngleLens });
+    } else {
+      options.push({ key: '1x', label: '1×', lens: null });
+    }
+    if (telephotoLens) options.push({ key: 'tele', label: '2×+', lens: telephotoLens });
+    return options;
+  }, [telephotoLens, ultraWideLens, wideAngleLens]);
+
+  const handleSelectLens = useCallback((lens: string | null) => {
+    if (Platform.OS !== 'ios') return;
+    setSelectedLens(lens ?? undefined);
+    setZoom(0);
+  }, []);
+
+  const handlePinchStateChange = useCallback((event: any) => {
+    if (event?.nativeEvent?.state === State.BEGAN) {
+      pinchStartZoomRef.current = zoom;
+    }
+  }, [zoom]);
+
+  const handlePinchGesture = useCallback((event: any) => {
+    const scale = event?.nativeEvent?.scale;
+    if (typeof scale !== 'number') return;
+    const sensitivity = 0.18;
+    const nextZoom = Math.min(1, Math.max(0, pinchStartZoomRef.current + (scale - 1) * sensitivity));
+    setZoom(nextZoom);
+  }, []);
+
+  const handleZoomSliderGesture = useCallback((event: any) => {
+    const x = event?.nativeEvent?.x;
+    if (typeof x !== 'number') return;
+    if (!zoomSliderWidth) return;
+    const nextZoom = Math.min(1, Math.max(0, x / zoomSliderWidth));
+    setZoom(nextZoom);
+  }, [zoomSliderWidth]);
+
+  const zoomThumbLeft = useMemo(() => {
+    if (!zoomSliderWidth) return 0;
+    const thumbSize = 18;
+    const raw = zoom * zoomSliderWidth - thumbSize / 2;
+    return Math.min(zoomSliderWidth - thumbSize, Math.max(0, raw));
+  }, [zoom, zoomSliderWidth]);
+
   const toggleCameraFacing = () => {
     setFacing(current => (current === 'back' ? 'front' : 'back'));
+    setZoom(0);
+    setAvailableLenses([]);
+    setSelectedLens(undefined);
   };
 
   const takePicture = async () => {
@@ -868,6 +977,14 @@ export default function ScanScorecardScreen() {
   };
 
   const showSetupGameOptions = () => {
+    if (onboardingMode === 'true') {
+      Alert.alert(
+        'Not Available',
+        'Game setup is not available during onboarding. Complete the demo first!',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
     setShowSetupSheet(true);
   };
 
@@ -887,6 +1004,9 @@ export default function ScanScorecardScreen() {
     setIsScanning(true);
     clearScanData();
     setSelectedTeeName(undefined);
+
+    // Track scan started
+    trackScanStarted({ imageCount: photos.length });
 
     const updateJob = (stage: ScanStage, progress: number, message: string) => {
       updateActiveScanJob({ stage, progress, message });
@@ -953,9 +1073,11 @@ export default function ScanScorecardScreen() {
         updateJob('uploading', progress, `Uploading image ${i + 1} of ${photos.length}...`);
         console.log(`[SCAN] Processing image ${i + 1}...`);
 
-        // Get upload URL from Convex
+        // Get upload URL from Convex (use guest version during onboarding)
         console.log('[SCAN] Getting upload URL...');
-        const uploadUrl = await generateUploadUrl();
+        const uploadUrl = onboardingMode === 'true'
+          ? await generateUploadUrlGuest()
+          : await generateUploadUrl();
         console.log('[SCAN] Got upload URL');
 
         // Convert photo to blob for upload
@@ -1022,11 +1144,18 @@ export default function ScanScorecardScreen() {
       });
 
       // Fire the action in background - don't await!
-      // The action will update scan job state and sync results to store
-      processScanAction({ storageIds })
-        .then((result) => {
+      // Use guest scan for onboarding (no auth required), regular scan for authenticated users
+      const scanAction = onboardingMode === 'true'
+        ? processScanGuestAction({ storageIds })
+        : processScanAction({ storageIds });
+
+      scanAction
+        .then((result: any) => {
           console.log('[SCAN] processScan completed:', result);
-          setRemainingScans(result.scansRemaining ?? remainingScans);
+          // Only update remaining scans for authenticated scans
+          if ('scansRemaining' in result && typeof result.scansRemaining === 'number') {
+            setRemainingScans(result.scansRemaining ?? remainingScans);
+          }
           // Update scan job with result - this triggers review screen when user closes course modal
           if (result.result) {
             updateActiveScanJob({
@@ -1065,9 +1194,12 @@ export default function ScanScorecardScreen() {
       }
       router.replace('/(tabs)');
 
-      // Only show course selection modal if there's no active session
-      // (if there's an active session, the course is already selected from pre-round flow)
-      if (!activeSession) {
+      // For onboarding: don't show course modal yet - wait for scan to complete
+      // The home screen will auto-navigate to scan-review when scan finishes
+      // For regular flow: show course modal immediately (user can select while scanning)
+      if (onboardingMode === 'true') {
+        console.log('[SCAN] Onboarding mode - waiting for scan to complete before showing course modal');
+      } else if (!activeSession) {
         // Small delay to ensure navigation completes before showing modal
         setTimeout(() => {
           console.log('[SCAN] Setting shouldShowScanCourseModal to TRUE after delay');
@@ -1078,8 +1210,26 @@ export default function ScanScorecardScreen() {
       }
       return;
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Scan error:', error);
+
+      // Extract rate limit info from ConvexError message if applicable
+      // Format: SCAN_LIMIT_REACHED:daily:4
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('SCAN_LIMIT_REACHED')) {
+        const parts = errorMessage.split(':');
+        const limitType = (parts[1] || 'daily') as 'daily' | 'monthly';
+        const resetsInHours = parseInt(parts[2] || '0', 10);
+
+        trackLimitReached({
+          service: 'scan',
+          limitType,
+          resetsInHours,
+        });
+      }
+
+      trackScanFailed({ error: errorMessage });
+
       updateActiveScanJob({
         status: 'error',
         stage: 'error',
@@ -1087,13 +1237,28 @@ export default function ScanScorecardScreen() {
         progress: 0,
       });
 
+      let displayTitle = 'Scan Failed';
+      let displayMessage = errorMessage;
+
+      if (errorMessage.includes('SCAN_LIMIT_REACHED')) {
+        const parts = errorMessage.split(':');
+        const limitType = parts[1] || 'daily';
+        const resetsInHours = parts[2] || 'some';
+        displayTitle = 'Limit Reached';
+        displayMessage = `You've reached your ${limitType} scan limit. It will reset in about ${resetsInHours} hour${resetsInHours === '1' ? '' : 's'}.`;
+      }
+
       Alert.alert(
-        'Scan Failed',
-        error instanceof Error ? error.message : 'Failed to scan scorecard. Please try again.',
+        displayTitle,
+        displayMessage,
         [
           {
-            text: 'Retry',
-            onPress: () => processScorecard()
+            text: errorMessage.includes('SCAN_LIMIT_REACHED') ? 'OK' : 'Retry',
+            onPress: () => {
+              if (!errorMessage.includes('SCAN_LIMIT_REACHED')) {
+                processScorecard();
+              }
+            }
           },
           {
             text: 'Cancel',
@@ -1900,7 +2065,20 @@ export default function ScanScorecardScreen() {
     } else {
       // Add the round to the store and go straight to Round Details
       addRound(newRound as any);
-      router.replace(`/round/${roundId}`);
+
+      // Track round saved
+      trackRoundSaved({
+        playerCount: newRound.players.length,
+        holeCount: newRound.holeCount as 9 | 18,
+        source: 'scan',
+      });
+
+      // If in onboarding mode, navigate to paywall instead of round details
+      if (onboardingMode === 'true') {
+        router.replace('/(onboarding)/paywall' as any);
+      } else {
+        router.replace(`/round/${roundId}`);
+      }
     }
 
     markActiveScanReviewed();
@@ -2447,8 +2625,8 @@ export default function ScanScorecardScreen() {
                     <Calendar size={20} color={colors.text} style={styles.dateIcon} />
                     <TextInput
                       style={styles.dateInput}
-                      value={date || new Date().toISOString().split('T')[0]}
-                      onChangeText={(value) => setDate(value || new Date().toISOString().split('T')[0])}
+                      value={date || getLocalDateString()}
+                      onChangeText={(value) => setDate(value || getLocalDateString())}
                       placeholder="YYYY-MM-DD"
                     />
                   </View>
@@ -2566,7 +2744,8 @@ export default function ScanScorecardScreen() {
             onClose={() => setShowCourseSearchModal(false)}
             onSelectCourse={handleSelectCourse}
             onAddManualCourse={handleAddCourseManually}
-            showMyCoursesTab={true}
+            showMyCoursesTab={onboardingMode !== 'true'}
+            isGuest={onboardingMode === 'true'}
           />
         )}
       </SafeAreaView>
@@ -2677,20 +2856,29 @@ export default function ScanScorecardScreen() {
       ) : (
         // === CAMERA MODE ===
         <>
-          {!showCourseSearchModal || coursePickerSource !== 'scan' ? (
-            <View style={styles.fullScreenCamera}>
-              {Platform.OS !== 'web' ? (
-                <CameraView
-                  style={StyleSheet.absoluteFillObject}
-                  facing={facing}
-                  ref={cameraRef}
-                >
-                  <View style={styles.cameraOverlaySafe}>
-                    {/* Top bar */}
-                    <View
-                      style={[styles.cameraTopBar, { top: cameraTopOffset }]}
-                      pointerEvents="box-none"
-                    >
+	          {!showCourseSearchModal || coursePickerSource !== 'scan' ? (
+	            <View style={styles.fullScreenCamera}>
+	              {Platform.OS !== 'web' ? (
+	                <PinchGestureHandler
+	                  onGestureEvent={handlePinchGesture}
+	                  onHandlerStateChange={handlePinchStateChange}
+	                >
+	                  <View style={StyleSheet.absoluteFillObject}>
+		                    <CameraView
+		                      style={StyleSheet.absoluteFillObject}
+		                      facing={facing}
+		                      ref={cameraRef}
+		                      zoom={zoom}
+		                      onCameraReady={handleCameraReady}
+		                      onAvailableLensesChanged={Platform.OS === 'ios' ? handleAvailableLensesChanged : undefined}
+		                      selectedLens={Platform.OS === 'ios' ? selectedLens : undefined}
+		                    >
+	                      <View style={styles.cameraOverlaySafe}>
+	                    {/* Top bar */}
+	                    <View
+	                      style={[styles.cameraTopBar, { top: cameraTopOffset }]}
+	                      pointerEvents="box-none"
+	                    >
                       <TouchableOpacity
                         style={styles.cameraCloseButton}
                         onPress={() => router.back()}
@@ -2737,17 +2925,69 @@ export default function ScanScorecardScreen() {
                     </View>
 
                     {/* Bottom controls */}
-                    <LinearGradient
-                      colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)']}
-                      style={[
-                        styles.cameraBottomGradientContainer,
-                        { paddingBottom: insets.bottom + 18 },
-                      ]}
-                    >
-                      <View style={styles.cameraBottomControlsRow}>
-                        <TouchableOpacity
-                          style={styles.cameraSideButton}
-                          onPress={showAddPicOptions}
+	                    <LinearGradient
+	                      colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.85)']}
+	                      style={[
+	                        styles.cameraBottomGradientContainer,
+	                        { paddingBottom: insets.bottom + 18 },
+	                      ]}
+	                    >
+		                      {facing === 'back' && (
+		                        <View style={styles.cameraZoomControls}>
+		                          {Platform.OS === 'ios' ? (
+		                            iosLensOptions.length > 1 ? (
+		                              <View style={styles.iosZoomPill}>
+		                                {iosLensOptions.map((option) => {
+		                                  const isActive = option.lens ? selectedLens === option.lens : !selectedLens;
+		                                  return (
+		                                    <TouchableOpacity
+		                                      key={option.key}
+		                                      style={[
+		                                        styles.zoomPillOption,
+		                                        isActive && styles.zoomPillOptionActive,
+		                                      ]}
+		                                      onPress={() => handleSelectLens(option.lens)}
+		                                      accessibilityLabel={`Zoom ${option.label}`}
+		                                    >
+		                                      <Text
+		                                        style={[
+		                                          styles.zoomPillOptionText,
+		                                          isActive && styles.zoomPillOptionTextActive,
+		                                        ]}
+		                                      >
+		                                        {option.label}
+		                                      </Text>
+		                                    </TouchableOpacity>
+		                                  );
+		                                })}
+		                              </View>
+		                            ) : null
+		                          ) : (
+		                            <View style={styles.androidZoomRow}>
+		                              <Text style={styles.androidZoomLabel}>1×</Text>
+	                              <PanGestureHandler
+	                                minDist={0}
+	                                onGestureEvent={handleZoomSliderGesture}
+	                                onHandlerStateChange={handleZoomSliderGesture}
+	                              >
+	                                <View
+	                                  style={styles.androidZoomTrack}
+	                                  onLayout={(e) => setZoomSliderWidth(e.nativeEvent.layout.width)}
+	                                >
+	                                  <View style={[styles.androidZoomFill, { width: `${zoom * 100}%` }]} />
+	                                  <View style={[styles.androidZoomThumb, { left: zoomThumbLeft }]} />
+		                                </View>
+		                              </PanGestureHandler>
+		                              <Text style={styles.androidZoomLabel}>Max</Text>
+		                            </View>
+		                          )}
+		                        </View>
+		                      )}
+
+	                      <View style={styles.cameraBottomControlsRow}>
+	                        <TouchableOpacity
+	                          style={styles.cameraSideButton}
+	                          onPress={showAddPicOptions}
                         >
                           <View style={styles.cameraSideButtonIcon}>
                             <ImageIcon size={22} color="white" />
@@ -2771,15 +3011,17 @@ export default function ScanScorecardScreen() {
                             <RotateCcw size={22} color="white" />
                           </View>
                           <Text style={styles.cameraSideButtonText}>Flip</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </LinearGradient>
-                  </View>
-                </CameraView>
-              ) : (
-                <View style={styles.webFallback}>
-                  <Camera size={60} color={colors.primary} />
-                  <Text style={styles.webFallbackText}>
+	                        </TouchableOpacity>
+	                      </View>
+	                    </LinearGradient>
+	                      </View>
+	                    </CameraView>
+	                  </View>
+	                </PinchGestureHandler>
+	              ) : (
+	                <View style={styles.webFallback}>
+	                  <Camera size={60} color={colors.primary} />
+	                  <Text style={styles.webFallbackText}>
                     Camera is not available on web. Please use the upload button below.
                   </Text>
                   <TouchableOpacity
@@ -2892,7 +3134,8 @@ export default function ScanScorecardScreen() {
             onClose={() => setShowCourseSearchModal(false)}
             onSelectCourse={handleSelectCourse}
             onAddManualCourse={handleAddCourseManually}
-            showMyCoursesTab={true}
+            showMyCoursesTab={onboardingMode !== 'true'}
+            isGuest={onboardingMode === 'true'}
           />
         )
       }
@@ -3910,6 +4153,74 @@ const styles = StyleSheet.create({
   cameraBottomGradientContainer: {
     paddingTop: 24,
     paddingBottom: 18,
+  },
+  cameraZoomControls: {
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 14,
+  },
+  iosZoomPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 4,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  zoomPillOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  zoomPillOptionActive: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  zoomPillOptionText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  zoomPillOptionTextActive: {
+    color: '#FFFFFF',
+  },
+  androidZoomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  androidZoomLabel: {
+    width: 28,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  androidZoomTrack: {
+    width: 200,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
+    justifyContent: 'center',
+    marginHorizontal: 10,
+  },
+  androidZoomFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  androidZoomThumb: {
+    position: 'absolute',
+    top: 5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
   },
   cameraBottomControlsRow: {
     flexDirection: 'row',

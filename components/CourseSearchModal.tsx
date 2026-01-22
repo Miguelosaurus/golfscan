@@ -34,6 +34,7 @@ interface CourseSearchModalProps {
   onClose: () => void;
   onSelectCourse: (course: Course, meta?: CourseSelectionMeta) => void;
   testID?: string;
+  isGuest?: boolean; // For unauthenticated onboarding flow
 }
 
 export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualCourse?: () => void, showMyCoursesTab?: boolean }> = ({
@@ -42,20 +43,22 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   onSelectCourse,
   onAddManualCourse,
   showMyCoursesTab = true,
+  isGuest = false,
   testID,
 }) => {
   const { getFrequentCourses, getCourseById, addCourse, updateCourse, courses, rounds } = useGolfStore();
   const router = useRouter();
 
 
-  // Use Convex rounds data (same as history tab) for My Courses
+  // Use Convex lightweight course refs (same as history tab but no players/scores)
   const profile = useQuery(api.users.getProfile);
-  const roundsData = useQuery(
-    api.rounds.listWithSummary,
+  const courseRefs = useQuery(
+    api.rounds.listCourseRefsByHost,
     profile?._id ? { hostId: profile._id as any } : "skip"
   ) || [];
 
   const searchAction = useAction(api.golfCourse.search);
+  const searchGuestAction = useAction(api.golfCourse.searchGuest);
   const searchConvexCourses = useAction(api.courses.searchByNameAction);
   const getConvexCourseByExternalId = useAction(api.courses.getByExternalIdAction);
   const upsertCourse = useMutation(api.courses.upsert);
@@ -80,24 +83,24 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     const usage: Record<string, number> = {};
     const map = new Map<string, Course>();
 
-    // Use roundsData from Convex (same as history tab) instead of local Zustand rounds
-    roundsData.forEach((round: any) => {
-      const externalId = round.courseExternalId as string | undefined;
-      const key = externalId ?? (round.courseId as string);
+    // Use courseRefs from Convex lightweight query
+    courseRefs.forEach((ref: any) => {
+      const externalId = ref.courseExternalId as string | undefined;
+      const key = externalId ?? (ref.courseId as string);
       usage[key] = (usage[key] || 0) + 1;
       if (!map.has(key)) {
         const storeCourse =
           (externalId && courses.find((c) => c.id === externalId)) ||
-          courses.find((c) => c.id === (round.courseId as string));
+          courses.find((c) => c.id === (ref.courseId as string));
 
-        const id = storeCourse?.id ?? externalId ?? (round.courseId as string);
+        const id = storeCourse?.id ?? externalId ?? (ref.courseId as string);
 
         map.set(key, {
           id,
-          name: round.courseName,
-          location: storeCourse?.location ?? 'Unknown location',
+          name: ref.courseName,
+          location: storeCourse?.location ?? ref.courseLocation ?? 'Unknown location',
           holes: storeCourse?.holes ?? [],
-          imageUrl: storeCourse?.imageUrl ?? (round.courseImageUrl as string | undefined),
+          imageUrl: storeCourse?.imageUrl ?? (ref.courseImageUrl as string | undefined),
           slope: storeCourse?.slope,
           rating: storeCourse?.rating,
           teeSets: storeCourse?.teeSets,
@@ -120,6 +123,8 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
   // Acquire user location when modal becomes visible
   useEffect(() => {
     if (!visible) return;
+
+    console.log('[CourseSearchModal] Starting nearby search, isGuest:', isGuest);
 
     (async () => {
       try {
@@ -144,7 +149,10 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 
         for (const q of queries) {
           try {
-            const results = await searchAction({ query: q });
+            // Use guest search for unauthenticated onboarding
+            const results = isGuest
+              ? await searchGuestAction({ query: q })
+              : await searchAction({ query: q });
             if (results && results.length) {
               // Sort by distance if we have coordinates
               const sorted = results.sort((a: any, b: any) => {
@@ -163,7 +171,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         console.log('Location error', e);
       }
     })();
-  }, [visible]);
+  }, [visible, isGuest, searchAction, searchGuestAction]);
 
   useEffect(() => {
     if (activeTab === 'search' && searchQuery.length >= 3) {
@@ -195,7 +203,10 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
       if (convexResults.length < 5) {
         // Not enough cached results, query the paid API
         console.log('[CourseSearch] Querying paid API...');
-        apiResults = await searchAction({ query: searchQuery });
+        // Use guest search for unauthenticated onboarding
+        apiResults = isGuest
+          ? await searchGuestAction({ query: searchQuery })
+          : await searchAction({ query: searchQuery });
       }
 
       // 3) Merge results: Convex first (converted to API format), then API results

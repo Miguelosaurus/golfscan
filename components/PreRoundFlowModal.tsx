@@ -70,6 +70,38 @@ type Step =
     | 'summary';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SHARED HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Determine available game modes based on game type and player count.
+ * Matrix:
+ * - Stroke Play / Skins: always individual only
+ * - Match Play / Nassau:
+ *   - 2 players: head_to_head only
+ *   - 3 players: individual only
+ *   - 4 players: individual OR teams (user choice)
+ */
+function getAvailableGameModes(gameType: GameType, playerCount: number): GameMode[] {
+    const modes: GameMode[] = [];
+
+    if (gameType === 'stroke_play' || gameType === 'skins') {
+        modes.push('individual');
+    } else if (gameType === 'match_play' || gameType === 'nassau') {
+        if (playerCount === 2) {
+            modes.push('head_to_head');
+        } else if (playerCount === 3) {
+            modes.push('individual');
+        } else if (playerCount === 4) {
+            modes.push('teams');
+            modes.push('individual');
+        }
+    }
+
+    return modes;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -89,7 +121,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             hasAppliedInitialIntent.current = true;
             setCurrentStep('course');
             if (initialIntent === 'quick_strokes') {
+                // Quick strokes: set sensible defaults so session can be created without game setup
                 setGameMode('individual');
+                setGameType('stroke_play');
             }
         }
         // Reset when modal closes
@@ -118,6 +152,10 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         birdies: boolean;
     }>({ greenies: false, sandies: false, birdies: false });
     const [sideBetAmountDollars, setSideBetAmountDollars] = useState(2);
+    // Nassau-specific: separate amounts for each segment
+    const [nassauFrontDollars, setNassauFrontDollars] = useState(10);
+    const [nassauBackDollars, setNassauBackDollars] = useState(10);
+    const [nassauOverallDollars, setNassauOverallDollars] = useState(20);
     // Team assignments for head_to_head and teams modes
     const [teamAssignments, setTeamAssignments] = useState<{
         sideA: string[];
@@ -156,34 +194,17 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
     // Auto-select game mode based on player count
     React.useEffect(() => {
         const playerCount = selectedPlayers.length;
+        if (!gameType) return;  // No game type selected yet
 
-        // Determine available modes
-        const getAvailableModes = (): GameMode[] => {
-            const modes: GameMode[] = [];
-
-            if (playerCount === 2) {
-                modes.push('head_to_head');
-                if (gameType === 'skins') modes.push('individual');
-            } else if (playerCount === 4) {
-                modes.push('teams');
-                if (gameType === 'skins') modes.push('individual');
-            } else if (playerCount >= 3) {
-                modes.push('individual');
-            }
-
-            return modes;
-        };
-
-        const availableModes = getAvailableModes();
+        // Use shared helper to determine available modes
+        const availableModes = getAvailableGameModes(gameType, playerCount);
 
         if (availableModes.length === 1 && gameMode !== availableModes[0]) {
             // Only one option, auto-select it
             setGameMode(availableModes[0]);
         } else if (availableModes.length > 1 && !availableModes.includes(gameMode)) {
-            // Multiple options but current selection is invalid, set smart default
-            if (playerCount === 2) setGameMode('head_to_head');
-            else if (playerCount === 4) setGameMode('teams');
-            else setGameMode('individual');
+            // Multiple options but current selection is invalid, default to first option
+            setGameMode(availableModes[0]);
         }
     }, [selectedPlayers.length, gameType, gameMode]);
 
@@ -192,14 +213,14 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
     const profile = useQuery(api.users.getProfile);
     const myPlayer = players?.find((p: { isSelf: boolean }) => p.isSelf);
 
-    // Use the CALCULATED handicap from handicap.getDetails (same source as Scandicap page)
-    // This is the ground truth that incorporates both real rounds and seeded rounds using WHS algorithm
-    const handicapDetails = useQuery(
-        api.handicap.getDetails,
+    // Use the CALCULATED handicap from handicap.getSummary (lightweight version)
+    // This is the same value as getDetails but without expensive course/round joins
+    const handicapSummary = useQuery(
+        api.handicap.getSummary,
         profile?._id ? { userId: profile._id as any } : "skip"
     );
-    const myHandicapIndex = typeof handicapDetails?.currentHandicap === 'number'
-        ? handicapDetails.currentHandicap
+    const myHandicapIndex = typeof handicapSummary?.currentHandicap === 'number'
+        ? handicapSummary.currentHandicap
         : (typeof profile?.handicap === 'number' ? profile.handicap : 0);
 
     // Add myself if not in selected players
@@ -243,8 +264,12 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             case 'gameType':
                 return 'gameRules';
             case 'gameRules':
-                // Show gameMode for match_play, nassau, skins
-                if (gameType === 'match_play' || gameType === 'nassau' || gameType === 'skins') {
+                // Only show gameMode step if there are 2+ options to choose from
+                // This happens for match_play/nassau with exactly 4 players
+                // Stroke play and skins are always individual (no choice needed)
+                const playerCount = selectedPlayers.length;
+                const hasMultipleModes = (gameType === 'match_play' || gameType === 'nassau') && playerCount === 4;
+                if (hasMultipleModes) {
                     return 'gameMode';
                 }
                 return 'betConfig';
@@ -259,7 +284,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             default:
                 return null;
         }
-    }, [currentStep, gameType, gameMode, initialIntent]);
+    }, [currentStep, gameType, gameMode, initialIntent, selectedPlayers.length]);
 
     const getPreviousStep = useCallback((): Step | null => {
         // Quick strokes flow: course -> players -> strokeAllocations -> summary
@@ -280,7 +305,10 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             case 'gameMode':
                 return 'gameRules';
             case 'betConfig':
-                if (gameType === 'match_play' || gameType === 'nassau' || gameType === 'skins') {
+                // Only go back to gameMode if it was shown (match_play/nassau with 4 players)
+                const backPlayerCount = selectedPlayers.length;
+                const wasGameModeShown = (gameType === 'match_play' || gameType === 'nassau') && backPlayerCount === 4;
+                if (wasGameModeShown) {
                     return 'gameMode';
                 }
                 return 'gameRules';
@@ -295,7 +323,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             default:
                 return null;
         }
-    }, [currentStep, gameType, gameMode, initialIntent]);
+    }, [currentStep, gameType, gameMode, initialIntent, selectedPlayers.length]);
 
     const goNext = () => {
         const next = getNextStep();
@@ -379,6 +407,62 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         onClose();
     };
 
+    // Build correct stroke allocations for session creation (for settlement calculations)
+    const buildStrokeAllocationsForSession = (
+        players: SelectedPlayer[],
+        course: any
+    ): { playerId: Id<'players'>; strokesByHole: number[] }[] => {
+        if (players.length < 2) {
+            return players.map(p => ({
+                playerId: p.playerId,
+                strokesByHole: new Array(18).fill(0),
+            }));
+        }
+
+        // Find lowest handicap as baseline
+        const minHandicap = Math.min(...players.map(p => p.handicapIndex));
+
+        // Get hole handicaps from course
+        let holes = course?.holes || [];
+        if (holes.length === 0 && course?.teeSets?.[0]?.holes) {
+            holes = course.teeSets[0].holes;
+        }
+        if (holes.length === 0 && course?._convexCourse?.holes) {
+            holes = course._convexCourse.holes;
+        }
+
+        // Sort holes by difficulty (lowest hcp = hardest = gets strokes first)
+        const holesByDifficulty = [...Array(18)].map((_, i) => {
+            const hole = holes.find((h: any) => h.number === i + 1);
+            const hcp = hole?.hcp ?? hole?.handicap ?? (i + 1);
+            return { number: i + 1, hcp };
+        }).sort((a, b) => a.hcp - b.hcp);
+
+        return players.map(p => {
+            const strokesReceived = Math.max(0, Math.round(p.handicapIndex - minHandicap));
+            const strokesByHole = new Array(18).fill(0);
+
+            if (strokesReceived <= 18) {
+                // 1 stroke on the hardest N holes
+                holesByDifficulty.slice(0, strokesReceived).forEach(h => {
+                    strokesByHole[h.number - 1] = 1;
+                });
+            } else {
+                // 1 stroke on ALL holes + 2nd stroke on extra hardest
+                strokesByHole.fill(1);
+                const extraStrokes = strokesReceived - 18;
+                holesByDifficulty.slice(0, extraStrokes).forEach(h => {
+                    strokesByHole[h.number - 1] = 2;
+                });
+            }
+
+            return {
+                playerId: p.playerId,
+                strokesByHole,
+            };
+        });
+    };
+
     const handleCreateSession = async () => {
         if (!selectedCourse || !gameType || selectedPlayers.length < 2) {
             Alert.alert('Missing Info', 'Please complete all required fields.');
@@ -398,28 +482,42 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
             // Build sides based on game mode
             let sides: Array<{ sideId: string; playerIds: Id<'players'>[] }> = [];
-            if (gameMode === 'individual') {
+
+            // Force individual logic for status-quo game types
+            const creationMode = (gameType === 'stroke_play' || gameType === 'skins')
+                ? 'individual'
+                : gameMode;
+
+            if (creationMode === 'individual') {
                 sides = participants.map((p) => ({
                     sideId: p.playerId,
                     playerIds: [p.playerId],
                 }));
-            } else if (gameMode === 'head_to_head' && participants.length >= 2) {
+            } else if ((creationMode === 'head_to_head' || creationMode === 'teams') && teamAssignments.sideA.length > 0) {
+                // Use teamAssignments from UI (wired to swap logic)
+                sides = [
+                    { sideId: 'side-a', playerIds: teamAssignments.sideA as Id<'players'>[] },
+                    { sideId: 'side-b', playerIds: teamAssignments.sideB as Id<'players'>[] },
+                ];
+            } else if (creationMode === 'head_to_head' && participants.length >= 2) {
+                // Fallback for H2H if teamAssignments empty
                 sides = [
                     { sideId: 'side-a', playerIds: [participants[0].playerId] },
                     { sideId: 'side-b', playerIds: [participants[1].playerId] },
                 ];
-            } else if (gameMode === 'teams' && participants.length >= 4) {
+            } else if (creationMode === 'teams' && participants.length >= 4) {
+                // Fallback for Teams if teamAssignments empty
                 sides = [
-                    { sideId: 'team-1', playerIds: [participants[0].playerId, participants[1].playerId] },
-                    { sideId: 'team-2', playerIds: [participants[2].playerId, participants[3].playerId] },
+                    { sideId: 'side-a', playerIds: [participants[0].playerId, participants[1].playerId] },
+                    { sideId: 'side-b', playerIds: [participants[2].playerId, participants[3].playerId] },
                 ];
             }
 
-            // Build stroke allocations (simplified - all zeros for now, would calculate properly)
-            const netStrokeAllocations = participants.map((p) => ({
-                playerId: p.playerId,
-                strokesByHole: new Array(18).fill(0),
-            }));
+            // Build stroke allocations using actual hole handicaps
+            const netStrokeAllocations = buildStrokeAllocationsForSession(
+                selectedPlayers,
+                selectedCourse
+            );
 
             // Get courseId - can be _id (Convex) or id (local/external)
             const convexCourseId = selectedCourse._id;
@@ -436,17 +534,23 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 startAt: Date.now(),
                 holeSelection,
                 gameType,
-                gameMode,
+                gameMode: creationMode,
                 payoutMode,
                 participants,
                 sides,
                 netStrokeAllocations,
                 betSettings: betEnabled ? {
                     enabled: true,
-                    betPerUnitCents: betAmountDollars * 100,
+                    betPerUnitCents: gameType === 'nassau' ? nassauFrontDollars * 100 : betAmountDollars * 100,
                     betUnit: gameType === 'skins' ? 'skin' : gameType === 'nassau' ? 'point' : betUnit,
                     carryover: gameType === 'skins' ? carryover : undefined,
                     pressEnabled: gameType === 'nassau' ? pressEnabled : undefined,
+                    // Nassau-specific: separate amounts for each segment
+                    nassauAmounts: gameType === 'nassau' ? {
+                        frontCents: nassauFrontDollars * 100,
+                        backCents: nassauBackDollars * 100,
+                        overallCents: nassauOverallDollars * 100,
+                    } : undefined,
                     sideBets: (sideBets.greenies || sideBets.sandies || sideBets.birdies) ? {
                         ...sideBets,
                         amountCents: sideBetAmountDollars * 100,
@@ -696,7 +800,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
                 <View style={styles.playersList}>
                     {selectedPlayers.map((sp, index) => {
-                        const player = players?.find(p => p._id === sp.playerId);
+                        const player = players?.find((p: any) => p._id === sp.playerId);
                         const isSelf = player?.isSelf;
 
                         return (
@@ -824,25 +928,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
     const renderGameModeStep = () => {
         const playerCount = selectedPlayers.length;
 
-        // Determine available modes based on player count and game type
-        const getAvailableModes = (): GameMode[] => {
-            const modes: GameMode[] = [];
-
-            if (playerCount === 2) {
-                modes.push('head_to_head');
-                if (gameType === 'skins') modes.push('individual');
-            } else if (playerCount === 4) {
-                modes.push('teams');
-                if (gameType === 'skins') modes.push('individual');
-            } else if (playerCount >= 3) {
-                // 3 players or 5+ → only individual makes sense
-                modes.push('individual');
-            }
-
-            return modes;
-        };
-
-        const availableModes = getAvailableModes();
+        // Use shared helper to determine available modes
+        const availableModes = gameType ? getAvailableGameModes(gameType, playerCount) : [];
 
         const handleSwapPlayers = (side: 'A' | 'B', playerIndex: number) => {
             if (gameMode === 'head_to_head') {
@@ -891,40 +978,23 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
                 {(['individual', 'head_to_head', 'teams'] as GameMode[]).map((mode) => {
                     const labels: Record<GameMode, { title: string; desc: string }> = {
-                        individual: { title: 'Everyone vs Everyone', desc: 'Each player competes individually' },
+                        individual: { title: 'Everyone vs Everyone', desc: 'Each player competes individually (6 matchups)' },
                         head_to_head: { title: '1 vs 1', desc: 'Head-to-head match between two players' },
                         teams: { title: '2 vs 2', desc: 'Team competition' },
                     };
 
-                    // Skip rendering redundant options
-                    if (mode === 'individual') {
-                        // Don't show "Everyone vs Everyone" with 2 players (same as 1v1)
-                        if (playerCount === 2) return null;
-                        // Don't show if game type doesn't support it
-                        if (gameType === 'match_play' || gameType === 'nassau') return null;
+                    // This step only shows for match_play/nassau with 4 players
+                    // So we only show teams and individual options
+                    if (mode === 'head_to_head') {
+                        // 1v1 not available with 4 players
+                        return null;
                     }
 
-                    // Determine if this mode is available and why
+                    // Both teams and individual are available for 4 players
                     const getAvailability = (): { available: boolean; reason?: string } => {
                         if (mode === 'individual') {
-                            // Individual is not available for match_play and nassau
-                            if (gameType === 'match_play' || gameType === 'nassau') {
-                                return { available: false, reason: `Not available for ${gameType === 'match_play' ? 'Match Play' : 'Nassau'}` };
-                            }
-                            return { available: true };
-                        } else if (mode === 'head_to_head') {
-                            if (playerCount !== 2) {
-                                return { available: false, reason: playerCount < 2 ? 'Need 2 players' : `Only available with 2 players (you have ${playerCount})` };
-                            }
                             return { available: true };
                         } else if (mode === 'teams') {
-                            // Teams not available for stroke_play and skins
-                            if (gameType === 'stroke_play' || gameType === 'skins') {
-                                return { available: false, reason: `Not available for ${gameType === 'stroke_play' ? 'Stroke Play' : 'Skins'}` };
-                            }
-                            if (playerCount !== 4) {
-                                return { available: false, reason: playerCount < 4 ? 'Need 4 players' : `Only available with 4 players (you have ${playerCount})` };
-                            }
                             return { available: true };
                         }
                         return { available: false };
@@ -1088,57 +1158,124 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
                 {betEnabled && (
                     <View style={{ gap: 24, marginTop: 8 }}>
-                        <View>
-                            <Text style={styles.betLabel}>{getBetUnitLabel(true)}</Text>
-                            <View style={styles.betAmountGrid}>
-                                {amounts.map((amount) => (
-                                    <TouchableOpacity
-                                        key={amount}
-                                        style={[
-                                            styles.betAmountOption,
-                                            betAmountDollars === amount && styles.betAmountSelected,
-                                        ]}
-                                        onPress={() => setBetAmountDollars(amount)}
-                                    >
-                                        <Text
-                                            style={[
-                                                styles.betAmountText,
-                                                betAmountDollars === amount && styles.betAmountTextSelected,
-                                            ]}
-                                        >
-                                            ${amount}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                                {/* Custom Amount Input */}
-                                <View
-                                    style={[
-                                        styles.betAmountOption,
-                                        styles.customBetOption,
-                                        betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountSelected
-                                    ]}
-                                >
-                                    <Text style={[
-                                        styles.currencyPrefix,
-                                        betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountTextSelected
-                                    ]}>$</Text>
-                                    <TextInput
-                                        style={[
-                                            styles.customBetInput,
-                                            betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountTextSelected
-                                        ]}
-                                        placeholder="Custom"
-                                        keyboardType="numeric"
-                                        placeholderTextColor={betAmountDollars > 0 && !amounts.includes(betAmountDollars) ? 'white' : THEME.textSub}
-                                        value={amounts.includes(betAmountDollars) ? '' : (betAmountDollars > 0 ? betAmountDollars.toString() : '')}
-                                        onChangeText={(text) => {
-                                            const val = parseInt(text, 10);
-                                            setBetAmountDollars(isNaN(val) ? 0 : val);
-                                        }}
-                                    />
+                        {/* Nassau: 3 separate bet inputs for Front/Back/Overall */}
+                        {gameType === 'nassau' ? (
+                            <View>
+                                <Text style={styles.betLabel}>Nassau Bet Amounts</Text>
+                                <Text style={[styles.toggleDesc, { marginBottom: 12 }]}>
+                                    Set separate amounts for each segment
+                                </Text>
+                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                    {/* Front 9 */}
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Front 9</Text>
+                                        <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
+                                            <Text style={styles.currencyPrefix}>$</Text>
+                                            <TextInput
+                                                style={styles.customBetInput}
+                                                keyboardType="numeric"
+                                                value={nassauFrontDollars > 0 ? nassauFrontDollars.toString() : ''}
+                                                onChangeText={(text) => {
+                                                    const val = parseInt(text, 10);
+                                                    setNassauFrontDollars(isNaN(val) ? 0 : val);
+                                                }}
+                                                placeholder="10"
+                                                placeholderTextColor={THEME.textSub}
+                                            />
+                                        </View>
+                                    </View>
+                                    {/* Back 9 */}
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Back 9</Text>
+                                        <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
+                                            <Text style={styles.currencyPrefix}>$</Text>
+                                            <TextInput
+                                                style={styles.customBetInput}
+                                                keyboardType="numeric"
+                                                value={nassauBackDollars > 0 ? nassauBackDollars.toString() : ''}
+                                                onChangeText={(text) => {
+                                                    const val = parseInt(text, 10);
+                                                    setNassauBackDollars(isNaN(val) ? 0 : val);
+                                                }}
+                                                placeholder="10"
+                                                placeholderTextColor={THEME.textSub}
+                                            />
+                                        </View>
+                                    </View>
+                                    {/* Overall */}
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Overall</Text>
+                                        <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
+                                            <Text style={styles.currencyPrefix}>$</Text>
+                                            <TextInput
+                                                style={styles.customBetInput}
+                                                keyboardType="numeric"
+                                                value={nassauOverallDollars > 0 ? nassauOverallDollars.toString() : ''}
+                                                onChangeText={(text) => {
+                                                    const val = parseInt(text, 10);
+                                                    setNassauOverallDollars(isNaN(val) ? 0 : val);
+                                                }}
+                                                placeholder="20"
+                                                placeholderTextColor={THEME.textSub}
+                                            />
+                                        </View>
+                                    </View>
                                 </View>
                             </View>
-                        </View>
+                        ) : (
+                            /* Standard: Single bet amount picker for other game types */
+                            <View>
+                                <Text style={styles.betLabel}>{getBetUnitLabel(true)}</Text>
+                                <View style={styles.betAmountGrid}>
+                                    {amounts.map((amount) => (
+                                        <TouchableOpacity
+                                            key={amount}
+                                            style={[
+                                                styles.betAmountOption,
+                                                betAmountDollars === amount && styles.betAmountSelected,
+                                            ]}
+                                            onPress={() => setBetAmountDollars(amount)}
+                                        >
+                                            <Text
+                                                style={[
+                                                    styles.betAmountText,
+                                                    betAmountDollars === amount && styles.betAmountTextSelected,
+                                                ]}
+                                            >
+                                                ${amount}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                    {/* Custom Amount Input */}
+                                    <View
+                                        style={[
+                                            styles.betAmountOption,
+                                            styles.customBetOption,
+                                            betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountSelected
+                                        ]}
+                                    >
+                                        <Text style={[
+                                            styles.currencyPrefix,
+                                            betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountTextSelected
+                                        ]}>$</Text>
+                                        <TextInput
+                                            style={[
+                                                styles.customBetInput,
+                                                betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountTextSelected
+                                            ]}
+                                            placeholder="Custom"
+                                            keyboardType="numeric"
+                                            placeholderTextColor={betAmountDollars > 0 && !amounts.includes(betAmountDollars) ? 'white' : THEME.textSub}
+                                            value={amounts.includes(betAmountDollars) ? '' : (betAmountDollars > 0 ? betAmountDollars.toString() : '')}
+                                            onChangeText={(text) => {
+                                                const val = parseInt(text, 10);
+                                                setBetAmountDollars(isNaN(val) ? 0 : val);
+                                            }}
+                                        />
+                                    </View>
+                                </View>
+                            </View>
+                        )}
 
                         {/* Game Type Specific Settings */}
                         <View style={{ gap: 16 }}>
@@ -1335,10 +1472,24 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         const lowestHandicap = sortedByHandicap[0].handicapIndex;
 
         // Get hole handicaps from course (sorted by difficulty - lowest hcp = hardest)
-        const holes = selectedCourse?.holes || [];
+        // Check multiple possible sources for hole data: course.holes, teeSets holes, or _convexCourse
+        let holes = selectedCourse?.holes || [];
+
+        // If holes is empty, try to get from first tee set
+        if (holes.length === 0 && selectedCourse?.teeSets?.[0]?.holes) {
+            holes = selectedCourse.teeSets[0].holes;
+        }
+
+        // If still empty, try _convexCourse (for cached courses)
+        if (holes.length === 0 && (selectedCourse as any)?._convexCourse?.holes) {
+            holes = (selectedCourse as any)._convexCourse.holes;
+        }
+
         const holesByDifficulty = [...Array(18)].map((_, i) => {
             const hole = holes.find((h: any) => h.number === i + 1);
-            return { number: i + 1, hcp: hole?.hcp ?? hole?.handicap ?? (i + 1) };
+            // Check for hcp first (Convex format), then handicap (local format), then fallback
+            const hcp = hole?.hcp ?? hole?.handicap ?? (i + 1);
+            return { number: i + 1, hcp };
         }).sort((a, b) => a.hcp - b.hcp);
 
         return sortedByHandicap.map(p => {
@@ -1778,7 +1929,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     </View>
 
                                     {/* Existing Players */}
-                                    {players?.filter(p => !selectedPlayers.some(sp => sp.playerId === p._id)).map((player: any) => (
+                                    {players?.filter((p: any) => !selectedPlayers.some(sp => sp.playerId === p._id)).map((player: any) => (
                                         <TouchableOpacity
                                             key={player._id}
                                             style={styles.teeOptionRow}
@@ -1820,7 +1971,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                             </View>
                                         </TouchableOpacity>
                                     ))}
-                                    {(!players || players.filter(p => !selectedPlayers.some(sp => sp.playerId === p._id)).length === 0) && (
+                                    {(!players || players.filter((p: any) => !selectedPlayers.some(sp => sp.playerId === p._id)).length === 0) && (
                                         <View style={{ padding: 20, alignItems: 'center' }}>
                                             <Text style={{ color: THEME.textSub }}>No other players found.</Text>
                                         </View>
@@ -2395,6 +2546,11 @@ const styles = StyleSheet.create({
         borderWidth: 1.5,
         borderColor: '#EAEAEA',
         flexGrow: 1, // Allow growing to fill space but respect minWidth
+    },
+    nassauAmountInput: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 4,
     },
     betAmountSelected: {
         borderColor: THEME.primaryGreen,

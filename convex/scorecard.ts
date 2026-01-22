@@ -87,13 +87,13 @@ const calculateOverallConfidence = (data: any): number => {
 
 export const processScan = action({
   args: scanInput,
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ jobId: any; scansRemaining: number; result: any }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Not authenticated");
     }
 
-    const user = await ctx.runQuery(api.users.getProfile, {});
+    const user: any = await ctx.runQuery(api.users.getProfile, {});
 
     // Allow overriding limits in dev by setting ALLOW_FREE_SCANS=true in Convex env.
     const allowFreeScans = process.env.ALLOW_FREE_SCANS === "true";
@@ -102,23 +102,25 @@ export const processScan = action({
       throw new Error("User not found; call syncUser first");
     }
 
-    if (!allowFreeScans && !user.isPro && user.scansRemaining <= 0) {
-      throw new ConvexError("LIMIT_REACHED");
+    // Check rate limits (both daily and monthly)
+    let scansRemaining = 0;
+    if (!allowFreeScans) {
+      const rateLimitResult = await ctx.runMutation(api.users.checkRateLimit, {
+        service: "scan",
+      });
+
+      if (!rateLimitResult.allowed) {
+        const resetsIn = Math.ceil((rateLimitResult.resetsAt - Date.now()) / (1000 * 60 * 60));
+        const limitType = rateLimitResult.limitType === "daily" ? "daily" : "monthly";
+        throw new ConvexError(`SCAN_LIMIT_REACHED:${limitType}:${resetsIn}`);
+      }
+
+      scansRemaining = rateLimitResult.remaining;
     }
 
     const now = Date.now();
 
-    let scansRemaining = user.scansRemaining;
-    if (!allowFreeScans && !user.isPro) {
-      scansRemaining = Math.max(0, user.scansRemaining - 1);
-      await ctx.runMutation(api.scorecard.setUserScansRemaining, {
-        userId: user._id,
-        scansRemaining,
-        updatedAt: now,
-      });
-    }
-
-    const jobId = await ctx.runMutation(api.scorecard.createScanJob, {
+    const jobId: any = await ctx.runMutation(api.scorecard.createScanJob, {
       job: {
         userId: user._id,
         status: "processing",
@@ -207,8 +209,8 @@ export const processScan = action({
         },
       });
 
-      // Get user's preferred AI model (default to Pro)
-      const preferredModel = user.preferredAiModel || "gemini-3-pro-preview";
+      // Get user's preferred AI model (default to Flash)
+      const preferredModel = user.preferredAiModel || "gemini-3-flash-preview";
 
       // Flash uses medium thinking, Pro uses low
       const thinkingLevel = preferredModel === "gemini-3-flash-preview" ? "medium" : "low";
@@ -324,6 +326,146 @@ export const processScan = action({
   },
 });
 
+/**
+ * Guest scan action for unauthenticated onboarding flow.
+ * Processes scorecard images without requiring authentication.
+ * Does not create database records - results are stored locally on device.
+ */
+export const processScanGuest = action({
+  args: {
+    storageIds: v.array(v.id("_storage")),
+  },
+  handler: async (ctx, args): Promise<{ result: any }> => {
+    // No authentication required for guest scans
+
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error("GOOGLE_API_KEY not configured");
+    }
+
+    const genAI = new GoogleGenAI({ apiKey });
+
+    // Fetch images from Convex storage and upload to Google File API
+    const uploadedFiles: Array<{ uri: string; mimeType: string }> = [];
+
+    for (let i = 0; i < args.storageIds.length; i++) {
+      const storageId = args.storageIds[i];
+
+      const storageUrl = await ctx.storage.getUrl(storageId);
+      if (!storageUrl) {
+        throw new Error(`Failed to get URL for storage ID: ${storageId}`);
+      }
+
+      const response = await fetch(storageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image from storage: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const filename = `scorecard-guest-${Date.now()}-${i}.jpg`;
+
+      const uploadResult = await genAI.files.upload({
+        file: blob,
+        config: {
+          mimeType: "image/jpeg",
+          displayName: filename,
+        },
+      });
+
+      if (!uploadResult.uri) {
+        throw new Error("Failed to upload image to Google File API");
+      }
+
+      uploadedFiles.push({
+        uri: uploadResult.uri,
+        mimeType: uploadResult.mimeType || "image/jpeg",
+      });
+
+      // Delete from Convex storage
+      await ctx.storage.delete(storageId);
+    }
+
+    // Build parts with prompt + file references
+    const parts: any[] = [
+      { text: SCORECARD_PROMPT },
+      ...uploadedFiles.map((f) => createPartFromUri(f.uri, f.mimeType)),
+    ];
+
+    // Use Flash model for guest scans (faster, lower cost)
+    const aiResponse = await genAI.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [{ role: "user", parts }],
+      config: {
+        temperature: 1,
+        maxOutputTokens: 5000,
+        responseMimeType: "application/json",
+        responseSchema: SCORECARD_SCHEMA as any,
+        thinkingConfig: { thinkingLevel: "medium" },
+        mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
+      } as any,
+    });
+
+    // Clean up uploaded files
+    for (const f of uploadedFiles) {
+      try {
+        const fileName = f.uri.split("/").pop();
+        if (fileName) {
+          await genAI.files.delete({ name: `files/${fileName}` });
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    const parsedFromSdk = (aiResponse as any)?.parsed;
+
+    if (!aiResponse?.candidates?.length) {
+      throw new Error("No response content from Gemini");
+    }
+
+    const rawContent = aiResponse.candidates[0]?.content?.parts
+      ?.map((p: any) => p.text ?? "")
+      .join("") ?? null;
+    if (!rawContent) {
+      throw new Error("No response content from Gemini");
+    }
+
+    const tryParseJson = (text: string) => {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return null;
+      }
+    };
+
+    let parsed: any =
+      parsedFromSdk ||
+      tryParseJson(rawContent) ||
+      (() => {
+        const match = rawContent.match(/```(?:json)?\n([\s\S]*?)\n```/);
+        if (match) return tryParseJson(match[1]);
+        const firstBrace = rawContent.indexOf("{");
+        const lastBrace = rawContent.lastIndexOf("}");
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          return tryParseJson(rawContent.slice(firstBrace, lastBrace + 1));
+        }
+        return null;
+      })();
+
+    if (!parsed) {
+      throw new Error("Failed to parse JSON from Gemini response");
+    }
+
+    // Force date to today
+    const todayIso = new Date().toISOString().split("T")[0];
+    parsed.date = todayIso;
+    parsed.dateConfidence = 1.0;
+    parsed.overallConfidence = calculateOverallConfidence(parsed);
+
+    return { result: parsed };
+  },
+});
+
 export const getJobStatus = query({
   args: { jobId: v.id("scanJobs") },
   handler: async (ctx, args) => {
@@ -333,6 +475,7 @@ export const getJobStatus = query({
       status: job.status,
       progress: job.progress,
       message: job.message,
+      createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     };
   },

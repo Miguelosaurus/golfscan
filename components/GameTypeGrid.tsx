@@ -72,15 +72,16 @@ const GAME_TYPES: GameTypeOption[] = [
 export function GameTypeGrid({ selected, onSelect, onShowRules, playerCount = 0 }: GameTypeGridProps) {
     // Determine if a game type is available based on player count
     const getAvailability = (type: GameType): { available: boolean; reason?: string } => {
+        // All game types require at least 2 players
+        if (playerCount < 2) {
+            return { available: false, reason: 'Requires at least 2 players' };
+        }
+
         if (type === 'match_play' || type === 'nassau') {
-            // Match Play and Nassau require exactly 2 players (1v1) or 4 players (2v2)
-            if (playerCount !== 2 && playerCount !== 4) {
-                return {
-                    available: false,
-                    reason: playerCount > 4
-                        ? 'Max 4 players supported'
-                        : 'Requires 2 or 4 players'
-                };
+            // Match Play and Nassau: max 4 players
+            // 2 players: head-to-head, 3 players: individual, 4 players: teams or individual
+            if (playerCount > 4) {
+                return { available: false, reason: 'Max 4 players supported' };
             }
         }
         // Stroke Play and Skins work with any number of players (2+)

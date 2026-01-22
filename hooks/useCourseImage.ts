@@ -36,7 +36,15 @@ export const useCourseImage = ({
                 const isRealImage = (url?: string | null): url is string =>
                     !!url && (url.startsWith('data:image') || (!url.includes('unsplash.com') && !url.includes('photo-1587174486073-ae5e5cff23aa')));
 
-                // If Convex has a real image, prefer it over potentially stale cache
+                // 1) ALWAYS check local cache first (crucial for offline + avoids expired URLs)
+                const cachedPath = await getCachedCourseImage(courseId);
+                if (cachedPath && !cancelled) {
+                    setImageUri(cachedPath);
+                    setHasCheckedCache(true);
+                    return;
+                }
+
+                // 2) No cache hit - if we have a real Convex image URL, use it and cache
                 if (isRealImage(sourceUrl) && !cancelled) {
                     setImageUri(sourceUrl);
 
@@ -50,16 +58,7 @@ export const useCourseImage = ({
                     return;
                 }
 
-                // No real Convex image - check local cache
-                const cachedPath = await getCachedCourseImage(courseId);
-
-                if (cachedPath && !cancelled) {
-                    setImageUri(cachedPath);
-                    setHasCheckedCache(true);
-                    return;
-                }
-
-                // No local cache - use source URL if available (even if default)
+                // 3) No cache, no real Convex image - use source URL if available (even if default)
                 if (sourceUrl && !cancelled) {
                     setImageUri(sourceUrl);
                 } else if (!cancelled) {

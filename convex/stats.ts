@@ -129,8 +129,14 @@ export const getWagerStats = query({
             let sessionNet = 0;
             let hasWager = false;
 
-            if (session.settlement.transactions) {
-                for (const tx of session.settlement.transactions) {
+            const settlement = session.settlement;
+            const transfers =
+                "transactions" in settlement ? settlement.transactions :
+                    "rawTransactions" in settlement ? settlement.rawTransactions :
+                        [];
+
+            if (transfers.length > 0) {
+                for (const tx of transfers) {
                     if (tx.toPlayerId === myPlayerId) {
                         sessionNet += tx.amountCents;
                         totalWonCents += tx.amountCents;
@@ -176,7 +182,7 @@ export const getWagerStats = query({
         // Find biggest donor
         let biggestDonor = null;
         let maxDonorAmount = 0;
-        for (const [pdoId, amount] of opponentNet.entries()) {
+        for (const [pdoId, amount] of Array.from(opponentNet.entries())) {
             if (amount > maxDonorAmount) {
                 maxDonorAmount = amount;
                 biggestDonor = pdoId;
@@ -250,8 +256,14 @@ export const getHeadToHeadStats = query({
             }
 
             let sessionInteraction = false;
-            if (session.settlement.transactions) {
-                for (const tx of session.settlement.transactions) {
+            const settlement = session.settlement;
+            const transfers =
+                "transactions" in settlement ? settlement.transactions :
+                    "rawTransactions" in settlement ? settlement.rawTransactions :
+                        [];
+
+            if (transfers.length > 0) {
+                for (const tx of transfers) {
                     // Me -> Them (Loss)
                     if (tx.fromPlayerId === myPid && tx.toPlayerId === otherPid) {
                         netBalanceCents -= tx.amountCents;

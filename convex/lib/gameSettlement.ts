@@ -256,6 +256,12 @@ export interface NassauSettlementArgs {
     strokeAllocations: StrokeAllocation[];
     betPerUnitCents: number;
     holeSelection: "18" | "front_9" | "back_9";
+    // Per-segment amounts (optional, falls back to betPerUnitCents if not provided)
+    nassauAmounts?: {
+        frontCents: number;
+        backCents: number;
+        overallCents: number;
+    };
     presses?: Array<{
         startHole: number;
         segment: "front" | "back";
@@ -266,14 +272,20 @@ export interface NassauSettlementArgs {
 /**
  * Calculate Nassau settlement
  * 3 bets: Front 9, Back 9, Overall 18
+ * Supports separate amounts for each segment via nassauAmounts
  */
 export function calculateNassauSettlement(args: NassauSettlementArgs): Transaction[] {
-    const { sides, playerScores, strokeAllocations, betPerUnitCents, holeSelection, presses } =
+    const { sides, playerScores, strokeAllocations, betPerUnitCents, holeSelection, nassauAmounts, presses } =
         args;
 
     if (sides.length !== 2) {
         throw new Error("Nassau requires exactly 2 sides");
     }
+
+    // Get per-segment amounts (fallback to betPerUnitCents for backwards compatibility)
+    const frontAmount = nassauAmounts?.frontCents ?? betPerUnitCents;
+    const backAmount = nassauAmounts?.backCents ?? betPerUnitCents;
+    const overallAmount = nassauAmounts?.overallCents ?? betPerUnitCents;
 
     const transactions: Transaction[] = [];
 
@@ -328,25 +340,25 @@ export function calculateNassauSettlement(args: NassauSettlementArgs): Transacti
         }
     };
 
-    // Calculate each segment
+    // Calculate each segment with appropriate amount
     if (holeSelection === "18" || holeSelection === "front_9") {
         const front = calculateSegment(0, 8);
         if (front.winner !== "tie") {
-            addWinnerTransactions(front.winner, betPerUnitCents, "Lost Front 9");
+            addWinnerTransactions(front.winner, frontAmount, "Lost Front 9");
         }
     }
 
     if (holeSelection === "18" || holeSelection === "back_9") {
         const back = calculateSegment(9, 17);
         if (back.winner !== "tie") {
-            addWinnerTransactions(back.winner, betPerUnitCents, "Lost Back 9");
+            addWinnerTransactions(back.winner, backAmount, "Lost Back 9");
         }
     }
 
     if (holeSelection === "18") {
         const overall = calculateSegment(0, 17);
         if (overall.winner !== "tie") {
-            addWinnerTransactions(overall.winner, betPerUnitCents, "Lost Overall");
+            addWinnerTransactions(overall.winner, overallAmount, "Lost Overall");
         }
     }
 

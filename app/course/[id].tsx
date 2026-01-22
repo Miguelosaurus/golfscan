@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
@@ -493,451 +494,457 @@ export default function CourseDetailsScreen() {
   }, [convexCourse?.imageUrl, courseFromStore, updateCourse]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen options={{ headerShown: false }} />
+    <View style={styles.container}>
+      <LinearGradient
+        colors={['#F5F3EF', '#E8F5E9', '#F5F3EF']}
+        locations={[0.3, 0.8, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+        <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Fixed background image */}
-      {courseData.imageUrl ? (
-        <Animated.Image
-          source={{ uri: courseData.imageUrl }}
-          style={[styles.fixedImage, { height: imageHeight }]}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={[styles.placeholderImage, styles.fixedImage, { height: IMAGE_HEIGHT }]}>
-          <Text style={styles.placeholderText}>{courseData.name.charAt(0)}</Text>
-        </View>
-      )}
+        {/* Fixed background image */}
+        {courseData.imageUrl ? (
+          <Animated.Image
+            source={{ uri: courseData.imageUrl }}
+            style={[styles.fixedImage, { height: imageHeight }]}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[styles.placeholderImage, styles.fixedImage, { height: IMAGE_HEIGHT }]}>
+            <Text style={styles.placeholderText}>{courseData.name.charAt(0)}</Text>
+          </View>
+        )}
 
-      {/* Overlay toolbar with animated background */}
-      <Animated.View style={[styles.overlayHeader, { backgroundColor: headerBg }]} pointerEvents="box-none">
-        <View style={styles.overlayHeaderRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-          >
-            <ChevronLeft size={24} color={colors.text} />
-          </TouchableOpacity>
-          {!!course && (
+        {/* Overlay toolbar with animated background */}
+        <Animated.View style={[styles.overlayHeader, { backgroundColor: headerBg }]} pointerEvents="box-none">
+          <View style={styles.overlayHeaderRow}>
             <TouchableOpacity
               style={styles.backButton}
-              onPress={handleDeleteCourse}
+              onPress={() => router.back()}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
-              accessibilityLabel="Delete course"
+              accessibilityLabel="Go back"
             >
-              <Trash2 size={20} color={colors.error} />
+              <ChevronLeft size={24} color={colors.text} />
             </TouchableOpacity>
-          )}
-        </View>
-      </Animated.View>
-
-      <Animated.ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.contentContainer, { paddingTop: IMAGE_HEIGHT }]}
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
-        scrollEventThrottle={16}
-      >
-        <Animated.View style={{ height: extraHeaderSpace }} />
-        <View style={styles.sheet}>
-          <View style={styles.headerContainer}>
-            <Text style={styles.courseName}>{courseData.name}</Text>
-            {/* Only show location if it's valid (not undefined/Unknown) */}
-            {courseData.location &&
-              !courseData.location.includes('undefined') &&
-              !courseData.location.includes('Unknown') && (
-                <View style={styles.locationContainer}>
-                  <MapPin size={16} color={colors.text} />
-                  <Text style={styles.location}>{courseData.location}</Text>
-                </View>
-              )}
-            {availableTeeNames.length > 0 && (
-              <>
-                <TouchableOpacity
-                  style={styles.teeDropdown}
-                  onPress={openCourseTeePicker}
-                  activeOpacity={0.8}
-                >
-                  <View>
-                    <Text style={styles.teeDropdownLabel}>Tees</Text>
-                    <Text style={styles.teeDropdownValue}>
-                      {getTeeDisplayLabel(selectedTeeName)}
-                    </Text>
-                  </View>
-                  <ChevronDown size={18} color={colors.text} />
-                </TouchableOpacity>
-              </>
+            {!!course && (
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={handleDeleteCourse}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Delete course"
+              >
+                <Trash2 size={20} color={colors.error} />
+              </TouchableOpacity>
             )}
           </View>
+        </Animated.View>
 
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{(courseData.holes ?? []).length}</Text>
-              <Text style={styles.statLabel}>Holes</Text>
-            </View>
-
-            <View style={styles.statDivider} />
-
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{totalPar}</Text>
-              <Text style={styles.statLabel}>Par</Text>
-            </View>
-
-            <View style={styles.statDivider} />
-
-            <TouchableOpacity style={styles.statItem} onPress={() => setShowRoundsModal(true)}>
-              <Text style={styles.statValue}>{courseRounds.length}</Text>
-              <Text style={styles.statLabel}>{courseRounds.length === 1 ? 'Round' : 'Rounds'}</Text>
-              <ChevronRight size={16} strokeWidth={2.2} color={colors.text} style={styles.statChevron} />
-            </TouchableOpacity>
-          </View>
-
-          {stats && (
-            <View style={styles.statsSection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Your Performance Stats</Text>
-              </View>
-
-              <View style={styles.performanceGrid}>
-                <View style={styles.performanceCard}>
-                  <Text style={styles.performanceValue}>{stats.totalRounds}</Text>
-                  <Text style={styles.performanceLabel}>Rounds Played</Text>
-                </View>
-
-                <View style={styles.performanceCard}>
-                  <Text style={styles.performanceValue}>{stats.averageScore.toFixed(1)}</Text>
-                  <Text style={styles.performanceLabel}>Avg Score</Text>
-                  <View style={styles.performanceIndicator}>
-                    {stats.averageScore < totalPar ? (
-                      <TrendingDown size={16} color={colors.success} />
-                    ) : (
-                      <TrendingUp size={16} color={colors.error} />
-                    )}
-                    <Text style={[
-                      styles.performanceChange,
-                      { color: stats.averageScore < totalPar ? colors.success : colors.error }
-                    ]}>
-                      {stats.averageScore < totalPar ? 'Under Par' : 'Over Par'}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.performanceCard}>
-                  <Text style={styles.performanceValue}>{stats.bestScore}</Text>
-                  <Text style={styles.performanceLabel}>Best Score</Text>
-                  <Text style={[
-                    styles.performanceSubtext,
-                    stats.bestScore - totalPar < 0 && { color: colors.success },
-                    stats.bestScore - totalPar > 0 && { color: colors.error },
-                  ]}>
-                    {stats.bestScore - totalPar > 0 ? '+' : ''}{stats.bestScore - totalPar}
-                  </Text>
-                </View>
-
-                <View style={styles.performanceCard}>
-                  <Text style={[
-                    styles.performanceValue,
-                    worstParType && worstParType.value > 0 && { color: colors.error },
-                  ]}>
-                    {worstParType ? formatRelativeToPar(worstParType.value) : '--'}
-                  </Text>
-                  <Text style={styles.performanceLabel}>
-                    {worstParType ? `Worst: ${worstParType.label}` : 'Worst Par Type'}
-                  </Text>
-                  <Text style={styles.performanceSubtext}>
-                    {worstParType ? 'Avg vs Par' : 'No data'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          )}
-
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <Text style={styles.sectionTitle}>My Course Map</Text>
-              <TouchableOpacity
-                onPress={() => setShowCourseMapInfo(true)}
-                style={styles.infoButton}
-                accessibilityRole="button"
-                accessibilityLabel="Course map info"
-              >
-                <Info size={18} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.holesContainer}>
-            {(courseData.holes ?? []).map((hole: any) => {
-              const averageEntry = currentUser ? holeAverages[hole.number] : undefined;
-              const averageValue = averageEntry ? Number(averageEntry.average.toFixed(1)) : null;
-              const diffFromPar = averageValue !== null ? averageValue - hole.par : null;
-              const avgText = averageValue !== null ? averageValue.toFixed(1) : '--';
-
-              const meta = getHoleMetaForSelectedTee(hole.number);
-              const metaParts = [`Par ${meta.par}`, meta.yardage ? `${Math.round(meta.yardage)} yds` : null]
-                .filter(Boolean);
-              if (meta.handicap) {
-                metaParts.push(`HCP ${meta.handicap}`);
-              }
-
-              let badgeStyle = styles.holeAverageNeutral;
-              if (diffFromPar !== null) {
-                if (diffFromPar <= 0.1) {
-                  badgeStyle = styles.holeAverageGood;
-                } else if (diffFromPar < 1.5) {
-                  badgeStyle = styles.holeAverageCaution;
-                } else {
-                  badgeStyle = styles.holeAverageDanger;
-                }
-              }
-
-              return (
-                <View key={hole.number} style={styles.holeItem}>
-                  <View style={styles.holeInfo}>
-                    <View style={styles.holeNumberContainer}>
-                      <Text style={styles.holeNumber}>{hole.number}</Text>
-                    </View>
-                    <Text style={styles.holeMetaText}>
-                      {metaParts.join(' • ')}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.holeAverageBadge, badgeStyle]}>
-                    <Text style={styles.holeAverageBadgeText}>AVG: {avgText}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
-
-          <Button
-            title="Scan Scorecard"
-            onPress={navigateToScanScorecard}
-            style={styles.startButton}
-            icon={<Camera size={18} color={colors.background} style={{ marginRight: 8 }} />}
-          />
-
-          {/* Removed explicit View Rounds button; hint added on the stat tile */}
-        </View>
-      </Animated.ScrollView>
-
-      {/* Tee selection modal */}
-      <Modal
-        visible={showTeeSelector}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowTeeSelector(false)}
-      >
-        <TouchableOpacity
-          style={styles.sheetOverlay}
-          activeOpacity={1}
-          onPress={() => setShowTeeSelector(false)}
+        <Animated.ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: IMAGE_HEIGHT }]}
+          showsVerticalScrollIndicator={false}
+          onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: false })}
+          scrollEventThrottle={16}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={styles.sheetContainer}
-            onPress={() => { }}
-          >
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Select tees</Text>
-              <View style={styles.sheetTabs}>
-                <TouchableOpacity
-                  style={[
-                    styles.sheetTab,
-                    teePickerGenderTab === 'M' && styles.sheetTabActive,
-                  ]}
-                  onPress={() => setTeePickerGenderTab('M')}
-                >
-                  <Text
-                    style={[
-                      styles.sheetTabText,
-                      teePickerGenderTab === 'M' && styles.sheetTabTextActive,
-                    ]}
-                  >
-                    Men
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.sheetTab,
-                    teePickerGenderTab === 'F' && styles.sheetTabActive,
-                  ]}
-                  onPress={() => setTeePickerGenderTab('F')}
-                >
-                  <Text
-                    style={[
-                      styles.sheetTabText,
-                      teePickerGenderTab === 'F' && styles.sheetTabTextActive,
-                    ]}
-                  >
-                    Women
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <ScrollView
-              style={styles.sheetList}
-              contentContainerStyle={styles.sheetListContent}
-            >
-              <TouchableOpacity
-                style={styles.teeOptionRow}
-                onPress={() => {
-                  setSelectedTeeName("All");
-                  setSelectedTeeGender(undefined);
-                  setShowTeeSelector(false);
-                }}
-              >
-                <View>
-                  <Text style={styles.teeOptionName}>All tees</Text>
-                  <Text style={styles.teeOptionGender}>Combined averages</Text>
-                </View>
-                <View style={styles.radioOuter}>
-                  <View
-                    style={
-                      selectedTeeName === "All"
-                        ? styles.radioInnerActive
-                        : styles.radioInner
-                    }
-                  />
-                </View>
-              </TouchableOpacity>
-
-              {getAvailableTeeSetsForCourse()
-                .filter(
-                  (t: any) => !t.gender || t.gender === teePickerGenderTab
-                )
-                .map((tee: any) => (
+          <Animated.View style={{ height: extraHeaderSpace }} />
+          <View style={styles.sheet}>
+            <View style={styles.headerContainer}>
+              <Text style={styles.courseName}>{courseData.name}</Text>
+              {/* Only show location if it's valid (not undefined/Unknown) */}
+              {courseData.location &&
+                !courseData.location.includes('undefined') &&
+                !courseData.location.includes('Unknown') && (
+                  <View style={styles.locationContainer}>
+                    <MapPin size={16} color={colors.text} />
+                    <Text style={styles.location}>{courseData.location}</Text>
+                  </View>
+                )}
+              {availableTeeNames.length > 0 && (
+                <>
                   <TouchableOpacity
-                    key={`${tee.gender ?? 'U'}-${tee.name}`}
-                    style={styles.teeOptionRow}
-                    onPress={() => {
-                      setSelectedTeeName(tee.name);
-                      setSelectedTeeGender((tee.gender as 'M' | 'F') || teePickerGenderTab);
-                      setShowTeeSelector(false);
-                    }}
+                    style={styles.teeDropdown}
+                    onPress={openCourseTeePicker}
+                    activeOpacity={0.8}
                   >
                     <View>
-                      <Text style={styles.teeOptionName}>{tee.name}</Text>
-                      {tee.rating || tee.slope ? (
-                        <Text style={styles.teeOptionGender}>
-                          {tee.rating ? `${tee.rating}` : '--'}/
-                          {tee.slope ? `${tee.slope}` : '--'}
-                        </Text>
-                      ) : (
-                        <Text style={styles.teeOptionGender}>
-                          {tee.gender === 'F' ? 'Women' : 'Men'}
-                        </Text>
-                      )}
+                      <Text style={styles.teeDropdownLabel}>Tees</Text>
+                      <Text style={styles.teeDropdownValue}>
+                        {getTeeDisplayLabel(selectedTeeName)}
+                      </Text>
                     </View>
-                    <View style={styles.radioOuter}>
-                      <View
-                        style={
-                          selectedTeeName.toString().toLowerCase() ===
-                            tee.name.toString().toLowerCase() &&
-                            (selectedTeeGender ?? teePickerGenderTab) === (tee.gender || teePickerGenderTab)
-                            ? styles.radioInnerActive
-                            : styles.radioInner
-                        }
-                      />
-                    </View>
+                    <ChevronDown size={18} color={colors.text} />
                   </TouchableOpacity>
-                ))}
-
-              {getAvailableTeeSetsForCourse().length === 0 && (
-                <Text style={styles.emptyTeeText}>
-                  No tee data available for this course.
-                </Text>
+                </>
               )}
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+            </View>
 
-      <Modal
-        visible={showRoundsModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowRoundsModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Rounds Played at {courseData.name}</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {courseRounds.map((round, index) => (
-                <RoundCard
-                  key={index}
-                  round={round}
-                  onPress={() => {
-                    setShowRoundsModal(false);
-                    router.push(`/round/${round.id}`);
-                  }}
-                  highlightPlayerId={currentUser?.id}
-                />
-              ))}
-            </ScrollView>
-            <Button
-              title="Close"
-              onPress={() => setShowRoundsModal(false)}
-              style={styles.modalCloseButton}
-            />
-          </View>
-        </View>
-      </Modal>
+            <View style={styles.statsContainer}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{(courseData.holes ?? []).length}</Text>
+                <Text style={styles.statLabel}>Holes</Text>
+              </View>
 
-      <Modal
-        visible={showCourseMapInfo}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowCourseMapInfo(false)}
-      >
-        <View style={styles.infoModalOverlay}>
-          <View style={styles.infoModalContent}>
-            <Text style={styles.infoModalTitle}>Course Map Insight</Text>
-            <Text style={styles.infoModalText}>
-              Each AVG badge shows your all-time scoring average for that hole. Colors highlight how far the average is from par.
-            </Text>
-            <View style={styles.infoLegend}>
-              <View style={styles.infoLegendItem}>
-                <View style={[styles.infoLegendBadge, styles.holeAverageGood]}>
-                  <Text style={styles.infoLegendBadgeText}>AVG ±0</Text>
-                </View>
-                <Text style={styles.infoLegendLabel}>At or near par (≤ +0.1)</Text>
+              <View style={styles.statDivider} />
+
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{totalPar}</Text>
+                <Text style={styles.statLabel}>Par</Text>
               </View>
-              <View style={styles.infoLegendItem}>
-                <View style={[styles.infoLegendBadge, styles.holeAverageCaution]}>
-                  <Text style={styles.infoLegendBadgeText}>AVG +1</Text>
+
+              <View style={styles.statDivider} />
+
+              <TouchableOpacity style={styles.statItem} onPress={() => setShowRoundsModal(true)}>
+                <Text style={styles.statValue}>{courseRounds.length}</Text>
+                <Text style={styles.statLabel}>{courseRounds.length === 1 ? 'Round' : 'Rounds'}</Text>
+                <ChevronRight size={16} strokeWidth={2.2} color={colors.text} style={styles.statChevron} />
+              </TouchableOpacity>
+            </View>
+
+            {stats && (
+              <View style={styles.statsSection}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Your Performance Stats</Text>
                 </View>
-                <Text style={styles.infoLegendLabel}>Bogey range (+0.1 to +1.5)</Text>
+
+                <View style={styles.performanceGrid}>
+                  <View style={styles.performanceCard}>
+                    <Text style={styles.performanceValue}>{stats.totalRounds}</Text>
+                    <Text style={styles.performanceLabel}>Rounds Played</Text>
+                  </View>
+
+                  <View style={styles.performanceCard}>
+                    <Text style={styles.performanceValue}>{stats.averageScore.toFixed(1)}</Text>
+                    <Text style={styles.performanceLabel}>Avg Score</Text>
+                    <View style={styles.performanceIndicator}>
+                      {stats.averageScore < totalPar ? (
+                        <TrendingDown size={16} color={colors.success} />
+                      ) : (
+                        <TrendingUp size={16} color={colors.error} />
+                      )}
+                      <Text style={[
+                        styles.performanceChange,
+                        { color: stats.averageScore < totalPar ? colors.success : colors.error }
+                      ]}>
+                        {stats.averageScore < totalPar ? 'Under Par' : 'Over Par'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.performanceCard}>
+                    <Text style={styles.performanceValue}>{stats.bestScore}</Text>
+                    <Text style={styles.performanceLabel}>Best Score</Text>
+                    <Text style={[
+                      styles.performanceSubtext,
+                      stats.bestScore - totalPar < 0 && { color: colors.success },
+                      stats.bestScore - totalPar > 0 && { color: colors.error },
+                    ]}>
+                      {stats.bestScore - totalPar > 0 ? '+' : ''}{stats.bestScore - totalPar}
+                    </Text>
+                  </View>
+
+                  <View style={styles.performanceCard}>
+                    <Text style={[
+                      styles.performanceValue,
+                      worstParType && worstParType.value > 0 && { color: colors.error },
+                    ]}>
+                      {worstParType ? formatRelativeToPar(worstParType.value) : '--'}
+                    </Text>
+                    <Text style={styles.performanceLabel}>
+                      {worstParType ? `Worst: ${worstParType.label}` : 'Worst Par Type'}
+                    </Text>
+                    <Text style={styles.performanceSubtext}>
+                      {worstParType ? 'Avg vs Par' : 'No data'}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              <View style={styles.infoLegendItem}>
-                <View style={[styles.infoLegendBadge, styles.holeAverageDanger]}>
-                  <Text style={styles.infoLegendBadgeText}>AVG +2</Text>
-                </View>
-                <Text style={styles.infoLegendLabel}>Double bogey or worse (≥ +1.5)</Text>
+            )}
+
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitle}>My Course Map</Text>
+                <TouchableOpacity
+                  onPress={() => setShowCourseMapInfo(true)}
+                  style={styles.infoButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Course map info"
+                >
+                  <Info size={18} color={colors.text} />
+                </TouchableOpacity>
               </View>
             </View>
-            <TouchableOpacity
-              onPress={() => setShowCourseMapInfo(false)}
-              style={styles.infoModalCloseButton}
-            >
-              <Text style={styles.infoModalCloseText}>Got it</Text>
-            </TouchableOpacity>
+
+            <View style={styles.holesContainer}>
+              {(courseData.holes ?? []).map((hole: any) => {
+                const averageEntry = currentUser ? holeAverages[hole.number] : undefined;
+                const averageValue = averageEntry ? Number(averageEntry.average.toFixed(1)) : null;
+                const diffFromPar = averageValue !== null ? averageValue - hole.par : null;
+                const avgText = averageValue !== null ? averageValue.toFixed(1) : '--';
+
+                const meta = getHoleMetaForSelectedTee(hole.number);
+                const metaParts = [`Par ${meta.par}`, meta.yardage ? `${Math.round(meta.yardage)} yds` : null]
+                  .filter(Boolean);
+                if (meta.handicap) {
+                  metaParts.push(`HCP ${meta.handicap}`);
+                }
+
+                let badgeStyle = styles.holeAverageNeutral;
+                if (diffFromPar !== null) {
+                  if (diffFromPar <= 0.1) {
+                    badgeStyle = styles.holeAverageGood;
+                  } else if (diffFromPar < 1.5) {
+                    badgeStyle = styles.holeAverageCaution;
+                  } else {
+                    badgeStyle = styles.holeAverageDanger;
+                  }
+                }
+
+                return (
+                  <View key={hole.number} style={styles.holeItem}>
+                    <View style={styles.holeInfo}>
+                      <View style={styles.holeNumberContainer}>
+                        <Text style={styles.holeNumber}>{hole.number}</Text>
+                      </View>
+                      <Text style={styles.holeMetaText}>
+                        {metaParts.join(' • ')}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.holeAverageBadge, badgeStyle]}>
+                      <Text style={styles.holeAverageBadgeText}>AVG: {avgText}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+
+            <Button
+              title="Scan Scorecard"
+              onPress={navigateToScanScorecard}
+              style={styles.startButton}
+              icon={<Camera size={18} color={colors.background} style={{ marginRight: 8 }} />}
+            />
+
+            {/* Removed explicit View Rounds button; hint added on the stat tile */}
           </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+        </Animated.ScrollView>
+
+        {/* Tee selection modal */}
+        <Modal
+          visible={showTeeSelector}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowTeeSelector(false)}
+        >
+          <TouchableOpacity
+            style={styles.sheetOverlay}
+            activeOpacity={1}
+            onPress={() => setShowTeeSelector(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={styles.sheetContainer}
+              onPress={() => { }}
+            >
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Select tees</Text>
+                <View style={styles.sheetTabs}>
+                  <TouchableOpacity
+                    style={[
+                      styles.sheetTab,
+                      teePickerGenderTab === 'M' && styles.sheetTabActive,
+                    ]}
+                    onPress={() => setTeePickerGenderTab('M')}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetTabText,
+                        teePickerGenderTab === 'M' && styles.sheetTabTextActive,
+                      ]}
+                    >
+                      Men
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.sheetTab,
+                      teePickerGenderTab === 'F' && styles.sheetTabActive,
+                    ]}
+                    onPress={() => setTeePickerGenderTab('F')}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetTabText,
+                        teePickerGenderTab === 'F' && styles.sheetTabTextActive,
+                      ]}
+                    >
+                      Women
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView
+                style={styles.sheetList}
+                contentContainerStyle={styles.sheetListContent}
+              >
+                <TouchableOpacity
+                  style={styles.teeOptionRow}
+                  onPress={() => {
+                    setSelectedTeeName("All");
+                    setSelectedTeeGender(undefined);
+                    setShowTeeSelector(false);
+                  }}
+                >
+                  <View>
+                    <Text style={styles.teeOptionName}>All tees</Text>
+                    <Text style={styles.teeOptionGender}>Combined averages</Text>
+                  </View>
+                  <View style={styles.radioOuter}>
+                    <View
+                      style={
+                        selectedTeeName === "All"
+                          ? styles.radioInnerActive
+                          : styles.radioInner
+                      }
+                    />
+                  </View>
+                </TouchableOpacity>
+
+                {getAvailableTeeSetsForCourse()
+                  .filter(
+                    (t: any) => !t.gender || t.gender === teePickerGenderTab
+                  )
+                  .map((tee: any) => (
+                    <TouchableOpacity
+                      key={`${tee.gender ?? 'U'}-${tee.name}`}
+                      style={styles.teeOptionRow}
+                      onPress={() => {
+                        setSelectedTeeName(tee.name);
+                        setSelectedTeeGender((tee.gender as 'M' | 'F') || teePickerGenderTab);
+                        setShowTeeSelector(false);
+                      }}
+                    >
+                      <View>
+                        <Text style={styles.teeOptionName}>{tee.name}</Text>
+                        {tee.rating || tee.slope ? (
+                          <Text style={styles.teeOptionGender}>
+                            {tee.rating ? `${tee.rating}` : '--'}/
+                            {tee.slope ? `${tee.slope}` : '--'}
+                          </Text>
+                        ) : (
+                          <Text style={styles.teeOptionGender}>
+                            {tee.gender === 'F' ? 'Women' : 'Men'}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={styles.radioOuter}>
+                        <View
+                          style={
+                            selectedTeeName.toString().toLowerCase() ===
+                              tee.name.toString().toLowerCase() &&
+                              (selectedTeeGender ?? teePickerGenderTab) === (tee.gender || teePickerGenderTab)
+                              ? styles.radioInnerActive
+                              : styles.radioInner
+                          }
+                        />
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+
+                {getAvailableTeeSetsForCourse().length === 0 && (
+                  <Text style={styles.emptyTeeText}>
+                    No tee data available for this course.
+                  </Text>
+                )}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        <Modal
+          visible={showRoundsModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowRoundsModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Rounds Played at {courseData.name}</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {courseRounds.map((round, index) => (
+                  <RoundCard
+                    key={index}
+                    round={round}
+                    onPress={() => {
+                      setShowRoundsModal(false);
+                      router.push(`/round/${round.id}`);
+                    }}
+                    highlightPlayerId={currentUser?.id}
+                  />
+                ))}
+              </ScrollView>
+              <Button
+                title="Close"
+                onPress={() => setShowRoundsModal(false)}
+                style={styles.modalCloseButton}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={showCourseMapInfo}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowCourseMapInfo(false)}
+        >
+          <View style={styles.infoModalOverlay}>
+            <View style={styles.infoModalContent}>
+              <Text style={styles.infoModalTitle}>Course Map Insight</Text>
+              <Text style={styles.infoModalText}>
+                Each AVG badge shows your all-time scoring average for that hole. Colors highlight how far the average is from par.
+              </Text>
+              <View style={styles.infoLegend}>
+                <View style={styles.infoLegendItem}>
+                  <View style={[styles.infoLegendBadge, styles.holeAverageGood]}>
+                    <Text style={styles.infoLegendBadgeText}>AVG ±0</Text>
+                  </View>
+                  <Text style={styles.infoLegendLabel}>At or near par (≤ +0.1)</Text>
+                </View>
+                <View style={styles.infoLegendItem}>
+                  <View style={[styles.infoLegendBadge, styles.holeAverageCaution]}>
+                    <Text style={styles.infoLegendBadgeText}>AVG +1</Text>
+                  </View>
+                  <Text style={styles.infoLegendLabel}>Bogey range (+0.1 to +1.5)</Text>
+                </View>
+                <View style={styles.infoLegendItem}>
+                  <View style={[styles.infoLegendBadge, styles.holeAverageDanger]}>
+                    <Text style={styles.infoLegendBadgeText}>AVG +2</Text>
+                  </View>
+                  <Text style={styles.infoLegendLabel}>Double bogey or worse (≥ +1.5)</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowCourseMapInfo(false)}
+                style={styles.infoModalCloseButton}
+              >
+                <Text style={styles.infoModalCloseText}>Got it</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,

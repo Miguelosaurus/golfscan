@@ -8,29 +8,80 @@ export const calculateTotalScore = (scores: Score[]): number => {
   return scores.reduce((total, score) => total + score.strokes, 0);
 };
 
+export const getLocalDateString = (date: Date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export const formatDate = (date: Date): string => {
-  return date.toISOString().split('T')[0];
+  return getLocalDateString(date);
+};
+
+export const parseLocalDateString = (dateString: string): Date | null => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  // Guard against JS Date overflow (e.g., 2026-02-30 becomes March 2).
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return date;
 };
 
 export const ensureValidDate = (dateString: string | null | undefined): string => {
   // If dateString is null, undefined, or empty, return today's date
   if (!dateString || dateString.trim() === '') {
-    return new Date().toISOString().split('T')[0];
+    return getLocalDateString();
   }
 
   // Validate the date format (basic YYYY-MM-DD check)
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
   if (!dateRegex.test(dateString)) {
-    return new Date().toISOString().split('T')[0];
+    return getLocalDateString();
   }
 
   // Try to parse the date to ensure it's valid
-  const parsedDate = new Date(dateString);
-  if (isNaN(parsedDate.getTime())) {
-    return new Date().toISOString().split('T')[0];
-  }
+  const parsedDate = parseLocalDateString(dateString);
+  if (!parsedDate) return getLocalDateString();
 
   return dateString;
+};
+
+export const formatLocalDateString = (dateString: string, style: 'short' | 'long' = 'short'): string => {
+  const date = parseLocalDateString(dateString);
+  if (!date) return dateString;
+
+  const monthsShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthsLong = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  const weekdaysLong = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  const monthName = style === 'long' ? monthsLong[date.getMonth()] : monthsShort[date.getMonth()];
+  const day = date.getDate();
+  const year = date.getFullYear();
+
+  if (style === 'long') {
+    const weekday = weekdaysLong[date.getDay()];
+    return `${weekday}, ${monthName} ${day}, ${year}`;
+  }
+  return `${monthName} ${day}, ${year}`;
 };
 
 export const getScoreDifferential = (playerScore: number, coursePar: number): number => {

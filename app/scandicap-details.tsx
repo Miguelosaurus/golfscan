@@ -8,6 +8,9 @@ import {
   TouchableOpacity,
   ImageBackground,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
@@ -69,6 +72,9 @@ export default function ScandicapDetailsScreen() {
   } | null>(null);
   const [howExpanded, setHowExpanded] = useState(false);
   const [timeRange, setTimeRange] = useState<"1M" | "3M" | "6M" | "1Y" | "All">("All");
+  const [showSeedModal, setShowSeedModal] = useState(false);
+  const [seedHandicapText, setSeedHandicapText] = useState("15.0");
+  const [seedLoading, setSeedLoading] = useState(false);
 
   const { chartData, chartSeries, lowWaterMark, yMin, yMax } = useMemo(() => {
     if (!history.length) {
@@ -193,13 +199,10 @@ export default function ScandicapDetailsScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           {/* Seed test rounds button */}
           <TouchableOpacity
-            onPress={async () => {
-              try {
-                await seedHandicap({ initialHandicap: 15.0 });
-                Alert.alert("Success", "20 ghost rounds seeded at 15.0 handicap.");
-              } catch (e) {
-                Alert.alert("Error", "Could not seed rounds.");
-              }
+            onPress={() => {
+              const fallback = details?.currentHandicap != null ? details.currentHandicap.toFixed(1) : "15.0";
+              setSeedHandicapText(fallback);
+              setShowSeedModal(true);
             }}
           >
             <Plus size={20} color="#F5F5DC" strokeWidth={2} />
@@ -669,6 +672,77 @@ export default function ScandicapDetailsScreen() {
         </ScrollView>
       )
       }
+
+      <Modal
+        visible={showSeedModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSeedModal(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setShowSeedModal(false)}
+          style={styles.seedModalOverlay}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.seedModalKeyboard}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => {}}
+              style={styles.seedModalCard}
+            >
+              <Text style={styles.seedModalTitle}>Seed rounds</Text>
+              <Text style={styles.seedModalSubtitle}>What handicap should these seed rounds represent?</Text>
+
+              <TextInput
+                value={seedHandicapText}
+                onChangeText={setSeedHandicapText}
+                placeholder="15.0"
+                placeholderTextColor="#8E8E8E"
+                keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                style={styles.seedModalInput}
+                autoFocus
+                editable={!seedLoading}
+              />
+
+              <View style={styles.seedModalButtons}>
+                <TouchableOpacity
+                  style={[styles.seedModalButton, styles.seedModalButtonSecondary]}
+                  onPress={() => setShowSeedModal(false)}
+                  disabled={seedLoading}
+                >
+                  <Text style={styles.seedModalButtonSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.seedModalButton, styles.seedModalButtonPrimary, seedLoading && { opacity: 0.7 }]}
+                  disabled={seedLoading}
+                  onPress={async () => {
+                    const parsed = Number.parseFloat(seedHandicapText.replace(",", "."));
+                    if (!Number.isFinite(parsed)) {
+                      Alert.alert("Invalid handicap", "Enter a valid number (e.g., 15.0).");
+                      return;
+                    }
+                    setSeedLoading(true);
+                    try {
+                      await seedHandicap({ initialHandicap: parsed });
+                      setShowSeedModal(false);
+                      Alert.alert("Success", `20 ghost rounds seeded at ${parsed.toFixed(1)} handicap.`);
+                    } catch (e) {
+                      Alert.alert("Error", "Could not seed rounds.");
+                    } finally {
+                      setSeedLoading(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.seedModalButtonPrimaryText}>Seed</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        </TouchableOpacity>
+      </Modal>
     </ImageBackground >
   );
 }
@@ -678,6 +752,71 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0A261C", // Fallback color matching the texture
+  },
+  seedModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+  seedModalKeyboard: {
+    width: "100%",
+  },
+  seedModalCard: {
+    backgroundColor: PAPER_BG_LIGHT,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.08)",
+  },
+  seedModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: DEEP_TEXT,
+    marginBottom: 6,
+  },
+  seedModalSubtitle: {
+    fontSize: 13,
+    color: DEEP_TEXT,
+    opacity: 0.75,
+    marginBottom: 12,
+  },
+  seedModalInput: {
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.12)",
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: DEEP_TEXT,
+    fontVariant: ["tabular-nums"],
+  },
+  seedModalButtons: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  seedModalButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  seedModalButtonSecondary: {
+    backgroundColor: "rgba(0,0,0,0.06)",
+  },
+  seedModalButtonSecondaryText: {
+    color: DEEP_TEXT,
+    fontWeight: "700",
+  },
+  seedModalButtonPrimary: {
+    backgroundColor: "#FF7A18",
+  },
+  seedModalButtonPrimaryText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
   },
   customHeader: {
     flexDirection: "row",
@@ -1036,4 +1175,3 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
 });
-
