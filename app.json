@@ -2,7 +2,7 @@
   "expo": {
     "name": "ScanCaddie",
     "slug": "golf-score-tracker-u82dxka",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "icon": "./assets/images/icon.png",
     "orientation": "portrait",
     "runtimeVersion": {
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.golfscanai.app",
-      "buildNumber": "5"
+      "buildNumber": "6"
     },
     "android": {
       "package": "com.golfscanai.app"
