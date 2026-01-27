@@ -8,7 +8,8 @@ import {
     Alert,
     TextInput,
     Modal,
-    Image
+    Image,
+    Platform
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -321,7 +322,7 @@ export default function ProfileScreen() {
                                 value={editHandicap}
                                 onChangeText={setEditHandicap}
                                 placeholder="Enter handicap"
-                                keyboardType="decimal-pad"
+                                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
                             />
 
                             <Text style={styles.note}>

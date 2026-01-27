@@ -28,6 +28,14 @@ yarn-error.*
 # macOS
 .DS_Store
 *.pem
+*.ipa
+*.xcarchive
+local-build
+local-build.*
+local-build-output/
+last-eas-build.log
+local-build.log
+local-dev-app.tar.gz
 
 # local env files
 .env*.local

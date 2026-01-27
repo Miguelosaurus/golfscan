@@ -271,7 +271,9 @@ export interface NassauSettlementArgs {
 
 /**
  * Calculate Nassau settlement
- * 3 bets: Front 9, Back 9, Overall 18
+ * Bets:
+ * - 18 holes: Front 9, Back 9, Overall (18)
+ * - 9 holes: Front/Back (played nine) + Overall (same nine)
  * Supports separate amounts for each segment via nassauAmounts
  */
 export function calculateNassauSettlement(args: NassauSettlementArgs): Transaction[] {
@@ -355,11 +357,14 @@ export function calculateNassauSettlement(args: NassauSettlementArgs): Transacti
         }
     }
 
-    if (holeSelection === "18") {
-        const overall = calculateSegment(0, 17);
-        if (overall.winner !== "tie") {
-            addWinnerTransactions(overall.winner, overallAmount, "Lost Overall");
-        }
+    const overallRange =
+        holeSelection === "front_9" ? { start: 0, end: 8 } :
+            holeSelection === "back_9" ? { start: 9, end: 17 } :
+                { start: 0, end: 17 };
+
+    const overall = calculateSegment(overallRange.start, overallRange.end);
+    if (overall.winner !== "tie") {
+        addWinnerTransactions(overall.winner, overallAmount, "Lost Overall");
     }
 
     // Handle presses
@@ -600,4 +605,3 @@ export function calculateSideBetsSettlement(args: SideBetsSettlementArgs): Trans
 
     return transactions;
 }
-

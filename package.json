@@ -7,7 +7,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "backend": "npx tsx --watch backend/trpc/hono.ts"
+    "backend": "npx tsx --watch backend/trpc/hono.ts",
+    "handicap:audit": "node --experimental-strip-types scripts/handicap-audit.mjs"
   },
   "dependencies": {
     "@clerk/clerk-expo": "^2.19.6",
@@ -25,7 +26,7 @@
     "@trpc/server": "^11.4.0",
     "convex": "^1.16.0",
     "dotenv": "^17.2.1",
-    "expo": "~54.0.30",
+    "expo": "~54.0.32",
     "expo-auth-session": "~7.0.10",
     "expo-blur": "~15.0.8",
     "expo-camera": "~17.0.10",
@@ -40,7 +41,7 @@
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.11",
     "expo-location": "~19.0.8",
-    "expo-router": "~6.0.21",
+    "expo-router": "~6.0.22",
     "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",

@@ -6,24 +6,44 @@ import { Stack, usePathname, useRouter } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
-import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useMutation, useAction } from "@/lib/convex";
+import { createConvexClient, useConvex, useQuery, useMutation, useAction } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { useGolfStore } from "@/store/useGolfStore";
 import { Id } from "@/convex/_generated/dataModel";
-import { Alert, AppState, ImageBackground, StyleSheet } from "react-native";
+import { Alert, AppState, ImageBackground, StyleSheet, Text, TextInput, View } from "react-native";
 import { DEFAULT_COURSE_IMAGE } from "@/constants/images";
 import { initPostHog, identifyUser, trackScanCompleted } from "@/lib/analytics";
 import Constants from "expo-constants";
 
-const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
-  unsavedChangesWarning: false,
-});
-
 // Initialize PostHog on app startup
 initPostHog();
+
+// Cap Dynamic Type (font scaling) globally to keep UI consistent while still
+// allowing some accessibility scaling.
+const TextAny = Text as any;
+TextAny.defaultProps = TextAny.defaultProps ?? {};
+TextAny.defaultProps.allowFontScaling = true;
+TextAny.defaultProps.maxFontSizeMultiplier = 1.2;
+
+const TextInputAny = TextInput as any;
+TextInputAny.defaultProps = TextInputAny.defaultProps ?? {};
+TextInputAny.defaultProps.allowFontScaling = true;
+TextInputAny.defaultProps.maxFontSizeMultiplier = 1.2;
+
+const configErrorStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  title: { fontSize: 18, fontWeight: "700", color: "#111111", marginBottom: 8 },
+  text: { fontSize: 14, color: "#333333", textAlign: "center", marginBottom: 12 },
+  vars: { fontSize: 13, fontFamily: "Courier", color: "#111111", textAlign: "center" },
+});
 
 /**
  * Analytics component that identifies users with PostHog
@@ -170,6 +190,7 @@ function RoundSyncer() {
   const syncRoundsRef = React.useRef<(() => void) | null>(null);
 
   const profile = useQuery(api.users.getProfile);
+  const convex = useConvex();
 
   // Helper to detect if location is missing/invalid
   const isLocationMissing = (loc?: string | null) =>
@@ -317,7 +338,7 @@ function RoundSyncer() {
       cancelled = true;
       sub.remove();
     };
-  }, [profile]);
+  }, [profile, convex]);
 
   // Main sync effect with SMART POLLING
   // - Fast (5s) when there are pending rounds
@@ -414,15 +435,16 @@ function RoundSyncer() {
             if (!acc[p.playerId]) acc[p.playerId] = p;
             return acc;
           }, {})
-        ).map((p) => ({
-          name: p.playerName,
-          playerId: isConvexId(p.playerId) ? p.playerId : undefined,
-          teeName: p.teeColor,
-          teeGender: (p as any).teeGender,
-          handicap: p.handicapUsed,
-          holeData: buildHoleData(p),
-          isSelf: !!(p as any).isUser,
-        }));
+	        ).map((p) => ({
+	          name: p.playerName,
+	          playerId: isConvexId(p.playerId) ? p.playerId : undefined,
+	          teeName: p.teeColor,
+	          teeGender: (p as any).teeGender,
+	          // Convex expects handicap index; local rounds store index separately when available.
+	          handicap: (p as any).handicapIndex ?? p.handicapUsed,
+	          holeData: buildHoleData(p),
+	          isSelf: !!(p as any).isUser,
+	        }));
 
         try {
           if ((round as any).remoteId && isConvexId((round as any).remoteId)) {
@@ -621,7 +643,10 @@ function CourseSyncer() {
   return null;
 }
 
-export default function RootLayout() {
+function RootLayoutWithConfig(props: { convexUrl: string; clerkPublishableKey: string }) {
+  const { convexUrl, clerkPublishableKey } = props;
+  const convex = React.useMemo(() => createConvexClient(convexUrl), [convexUrl]);
+
   const pathname = usePathname();
   useEffect(() => {
     console.log('[nav] pathname', pathname);
@@ -629,7 +654,7 @@ export default function RootLayout() {
 
   return (
     <ClerkProvider
-      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      publishableKey={clerkPublishableKey}
       tokenCache={tokenCache}
     >
       <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
@@ -747,5 +772,33 @@ export default function RootLayout() {
         </SafeAreaProvider>
       </ConvexProviderWithClerk>
     </ClerkProvider>
+  );
+}
+
+export default function RootLayout() {
+  const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
+  const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+  if (!convexUrl || !clerkPublishableKey) {
+    const missing = [
+      !convexUrl ? "EXPO_PUBLIC_CONVEX_URL" : null,
+      !clerkPublishableKey ? "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY" : null,
+    ].filter((v): v is string => v !== null);
+
+    console.error("[Config] Missing required environment variables:", missing.join(", "));
+
+    return (
+      <View style={configErrorStyles.container}>
+        <Text style={configErrorStyles.title}>Configuration error</Text>
+        <Text style={configErrorStyles.text}>
+          This build is missing required configuration:
+        </Text>
+        <Text style={configErrorStyles.vars}>{missing.join("\n")}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <RootLayoutWithConfig convexUrl={convexUrl} clerkPublishableKey={clerkPublishableKey} />
   );
 }

@@ -20,6 +20,13 @@ export interface StrokeAllocation {
     strokesByHole: number[]; // Always length 18, index = hole-1
 }
 
+function roundHalfUpToInt(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    // Add a tiny epsilon to avoid cases like 30.4999999997 due to floating point precision.
+    const epsilon = 1e-9;
+    return value >= 0 ? Math.floor(value + 0.5 + epsilon) : Math.ceil(value - 0.5 - epsilon);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // COURSE HANDICAP CALCULATION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -35,12 +42,12 @@ export function calculateCourseHandicap(
     par: number
 ): number {
     const courseHandicap = handicapIndex * (slopeRating / 113) + (courseRating - par);
-    return Math.round(courseHandicap);
+    return roundHalfUpToInt(courseHandicap);
 }
 
 /**
  * Calculate course handicap for 9 holes (front or back)
- * Uses half the adjustment and rounds appropriately
+ * Uses 9-hole rating/par + slope and rounds appropriately
  */
 export function calculateCourseHandicap9(
     handicapIndex: number,
@@ -49,7 +56,7 @@ export function calculateCourseHandicap9(
     par: number
 ): number {
     const courseHandicap = handicapIndex * (slopeRating / 113) + (courseRating - par);
-    return Math.round(courseHandicap / 2);
+    return roundHalfUpToInt(courseHandicap);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -71,27 +78,26 @@ export function calculateNetStrokeAllocation(
     // Initialize all holes with 0 strokes
     const strokesByHole = new Array(18).fill(0);
 
-    if (courseHandicap <= 0) {
+    if (!Number.isFinite(courseHandicap) || courseHandicap === 0) {
         return strokesByHole;
     }
+    if (!Array.isArray(holes) || holes.length === 0) return strokesByHole;
 
-    // Sort holes by HCP index (hardest first)
-    const sortedHoles = [...holes].sort((a, b) => a.hcp - b.hcp);
+    const ch = Math.trunc(courseHandicap);
+    const direction = ch > 0 ? 1 : -1;
+    let strokesRemaining = Math.abs(ch);
 
-    let strokesRemaining = courseHandicap;
+    // Positive course handicap: allocate strokes received to hardest holes (lowest stroke index).
+    // Plus handicap (negative): allocate strokes GIVEN to easiest holes (highest stroke index).
+    const sortedHoles = [...holes].sort((a, b) => (ch > 0 ? a.hcp - b.hcp : b.hcp - a.hcp));
 
-    // First pass: give 1 stroke to each hole in HCP order
-    for (const hole of sortedHoles) {
-        if (strokesRemaining <= 0) break;
-        strokesByHole[hole.number - 1] = 1;
-        strokesRemaining--;
-    }
-
-    // Second pass: for handicaps > 18, give 2nd stroke to hardest holes
-    for (const hole of sortedHoles) {
-        if (strokesRemaining <= 0) break;
-        strokesByHole[hole.number - 1] = 2;
-        strokesRemaining--;
+    // Distribute strokes across the selected holes (front/back/18). Extra strokes loop back.
+    while (strokesRemaining > 0) {
+        for (const hole of sortedHoles) {
+            if (strokesRemaining <= 0) break;
+            strokesByHole[hole.number - 1] += direction;
+            strokesRemaining--;
+        }
     }
 
     return strokesByHole;

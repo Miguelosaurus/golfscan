@@ -55,6 +55,7 @@ import { trackRoundSaved, trackLimitReached } from '@/lib/analytics';
 import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/course-helpers';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
+import { calculateCourseHandicapForRound, roundHalfUpToInt } from '@/utils/handicapCourse';
 
 interface DetectedPlayer {
   id: string;
@@ -479,7 +480,8 @@ export default function ScanScorecardScreen() {
           map.set(p.playerId, {
             id: p.playerId,
             name: p.playerName,
-            handicap: p.handicapUsed ?? storePlayer?.handicap,  // Fallback to handicapUsed for now
+            // Use the player's handicap index (Scandicap). `handicapUsed` on rounds is course handicap.
+            handicap: storePlayer?.handicap,
             isUser: storePlayer?.isUser,
             latestDate: round.date,
           } as Player & { latestDate?: string });
@@ -1227,18 +1229,24 @@ export default function ScanScorecardScreen() {
   };
 
   const sanitizeHandicapInput = (value: string) => {
-    const cleaned = value.replace(/[^0-9.]/g, '');
-    const parts = cleaned.split('.');
-    if (parts.length <= 1) return cleaned;
-    return `${parts.shift()}.${parts.join('')}`;
+    const raw = value.trim();
+    const hasLeadingMinus = raw.startsWith("-");
+    const cleaned = raw.replace(/[^0-9.]/g, "");
+    const parts = cleaned.split(".");
+    const normalized = parts.length <= 1 ? cleaned : `${parts.shift()}.${parts.join("")}`;
+    if (hasLeadingMinus) return normalized === "" ? "-" : `-${normalized}`;
+    return normalized;
   };
 
   const handleEditPlayerHandicapById = (playerId: string, handicap: string) => {
     // Store raw text to allow typing decimals (e.g., "11." while typing "11.7")
     // Only convert to number if it's a valid complete number
     const trimmed = sanitizeHandicapInput(handicap.trim());
-    const isValidNumber = trimmed !== '' && !isNaN(Number(trimmed)) && !trimmed.endsWith('.');
-    const handicapValue = isValidNumber ? Number(trimmed) : undefined;
+    const isValidNumber =
+      trimmed !== "" && trimmed !== "-" && !isNaN(Number(trimmed)) && !trimmed.endsWith(".");
+    const parsed = isValidNumber ? Number(trimmed) : undefined;
+    const handicapValue =
+      parsed !== undefined && parsed >= -10 && parsed <= 54 ? parsed : undefined;
 
     setDetectedPlayers(prev => {
       const idx = prev.findIndex(p => p.id === playerId);
@@ -1247,7 +1255,7 @@ export default function ScanScorecardScreen() {
       updated[idx] = {
         ...updated[idx],
         handicapInputText: trimmed,
-        handicap: isValidNumber ? handicapValue : updated[idx].handicap
+        handicap: isValidNumber ? (handicapValue ?? updated[idx].handicap) : updated[idx].handicap
       };
       return updated;
     });
@@ -1927,25 +1935,42 @@ export default function ScanScorecardScreen() {
     const holeCount = detectedPlayers.length > 0 ?
       Math.max(...detectedPlayers[0].scores.map(score => score.holeNumber)) : 18;
 
-    const newRound = {
-      id: existingRound?.id ?? roundId,
+	      const courseForHandicap =
+	        courses.find((c) => c.id === finalCourseId) ??
+	        (selectedCourse ? courses.find((c) => c.id === selectedCourse) : undefined);
+
+	      const newRound = {
+	      id: existingRound?.id ?? roundId,
       ...(resolvedRemoteId ? { remoteId: resolvedRemoteId } : {}),
       date,
       courseId: finalCourseId,
       courseName: finalCourseName,
-      players: playersWithTotalScores.map(player => {
-        const teeMeta = resolveTeeForPlayer(player);
-        return {
-          playerId: player.linkedPlayerId || player.id,
-          playerName: player.name,
-          scores: player.scores,
-          totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
-          handicapUsed: player.handicap,
-          // Persist tee selection so Round Details and Convex sync
-          // can show tee name + gender.
-          teeColor: teeMeta.teeColor,
-          teeGender: teeMeta.teeGender,
-          isUser: !!player.isUser,
+	      players: playersWithTotalScores.map(player => {
+	        const teeMeta = resolveTeeForPlayer(player);
+	        const holeNumbers = (player.scores ?? []).map((s: any) => s.holeNumber).filter((n: any) => typeof n === 'number');
+	        const handicapIndex = typeof player.handicap === 'number' ? player.handicap : undefined;
+	        const courseHandicap =
+	          courseForHandicap
+	            ? calculateCourseHandicapForRound({
+	              handicapIndex,
+	              course: courseForHandicap,
+	              teeName: teeMeta.teeColor,
+	              teeGender: teeMeta.teeGender,
+	              holeNumbers,
+	            })
+	            : undefined;
+	        return {
+	          playerId: player.linkedPlayerId || player.id,
+	          playerName: player.name,
+	          scores: player.scores,
+	          totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
+	          handicapIndex,
+	          handicapUsed: courseHandicap ?? (handicapIndex !== undefined ? roundHalfUpToInt(handicapIndex) : undefined),
+	          // Persist tee selection so Round Details and Convex sync
+	          // can show tee name + gender.
+	          teeColor: teeMeta.teeColor,
+	          teeGender: teeMeta.teeGender,
+	          isUser: !!player.isUser,
         };
       }),
       notes,
@@ -1978,13 +2003,13 @@ export default function ScanScorecardScreen() {
       }
     }
 
-    if (isEditMode) {
-      // Ensure any new players are added to the store
-      newRound.players.forEach(p => {
-        if (!players.some(existing => existing.id === p.playerId)) {
-          addPlayer({ id: p.playerId, name: p.playerName, handicap: p.handicapUsed });
-        }
-      });
+	    if (isEditMode) {
+	      // Ensure any new players are added to the store
+	      newRound.players.forEach(p => {
+	        if (!players.some(existing => existing.id === p.playerId)) {
+	          addPlayer({ id: p.playerId, name: p.playerName, handicap: (p as any).handicapIndex ?? p.handicapUsed });
+	        }
+	      });
       updateRound(newRound as any);
       // Return to the existing Round Details screen without pushing a duplicate
       router.back();
@@ -2351,12 +2376,28 @@ export default function ScanScorecardScreen() {
                         editable={!player.linkedPlayerId && !player.isFromSession}
                         placeholder="Player Name"
                       />
-                      {/* Show "Detected as" for session mode when scanned name differs */}
-                      {player.detectedAsName && (
-                        <TouchableOpacity onPress={() => handleCycleDetectedPlayer(player.id)} style={{ flexDirection: 'row' }}>
+                      {/* Session mode: always show detected assignment and allow cycling through all scanned players */}
+                      {player.isFromSession && (
+                        <TouchableOpacity
+                          onPress={() => handleCycleDetectedPlayer(player.id)}
+                          disabled={sessionScannedPlayers.length === 0}
+                          style={{ flexDirection: 'row' }}
+                        >
                           <Text style={styles.detectedAsText}>Detected as </Text>
-                          <Text style={[styles.detectedAsText, { color: colors.primary, textDecorationLine: 'underline' }]}>
-                            "{player.detectedAsName}"
+                          <Text
+                            style={[
+                              styles.detectedAsText,
+                              {
+                                color: sessionScannedPlayers.length === 0 ? colors.text : colors.primary,
+                                textDecorationLine: sessionScannedPlayers.length === 0 ? 'none' : 'underline',
+                              },
+                            ]}
+                          >
+                            "{(
+                              sessionScannedPlayers.find(sp => sp.index === player.scannedPlayerIndex)?.name ??
+                              player.detectedAsName ??
+                              'Tap to assign'
+                            )}"
                           </Text>
                         </TouchableOpacity>
                       )}
@@ -2407,7 +2448,7 @@ export default function ScanScorecardScreen() {
                         onChangeText={(text) => handleEditPlayerHandicapById(player.id, text)}
                         placeholder="Not set"
                         placeholderTextColor={colors.text}
-                        keyboardType="decimal-pad"
+                        keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
                         editable={!player.isUser}
                       />
                     </View>

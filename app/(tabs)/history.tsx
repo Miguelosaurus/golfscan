@@ -214,16 +214,16 @@ export default function HistoryScreen() {
 
         const existing = playerMap.get(player.playerId);
         const convexPlayer = convexPlayers.find((p) => (p as any)._id === player.playerId);
-        playerMap.set(player.playerId, {
-          id: player.playerId,
-          name: player.playerName,
-          roundsPlayed: (existing?.roundsPlayed || 0) + 1,
-          totalScore: (existing?.totalScore || 0) + eighteenEq,
-          isUser: (convexPlayer as any)?.isSelf || false,
-          handicap: player.handicapUsed || (convexPlayer as any)?.handicap || existing?.handicap,
-        });
-      });
-    });
+	        playerMap.set(player.playerId, {
+	          id: player.playerId,
+	          name: player.playerName,
+	          roundsPlayed: (existing?.roundsPlayed || 0) + 1,
+	          totalScore: (existing?.totalScore || 0) + eighteenEq,
+	          isUser: (convexPlayer as any)?.isSelf || false,
+	          handicap: player.handicapIndex ?? (convexPlayer as any)?.handicap ?? existing?.handicap,
+	        });
+	      });
+	    });
 
     const summaries = Array.from(playerMap.values());
 

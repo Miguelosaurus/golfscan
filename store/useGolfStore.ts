@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Course, Player, Round, ScorecardScanResult } from "@/types";
+import { calculateCourseHandicapForRound, roundHalfUpToInt } from "@/utils/handicapCourse";
 
 type ScanStage = "preparing" | "uploading" | "analyzing" | "processing" | "complete" | "error";
 type ScanStatus = "processing" | "complete" | "error";
@@ -244,10 +245,60 @@ export const useGolfStore = create<GolfUIState>()(
           pendingGameSetupIntent: null,
           hiddenCourseIds: [],
         })),
-    }),
-    {
-      name: "golfscan-store",
-      storage: createJSONStorage(() => AsyncStorage),
+	    }),
+	    {
+	      version: 2,
+	      migrate: (persistedState: any, version: number) => {
+	        // v2 introduces `handicapIndex` on round players and standardizes `handicapUsed` as Course Handicap.
+	        if (!persistedState || version >= 2) return persistedState;
+
+	        const courses: Course[] = Array.isArray(persistedState.courses) ? persistedState.courses : [];
+	        const rounds: any[] = Array.isArray(persistedState.rounds) ? persistedState.rounds : [];
+
+	        const migratedRounds = rounds.map((round) => {
+	          const course = courses.find((c) => c.id === round.courseId);
+	          const players = Array.isArray(round.players) ? round.players : [];
+
+	          const migratedPlayers = players.map((p: any) => {
+	            if (typeof p?.handicapIndex === "number") return p;
+	            if (typeof p?.handicapUsed !== "number") return p;
+
+	            // Heuristic: legacy local rounds stored Handicap Index in `handicapUsed`.
+	            // Avoid touching synced integer course handicaps unless they look legacy (non-integer) or unsynced.
+	            const looksLikeIndex = !Number.isInteger(p.handicapUsed);
+	            const shouldMigrate = looksLikeIndex || round.syncStatus !== "synced";
+	            if (!shouldMigrate) return p;
+
+	            const holeNumbers = Array.isArray(p.scores)
+	              ? p.scores.map((s: any) => s.holeNumber).filter((n: any) => typeof n === "number")
+	              : [];
+
+	            const handicapIndex = p.handicapUsed;
+	            const courseHandicap =
+	              course
+	                ? calculateCourseHandicapForRound({
+	                  handicapIndex,
+	                  course,
+	                  teeName: p.teeColor,
+	                  teeGender: p.teeGender,
+	                  holeNumbers,
+	                })
+	                : undefined;
+
+	            return {
+	              ...p,
+	              handicapIndex,
+	              handicapUsed: courseHandicap ?? roundHalfUpToInt(handicapIndex),
+	            };
+	          });
+
+	          return { ...round, players: migratedPlayers };
+	        });
+
+	        return { ...persistedState, rounds: migratedRounds };
+	      },
+	      name: "golfscan-store",
+	      storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         courses: state.courses,
         players: state.players,

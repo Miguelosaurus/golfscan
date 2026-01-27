@@ -96,10 +96,10 @@ export default function ScandicapDetailsScreen() {
       return true;
     });
 
-    // Include isSynthesized flag in series, floor values at 0
+    // Include isSynthesized flag in series
     const series = filtered.length > 0 ? filtered.map((h) => ({
       date: h.date,
-      value: Math.max(0, h.value), // Floor at 0 (no negative handicaps)
+      value: h.value,
       isSynthesized: (h as any).isSynthesized ?? false,
     })) : [];
 
@@ -126,7 +126,7 @@ export default function ScandicapDetailsScreen() {
     const maxVal = values.length > 0 ? Math.max(...values) : 10;
 
     // Floor and ceiling with padding
-    const yMin = Math.max(0, Math.floor(minVal) - 1);
+    const yMin = Math.floor(minVal) - 1;
     const yMax = Math.ceil(maxVal) + 1;
 
     // Calculate Low Water Mark from the FILTERED data only
@@ -701,7 +701,7 @@ export default function ScandicapDetailsScreen() {
                 onChangeText={setSeedHandicapText}
                 placeholder="15.0"
                 placeholderTextColor="#8E8E8E"
-                keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "decimal-pad"}
                 style={styles.seedModalInput}
                 autoFocus
                 editable={!seedLoading}

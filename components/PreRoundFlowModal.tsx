@@ -33,6 +33,7 @@ import { useRouter } from 'expo-router';
 import { CourseSearchModal } from './CourseSearchModal';
 import { GameTypeGrid, GameType, GAME_RULES } from './GameTypeGrid';
 import { Id } from '@/convex/_generated/dataModel';
+import { formatBetLineFromSetup, formatBetPickerLabel } from '@/utils/betDisplay';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -173,6 +174,23 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
     const [teePickerGenderTab, setTeePickerGenderTab] = useState<'M' | 'F'>('M');
     // Store tee selection from CourseSearchModal
     const [preselectedTee, setPreselectedTee] = useState<string | null>(null);
+
+    // Normalize bet options so we don't persist invalid combinations across gameType switches.
+    React.useEffect(() => {
+        if (!gameType) return;
+        if (gameType === 'match_play') {
+            if (betUnit !== 'match' && betUnit !== 'hole') setBetUnit('match');
+            return;
+        }
+        if (gameType === 'stroke_play') {
+            if (betUnit !== 'winner' && betUnit !== 'stroke_margin') {
+                setBetUnit('winner');
+                setPayoutMode('pot');
+                return;
+            }
+            setPayoutMode(betUnit === 'winner' ? 'pot' : 'war');
+        }
+    }, [gameType, betUnit]);
 
     // Auto-assign teams when gameMode or players change
     React.useEffect(() => {
@@ -542,7 +560,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 betSettings: betEnabled ? {
                     enabled: true,
                     betPerUnitCents: gameType === 'nassau' ? nassauFrontDollars * 100 : betAmountDollars * 100,
-                    betUnit: gameType === 'skins' ? 'skin' : gameType === 'nassau' ? 'point' : betUnit,
+                    ...(gameType === 'skins' ? { betUnit: 'skin' as const } : {}),
+                    ...(gameType !== 'nassau' && gameType !== 'skins' ? { betUnit } : {}),
                     carryover: gameType === 'skins' ? carryover : undefined,
                     pressEnabled: gameType === 'nassau' ? pressEnabled : undefined,
                     // Nassau-specific: separate amounts for each segment
@@ -1097,37 +1116,6 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         );
     };
 
-    const getBetUnitLabel = (includePrefix = false) => {
-        let unit = 'player';
-        let suffix = '';
-
-        switch (gameType as string) {
-            case 'skins':
-                unit = 'skin';
-                break;
-            case 'match_play':
-                // Use betUnit state for match play bet type
-                unit = betUnit === 'hole' ? 'hole' : 'match';
-                break;
-            case 'stroke_play':
-                // Use betUnit state for stroke play bet type
-                unit = betUnit === 'stroke_margin' ? 'stroke' : 'player';
-                break;
-            case 'nassau':
-                unit = 'point';
-                suffix = ' (Front/Back/Total)';
-                break;
-            case 'wolf':
-                unit = 'player';
-                break;
-        }
-
-        if (includePrefix) {
-            return `Wager per ${unit.charAt(0).toUpperCase() + unit.slice(1)}${suffix}`;
-        }
-        return `per ${unit}`;
-    };
-
     const renderBetConfigStep = () => {
         const amounts = [5, 10, 20, 50];
 
@@ -1163,45 +1151,49 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                             <View>
                                 <Text style={styles.betLabel}>Nassau Bet Amounts</Text>
                                 <Text style={[styles.toggleDesc, { marginBottom: 12 }]}>
-                                    Set separate amounts for each segment
+                                    Set separate amounts for Front, Back, and Overall
                                 </Text>
                                 <View style={{ flexDirection: 'row', gap: 8 }}>
                                     {/* Front 9 */}
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Front 9</Text>
-                                        <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
-                                            <Text style={styles.currencyPrefix}>$</Text>
-                                            <TextInput
-                                                style={styles.customBetInput}
-                                                keyboardType="numeric"
-                                                value={nassauFrontDollars > 0 ? nassauFrontDollars.toString() : ''}
-                                                onChangeText={(text) => {
-                                                    const val = parseInt(text, 10);
-                                                    setNassauFrontDollars(isNaN(val) ? 0 : val);
-                                                }}
-                                                placeholder="10"
-                                                placeholderTextColor={THEME.textSub}
-                                            />
+                                    {(holeSelection === '18' || holeSelection === 'front_9') && (
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Front 9</Text>
+                                            <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
+                                                <Text style={styles.currencyPrefix}>$</Text>
+                                                <TextInput
+                                                    style={styles.customBetInput}
+                                                    keyboardType="numeric"
+                                                    value={nassauFrontDollars > 0 ? nassauFrontDollars.toString() : ''}
+                                                    onChangeText={(text) => {
+                                                        const val = parseInt(text, 10);
+                                                        setNassauFrontDollars(isNaN(val) ? 0 : val);
+                                                    }}
+                                                    placeholder="10"
+                                                    placeholderTextColor={THEME.textSub}
+                                                />
+                                            </View>
                                         </View>
-                                    </View>
+                                    )}
                                     {/* Back 9 */}
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Back 9</Text>
-                                        <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
-                                            <Text style={styles.currencyPrefix}>$</Text>
-                                            <TextInput
-                                                style={styles.customBetInput}
-                                                keyboardType="numeric"
-                                                value={nassauBackDollars > 0 ? nassauBackDollars.toString() : ''}
-                                                onChangeText={(text) => {
-                                                    const val = parseInt(text, 10);
-                                                    setNassauBackDollars(isNaN(val) ? 0 : val);
-                                                }}
-                                                placeholder="10"
-                                                placeholderTextColor={THEME.textSub}
-                                            />
+                                    {(holeSelection === '18' || holeSelection === 'back_9') && (
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Back 9</Text>
+                                            <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
+                                                <Text style={styles.currencyPrefix}>$</Text>
+                                                <TextInput
+                                                    style={styles.customBetInput}
+                                                    keyboardType="numeric"
+                                                    value={nassauBackDollars > 0 ? nassauBackDollars.toString() : ''}
+                                                    onChangeText={(text) => {
+                                                        const val = parseInt(text, 10);
+                                                        setNassauBackDollars(isNaN(val) ? 0 : val);
+                                                    }}
+                                                    placeholder="10"
+                                                    placeholderTextColor={THEME.textSub}
+                                                />
+                                            </View>
                                         </View>
-                                    </View>
+                                    )}
                                     {/* Overall */}
                                     <View style={{ flex: 1 }}>
                                         <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Overall</Text>
@@ -1225,7 +1217,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         ) : (
                             /* Standard: Single bet amount picker for other game types */
                             <View>
-                                <Text style={styles.betLabel}>{getBetUnitLabel(true)}</Text>
+                                <Text style={styles.betLabel}>
+                                    {formatBetPickerLabel({ gameType, payoutMode, betUnit })}
+                                </Text>
                                 <View style={styles.betAmountGrid}>
                                     {amounts.map((amount) => (
                                         <TouchableOpacity
@@ -1309,14 +1303,20 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     <View style={styles.betUnitRow}>
                                         <TouchableOpacity
                                             style={[styles.betUnitOption, betUnit === 'winner' && styles.betUnitOptionActive]}
-                                            onPress={() => setBetUnit('winner')}
+                                            onPress={() => {
+                                                setBetUnit('winner');
+                                                setPayoutMode('pot');
+                                            }}
                                         >
                                             <Text style={[styles.betUnitText, betUnit === 'winner' && styles.betUnitTextActive]}>Winner Takes All</Text>
                                             <Text style={styles.betUnitDesc}>Fixed payout</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.betUnitOption, betUnit === 'stroke_margin' && styles.betUnitOptionActive]}
-                                            onPress={() => setBetUnit('stroke_margin')}
+                                            onPress={() => {
+                                                setBetUnit('stroke_margin');
+                                                setPayoutMode('war');
+                                            }}
                                         >
                                             <Text style={[styles.betUnitText, betUnit === 'stroke_margin' && styles.betUnitTextActive]}>Per Stroke</Text>
                                             <Text style={styles.betUnitDesc}>$X × stroke margin</Text>
@@ -1643,7 +1643,19 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 {betEnabled && (
                     <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Bet</Text>
-                        <Text style={styles.summaryValue}>${betAmountDollars} {getBetUnitLabel(false)}</Text>
+                        <Text style={styles.summaryValue}>
+                            {formatBetLineFromSetup({
+                                gameType,
+                                holeSelection,
+                                payoutMode,
+                                betEnabled,
+                                betAmountDollars,
+                                betUnit,
+                                nassauFrontDollars,
+                                nassauBackDollars,
+                                nassauOverallDollars,
+                            })}
+                        </Text>
                     </View>
                 )}
                 {(sideBets.greenies || sideBets.sandies || sideBets.birdies) && (

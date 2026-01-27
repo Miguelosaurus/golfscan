@@ -42,7 +42,7 @@ export default function RoundDetailsScreen() {
     const router = useRouter();
     const isOnboardingMode = onboardingMode === 'true';
 
-    const { rounds: localRounds, courses: localCourses, deleteRound: deleteLocalRound } = useGolfStore();
+	    const { rounds: localRounds, courses: localCourses, players: localPlayers, deleteRound: deleteLocalRound } = useGolfStore();
     // Resolve the round from local store and, when available, from Convex by its remoteId.
     const localRound = useMemo(
         () =>
@@ -514,148 +514,11 @@ export default function RoundDetailsScreen() {
         return sorted;
     }, [playerStats]);
 
+    const gameOutcome = linkedSession?.gameOutcome as any;
     const verdict = useMemo(() => {
-        if (!playerStats || playerStats.length < 2) return null;
-
-        const gameType = linkedSession?.gameType;
-        const gameMode = linkedSession?.gameMode;
-        const settlement: any = linkedSession?.settlement;
-        const participants: any[] = linkedSession?.participants ?? [];
-        const nameByPlayerId = new Map<string, string>(participants.map((p: any) => [p.playerId, p.name]));
-
-        const hasHandicaps = playerStats.some((p) => typeof p.handicap === "number" && p.handicap !== 0);
-
-        const sortedByNet = standingsSorted;
-
-        const shouldUseStrokeVerdict =
-            gameMode === "individual" ||
-            playerStats.length > 2 ||
-            gameType === "stroke_play" ||
-            gameType === "skins" ||
-            settlement?.settlementVersion !== "v2" ||
-            !Array.isArray(settlement?.matchResults);
-
-        if (shouldUseStrokeVerdict) {
-            const top = sortedByNet[0];
-            const second = sortedByNet[1];
-            const bestScore = top.netScore ?? top.totalScore;
-            const secondScore = second.netScore ?? second.totalScore;
-
-            const scoreLabel = top.netScore !== undefined ? "net" : "gross";
-            const winnerCalcNote =
-                scoreLabel === "net" && typeof top.handicap === "number"
-                    ? ` Net = Gross ${top.totalScore} − HCP ${top.handicap} = ${bestScore}.`
-                    : null;
-
-            const tiedTop = sortedByNet.filter((p) => (p.netScore ?? p.totalScore) === bestScore);
-            if (tiedTop.length > 1) {
-                const tieNames = tiedTop
-                    .slice(0, 4)
-                    .map((p) => p.playerName)
-                    .join(", ");
-                const extra = tiedTop.length > 4 ? ` +${tiedTop.length - 4} more` : "";
-                const tieLabel =
-                    tiedTop.length === 2 ? "Two-way tie" :
-                        tiedTop.length === 3 ? "Three-way tie" :
-                            `${tiedTop.length}-way tie`;
-                return {
-                    winnerName: tieLabel,
-                    text: `for the lowest ${scoreLabel} score (${bestScore}): ${tieNames}${extra}.`,
-                    subtext: scoreLabel === "net" && hasHandicaps ? "Net = Gross − Course HCP." : null,
-                };
-            }
-
-            const margin = secondScore - bestScore;
-            return {
-                winnerName: top.playerName,
-                text: `shot the lowest ${scoreLabel} score (${bestScore}), beating ${second.playerName} by ${margin} stroke${margin === 1 ? "" : "s"}.`,
-                subtext: winnerCalcNote,
-            };
-        }
-
-        const matchResults: any[] = settlement.matchResults ?? [];
-        const pairingId = matchResults[0]?.pairingId;
-        const forPairing = pairingId ? matchResults.filter((r: any) => r.pairingId === pairingId) : matchResults;
-        const formatSide = (ids: string[]) => {
-            if (!Array.isArray(ids) || ids.length === 0) return "Team";
-            if (ids.length === 1) return nameByPlayerId.get(ids[0]) ?? "Player";
-            return ids.map((id) => nameByPlayerId.get(id) ?? "Player").join(" & ");
-        };
-
-        if (gameType === "match_play") {
-            const r = forPairing.find((x: any) => x.context === "Match Play");
-            if (!r) return null;
-            if (r.winner === "tie") {
-                return {
-                    winnerName: "Match Play",
-                    text: `finished tied — ${formatSide(r.sideA)} ${r.holesWonA} holes, ${formatSide(r.sideB)} ${r.holesWonB} holes (${r.tiedHoles} tied).`,
-                    subtext: hasHandicaps ? "Net scoring (strokes applied)." : null,
-                };
-            }
-            const winnerName = r.winner === "A" ? formatSide(r.sideA) : formatSide(r.sideB);
-            const loserName = r.winner === "A" ? formatSide(r.sideB) : formatSide(r.sideA);
-            const winnerHoles = r.winner === "A" ? r.holesWonA : r.holesWonB;
-            const loserHoles = r.winner === "A" ? r.holesWonB : r.holesWonA;
-            return {
-                winnerName,
-                text: `won Match Play vs ${loserName} — ${winnerHoles}-${loserHoles} holes (${r.tiedHoles} tied).`,
-                subtext: hasHandicaps ? "Net scoring (strokes applied)." : null,
-            };
-        }
-
-        if (gameType === "nassau") {
-            const front = forPairing.find((x: any) => x.context === "Front 9");
-            const back = forPairing.find((x: any) => x.context === "Back 9");
-            const overall = forPairing.find((x: any) => x.context === "Overall");
-
-            const winnerNameFor = (r: any) => {
-                if (!r) return null;
-                if (r.winner === "A") return formatSide(r.sideA);
-                if (r.winner === "B") return formatSide(r.sideB);
-                return null;
-            };
-
-            const amounts = linkedSession?.betSettings?.nassauAmounts;
-            const frontBet = amounts?.frontCents ?? linkedSession?.betSettings?.betPerUnitCents;
-            const backBet = amounts?.backCents ?? linkedSession?.betSettings?.betPerUnitCents;
-            const overallBet = amounts?.overallCents ?? (linkedSession?.betSettings?.betPerUnitCents ? linkedSession.betSettings.betPerUnitCents * 2 : undefined);
-            const dollars = (cents: number | undefined) => typeof cents === "number" ? `$${(cents / 100).toFixed(0)}` : "$0";
-
-            const formatSegment = (label: string, r: any, betCents: number | undefined) => {
-                if (!r) return null;
-                const bet = dollars(betCents);
-                const holesA = r.holesWonA ?? 0;
-                const holesB = r.holesWonB ?? 0;
-                const tied = r.tiedHoles ?? 0;
-                if (r.winner === "tie") return `${label}: pushed (${holesA}-${holesB}, ${tied} tied) (${bet}).`;
-                const winnerSide = r.winner === "A" ? "A" : "B";
-                const winnerHoles = winnerSide === "A" ? holesA : holesB;
-                const loserHoles = winnerSide === "A" ? holesB : holesA;
-                return `${label}: ${winnerNameFor(r)} won ${winnerHoles}-${loserHoles} (${tied} tied) (${bet}).`;
-            };
-
-            const overallWinner = overall?.winner !== "tie" ? winnerNameFor(overall) : null;
-            const segmentSummary = [
-                formatSegment("Front 9", front, frontBet),
-                formatSegment("Back 9", back, backBet),
-                formatSegment("Overall", overall, overallBet),
-            ].filter(Boolean) as string[];
-
-            if (!overallWinner && segmentSummary.length === 0) return null;
-            return {
-                winnerName: overallWinner ?? "Nassau",
-                text: overallWinner
-                    ? `won the Nassau overall (${dollars(overallBet)}).`
-                    : `finished with no overall winner.`,
-                subtext: [
-                    segmentSummary.length ? segmentSummary.join(" ") : null,
-                    hasHandicaps ? "Net scoring (strokes applied)." : null,
-                ].filter(Boolean).join(" "),
-            };
-        }
-
-        return null;
-    }, [linkedSession, playerStats]);
+        if (!gameOutcome || gameOutcome.computeStatus !== "complete") return null;
+        return gameOutcome.verdict ?? null;
+    }, [gameOutcome]);
 
     const SkeletonBlock: React.FC<{ width?: number | string; height: number; style?: any }> = ({
         width = "100%",
@@ -795,24 +658,34 @@ export default function RoundDetailsScreen() {
         const courseIdForEdit = (localByExternal?.id ?? courseFromStore?.id ?? round.courseId) as string;
         const courseNameForEdit = localByExternal?.name ?? courseFromStore?.name ?? round.courseName;
 
-        const prefilled = JSON.stringify({
-            courseId: courseIdForEdit,
-            courseName: courseNameForEdit,
-            players: (round.players as any[]).map((p) => ({
-                id: p.playerId,
-                name: p.playerName,
+	        const prefilled = JSON.stringify({
+	            courseId: courseIdForEdit,
+	            courseName: courseNameForEdit,
+	            players: (round.players as any[]).map((p) => ({
+	                id: p.playerId,
+	                name: p.playerName,
                 scores: p.scores.map((s: any) => ({
                     holeNumber: s.holeNumber,
                     strokes: s.strokes,
                 })),
-                teeColor: localTeeForPlayer[p.playerId]?.teeColor ?? p.teeColor,
-                teeGender: localTeeForPlayer[p.playerId]?.teeGender ?? p.teeGender,
-                handicap: (p as any).handicapUsed,
-                // Preserve "You" selection when editing (either from local isUser or Convex isSelf)
-                isUser: !!((p as any).isUser ?? (p as any).isSelf),
-            })),
-            date: round.date,
-            notes: (round as any).notes ?? "",
+	                teeColor: localTeeForPlayer[p.playerId]?.teeColor ?? p.teeColor,
+	                teeGender: localTeeForPlayer[p.playerId]?.teeGender ?? p.teeGender,
+	                // "Scandicap" on the edit screen should show handicap index (users/players.handicap),
+	                // not this round's course handicap ("handicapUsed") which is used for net scoring.
+	                handicap: (() => {
+	                    const storedIndex = (p as any).handicapIndex;
+	                    if (typeof storedIndex === "number") return storedIndex;
+	                    const isSelf = !!((p as any).isUser ?? (p as any).isSelf);
+	                    const storePlayer = localPlayers.find((sp) => sp.id === p.playerId);
+	                    const profileHandicap = (profile as any)?.handicap;
+	                    const candidate = isSelf ? (profileHandicap ?? storePlayer?.handicap) : storePlayer?.handicap;
+	                    return typeof candidate === "number" ? candidate : undefined;
+	                })(),
+	                // Preserve "You" selection when editing (either from local isUser or Convex isSelf)
+	                isUser: !!((p as any).isUser ?? (p as any).isSelf),
+	            })),
+	            date: round.date,
+	            notes: (round as any).notes ?? "",
             scorecardPhotos: (round as any).scorecardPhotos ?? [],
         });
         // Use the local round's ID if available, otherwise fall back to route ID
@@ -937,7 +810,7 @@ export default function RoundDetailsScreen() {
 
                                 {verdict && (
                                     <Text style={styles.verdictText}>
-                                        <Text style={styles.verdictWinner}>{verdict.winnerName} </Text>
+                                        <Text style={styles.verdictWinner}>{verdict.winnerLabel} </Text>
                                         <Text style={styles.verdictBody}>{verdict.text}</Text>
                                         {verdict.subtext ? <Text style={styles.verdictSubtext}> {verdict.subtext}</Text> : null}
                                     </Text>
@@ -947,12 +820,81 @@ export default function RoundDetailsScreen() {
                                     {/* Leaderboard Table Header */}
                                     <View style={styles.leaderboardHeader}>
                                         <Text style={[styles.leaderboardHeaderCell, { flex: 6, textAlign: 'left' }]}>PLAYER</Text>
-                                        <Text style={[styles.leaderboardHeaderCell, { flex: 3 }]}>GROSS</Text>
-                                        <Text style={[styles.leaderboardHeaderCell, { flex: 3 }]}>NET</Text>
+                                        <Text style={[styles.leaderboardHeaderCell, { flex: 3 }]}>
+                                            {gameOutcome?.computeStatus === "complete" && gameOutcome?.standings?.columns?.metricA?.label
+                                                ? String(gameOutcome.standings.columns.metricA.label).toUpperCase()
+                                                : "GROSS"}
+                                        </Text>
+                                        <Text style={[styles.leaderboardHeaderCell, { flex: 3 }]}>
+                                            {gameOutcome?.computeStatus === "complete" && gameOutcome?.standings?.columns?.metricB?.label
+                                                ? String(gameOutcome.standings.columns.metricB.label).toUpperCase()
+                                                : "NET"}
+                                        </Text>
                                     </View>
 
-                                    {/* Leaderboard Rows - sorted by net score */}
+                                    {/* Leaderboard Rows */}
                                     {(() => {
+                                        if (gameOutcome && gameOutcome.computeStatus !== "complete") {
+                                            return (
+                                                <View style={{ paddingVertical: 12, paddingHorizontal: 12 }}>
+                                                    <Text style={styles.verdictSubtext}>
+                                                        {gameOutcome.statusMessage ?? "Standings available after the round is complete."}
+                                                    </Text>
+                                                </View>
+                                            );
+                                        }
+
+                                        if (gameOutcome?.computeStatus === "complete" && Array.isArray(gameOutcome?.standings?.rows)) {
+                                            return gameOutcome.standings.rows.map((row: any, index: number) => {
+                                                const isWinner = !!row.isWinner;
+                                                const rankLabel = row.placement ?? "--";
+
+                                                return (
+                                                    <View
+                                                        key={row.sideId || row.label || index}
+                                                        style={[
+                                                            styles.leaderboardRow,
+                                                            isWinner && styles.leaderboardRowWinner,
+                                                            index === (gameOutcome.standings.rows.length - 1) && { borderBottomWidth: 0 }
+                                                        ]}
+                                                    >
+                                                        {isWinner && <View style={styles.leaderboardWinnerAccent} />}
+
+                                                        <View style={[styles.leaderboardCell, { flex: 6, flexDirection: 'row', alignItems: 'center', gap: 12, justifyContent: 'flex-start' }]}>
+                                                            <View style={[
+                                                                styles.positionBadge,
+                                                                isWinner && styles.positionBadgeWinner
+                                                            ]}>
+                                                                <Text style={[
+                                                                    styles.positionBadgeText,
+                                                                    isWinner && styles.positionBadgeTextWinner
+                                                                ]}>{rankLabel}</Text>
+                                                            </View>
+                                                            <View style={{ flex: 1, overflow: 'hidden' }}>
+                                                                <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.playerNameText, isWinner && styles.playerNameTextWinner]}>
+                                                                    {row.label}
+                                                                    {mySessionPlayerId && row.sideId === mySessionPlayerId ? (
+                                                                        <Text style={styles.youLabel}> (You)</Text>
+                                                                    ) : null}
+                                                                </Text>
+                                                                {row.winnerBadge ? <Text style={styles.winnerLabel}>{row.winnerBadge}</Text> : null}
+                                                            </View>
+                                                        </View>
+
+                                                        <View style={[styles.leaderboardCell, styles.leaderboardNumericCell, { flex: 3 }]}>
+                                                            <Text style={[styles.scoreText, isWinner && { fontWeight: '700' }]}>{row.metricA?.display ?? '--'}</Text>
+                                                        </View>
+
+                                                        <View style={[styles.leaderboardCell, styles.leaderboardNumericCell, { flex: 3 }]}>
+                                                            <Text style={[styles.netScoreText, isWinner && { color: '#F46C3A', fontSize: 18 }]}>
+                                                                {row.metricB?.display ?? '--'}
+                                                            </Text>
+                                                        </View>
+                                                    </View>
+                                                );
+                                            });
+                                        }
+
                                         if (standingsSorted.length === 0) return null;
 
                                         const bestScore = standingsSorted[0].netScore ?? standingsSorted[0].totalScore;
@@ -975,9 +917,6 @@ export default function RoundDetailsScreen() {
                                             const rankLabel = tieCount > 1 ? `T${rank}` : `${rank}`;
 
                                             const isWinner = rank === 1 && !hasTieForFirst;
-                                            const netDiff = stats.netScore !== undefined && totalPar > 0
-                                                ? stats.netScore - totalPar
-                                                : null;
 
                                             return (
                                                 <View

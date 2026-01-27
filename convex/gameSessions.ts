@@ -34,6 +34,9 @@ import {
     MatchConfig,
     PressState,
 } from "./lib/gameSettlementV2";
+import { computeGameOutcome } from "./lib/gameOutcome";
+import { calculateCourseHandicapWHS, getRatingSlopeForScore, pickTeeMeta } from "./lib/handicapUtils";
+import { calculateAllocationsForFormat, Hole as AllocationHole } from "./lib/strokeAllocation";
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -118,8 +121,8 @@ function validateStrokeAllocations(
             throw new Error("strokesByHole must have exactly 18 elements");
         }
         for (const strokes of alloc.strokesByHole) {
-            if (!Number.isInteger(strokes) || strokes < 0 || strokes > 2) {
-                throw new Error("strokesByHole values must be 0, 1, or 2");
+            if (!Number.isInteger(strokes) || strokes < -10 || strokes > 10) {
+                throw new Error("strokesByHole values must be integers in a reasonable range");
             }
         }
     }
@@ -396,10 +399,82 @@ export const getByLinkedRound = query({
             })
         );
 
+        // Compute post-round GameOutcome (verdict + standings) from raw scores + session config.
+        // This is intentionally independent from settlement/bets.
+        let gameOutcome: any = null;
+        try {
+            const scores = await ctx.db
+                .query("scores")
+                .withIndex("by_round", (q) => q.eq("roundId", args.roundId))
+                .collect();
+
+            const scoreByPlayerId = new Map<string, any>(scores.map((s: any) => [s.playerId as string, s]));
+
+            const playerScores: PlayerScoreV2[] = participantDetails.map((p: any) => {
+                const doc = scoreByPlayerId.get(p.playerId as string);
+                const holeScores: (number | null)[] = new Array(18).fill(null);
+                (doc?.holeData || []).forEach((hd: any) => {
+                    if (hd.hole >= 1 && hd.hole <= 18 && typeof hd.score === "number" && hd.score > 0) {
+                        holeScores[hd.hole - 1] = hd.score;
+                    }
+                });
+                return { playerId: p.playerId, holeScores };
+            });
+
+            const playerNames = new Map<Id<"players">, string>(
+                participantDetails.map((p: any) => [p.playerId as Id<"players">, p.name as string])
+            );
+
+            const courseHandicapByPlayerId = new Map<Id<"players">, number>(
+                (session.participants || []).map((p: any) => [p.playerId as Id<"players">, p.courseHandicap as number])
+            );
+
+            gameOutcome = computeGameOutcome({
+                gameType: session.gameType,
+                gameMode: session.gameMode,
+                holeSelection: session.holeSelection,
+                teamScoring: (session as any).teamScoring,
+                sides: (session.sides || []).map((s: any) => ({
+                    sideId: s.sideId,
+                    name: s.name,
+                    playerIds: [...(s.playerIds || [])].sort(),
+                })),
+                playerScores,
+                strokeAllocations: (session.netStrokeAllocations || []).map((a: any) => ({
+                    playerId: a.playerId,
+                    strokesByHole: a.strokesByHole,
+                })),
+                playerNames,
+                courseHandicapByPlayerId,
+            });
+        } catch (e: any) {
+            // Do not fall back to UI-derived winners for game sessions.
+            gameOutcome = {
+                resultsVersion: 1,
+                computeStatus: "error",
+                statusMessage: "Failed to compute standings for this round.",
+                gameType: session.gameType,
+                gameMode: session.gameMode,
+                scoringBasis: "net",
+                holeSelection: session.holeSelection,
+                holesPlayed: session.holeSelection === "18" ? 18 : 9,
+                teamFormat: (session as any).teamScoring ? (session as any).teamScoring : "individual",
+                sides: (session.sides || []).map((s: any) => ({
+                    sideId: s.sideId,
+                    name: s.name ?? "Side",
+                    playerIds: s.playerIds ?? [],
+                })),
+                winnerSideIds: [],
+                standings: null,
+                verdict: null,
+            };
+        }
+
         return {
             ...session,
             courseName: course?.name ?? "Unknown Course",
             participants: participantDetails,
+            gameOutcome,
         };
     },
 });
@@ -481,8 +556,7 @@ export const create = mutation({
         // Validate (normalized) sides
         validateSides(effectiveSides, effectiveGameMode, participantIds);
 
-        // Validate stroke allocations
-        validateStrokeAllocations(args.netStrokeAllocations, participantIds);
+        // Stroke allocations are recomputed server-side (do not trust client math).
 
         // Validate bet settings cents
         if (args.betSettings?.enabled) {
@@ -516,6 +590,68 @@ export const create = mutation({
         const course = await ctx.db.get(resolvedCourseId);
         if (!course) throw new Error("Course not found");
 
+        const getCourseHoles = (): any[] => {
+            const holes = (course as any)?.holes;
+            if (Array.isArray(holes) && holes.length > 0) return holes;
+            const teeSets = (course as any)?.teeSets;
+            if (Array.isArray(teeSets)) {
+                const withHoles = teeSets.find((t: any) => Array.isArray(t?.holes) && t.holes.length > 0);
+                if (withHoles?.holes) return withHoles.holes;
+            }
+            return [];
+        };
+
+        const holesAll = getCourseHoles();
+        const selection = args.holeSelection;
+        const selectedHoleNumbers =
+            selection === "18"
+                ? Array.from({ length: 18 }, (_, i) => i + 1)
+                : selection === "front_9"
+                    ? Array.from({ length: 9 }, (_, i) => i + 1)
+                    : Array.from({ length: 9 }, (_, i) => i + 10);
+
+        const selectedHoles: AllocationHole[] = selectedHoleNumbers.map((num) => {
+            const h = holesAll.find((x: any) => x?.number === num) ?? {};
+            const hcp = (h as any).hcp ?? (h as any).handicap ?? num;
+            return {
+                number: num,
+                par: (h as any).par ?? 4,
+                hcp,
+                yardage: (h as any).yardage ?? (h as any).distance,
+            };
+        });
+
+        const parTotal = selectedHoles.reduce((sum, h) => sum + (h.par ?? 4), 0);
+
+        const computeCourseHandicapForParticipant = (p: any): number => {
+            const holeCount = (selection === "18" ? 18 : 9) as 9 | 18;
+            const holeDataForSelection = selectedHoleNumbers.map((n) => ({ hole: n }));
+            const teeMeta = pickTeeMeta(course, p.teeName, p.teeGender);
+            const { ratingUsed, slopeUsed } = getRatingSlopeForScore(course, teeMeta, holeCount, holeDataForSelection);
+            return calculateCourseHandicapWHS(p.handicapIndex, slopeUsed, ratingUsed, parTotal);
+        };
+
+        // Server-authoritative course handicaps + stroke allocations (do not trust client math).
+        const participantsWithCH = args.participants.map((p) => ({
+            ...p,
+            courseHandicap: computeCourseHandicapForParticipant(p),
+        }));
+
+        const allocationFormat: "usga" | "modified" =
+            effectiveGameMode === "individual" ? "modified" : (strokeFormat as "usga" | "modified");
+        const computedAllocations = calculateAllocationsForFormat(
+            participantsWithCH.map((p) => ({ playerId: p.playerId as any, courseHandicap: p.courseHandicap })),
+            selectedHoles,
+            allocationFormat
+        );
+        const computedAllocationsDb = computedAllocations.map((a) => ({
+            playerId: a.playerId as Id<"players">,
+            strokesByHole: a.strokesByHole,
+        }));
+
+        // Re-validate computed allocations and participant ids before saving.
+        validateStrokeAllocations(computedAllocationsDb, participantIds);
+
         // Resolve player names server-side for fingerprint
         const playerNames = await Promise.all(
             args.participants.map(async (p) => {
@@ -527,7 +663,7 @@ export const create = mutation({
         // Enrich participants with userId from player.userId for press attribution
         // Only the self-player has userId set, so only that participant will match the current user
         const enrichedParticipants = await Promise.all(
-            args.participants.map(async (p) => {
+            participantsWithCH.map(async (p) => {
                 const player = await ctx.db.get(p.playerId);
                 return {
                     ...p,
@@ -550,7 +686,7 @@ export const create = mutation({
             strokeFormat,
             participants: enrichedParticipants,
             sides: effectiveSides,
-            netStrokeAllocations: args.netStrokeAllocations,
+            netStrokeAllocations: computedAllocationsDb,
             betSettings: args.betSettings,
             sessionFingerprint: {
                 courseExternalId: course.externalId ?? course._id.toString(),

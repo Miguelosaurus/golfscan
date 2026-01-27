@@ -62,6 +62,7 @@ import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/cours
 import { trackScanStarted, trackScanFailed, trackLimitReached, trackRoundSaved } from '@/lib/analytics';
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
+import { calculateCourseHandicapForRound, roundHalfUpToInt } from '@/utils/handicapCourse';
 
 interface DetectedPlayer {
   id: string;
@@ -434,7 +435,8 @@ export default function ScanScorecardScreen() {
           map.set(p.playerId, {
             id: p.playerId,
             name: p.playerName,
-            handicap: p.handicapUsed ?? storePlayer?.handicap,  // Fallback to handicapUsed for now
+            // Use the player's handicap index (Scandicap). `handicapUsed` on rounds is course handicap.
+            handicap: storePlayer?.handicap,
             isUser: storePlayer?.isUser,
             latestDate: round.date,
           } as Player & { latestDate?: string });
@@ -2024,6 +2026,10 @@ export default function ScanScorecardScreen() {
     const holeCount = detectedPlayers.length > 0 ?
       Math.max(...detectedPlayers[0].scores.map(score => score.holeNumber)) : 18;
 
+    const courseForHandicap =
+      courses.find((c) => c.id === finalCourseId) ??
+      (selectedCourse ? courses.find((c) => c.id === selectedCourse) : undefined);
+
     const newRound = {
       id: existingRound?.id ?? roundId,
       ...(resolvedRemoteId ? { remoteId: resolvedRemoteId } : {}),
@@ -2032,12 +2038,25 @@ export default function ScanScorecardScreen() {
       courseName: finalCourseName,
       players: playersWithTotalScores.map(player => {
         const teeMeta = resolveTeeForPlayer(player);
+        const holeNumbers = (player.scores ?? []).map((s: any) => s.holeNumber).filter((n: any) => typeof n === 'number');
+        const handicapIndex = typeof player.handicap === 'number' ? player.handicap : undefined;
+        const courseHandicap =
+          courseForHandicap
+            ? calculateCourseHandicapForRound({
+              handicapIndex,
+              course: courseForHandicap,
+              teeName: teeMeta.teeColor,
+              teeGender: teeMeta.teeGender,
+              holeNumbers,
+            })
+            : undefined;
         return {
           playerId: player.linkedPlayerId || player.id,
           playerName: player.name,
           scores: player.scores,
           totalScore: player.scores.reduce((sum, score) => sum + score.strokes, 0),
-          handicapUsed: player.handicap,
+          handicapIndex,
+          handicapUsed: courseHandicap ?? (handicapIndex !== undefined ? roundHalfUpToInt(handicapIndex) : undefined),
           // Persist tee selection so Round Details and Convex sync
           // can show tee name + gender.
           teeColor: teeMeta.teeColor,
@@ -2056,7 +2075,7 @@ export default function ScanScorecardScreen() {
       // Ensure any new players are added to the store
       newRound.players.forEach(p => {
         if (!players.some(existing => existing.id === p.playerId)) {
-          addPlayer({ id: p.playerId, name: p.playerName, handicap: p.handicapUsed });
+          addPlayer({ id: p.playerId, name: p.playerName, handicap: (p as any).handicapIndex ?? p.handicapUsed });
         }
       });
       updateRound(newRound as any);
@@ -2476,7 +2495,7 @@ export default function ScanScorecardScreen() {
                         onChangeText={(text) => handleEditPlayerHandicapById(player.id, text)}
                         placeholder="Not set"
                         placeholderTextColor={colors.text}
-                        keyboardType="numeric"
+                        keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
                         editable={!player.isUser}
                       />
                     </View>

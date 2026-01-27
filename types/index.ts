@@ -99,6 +99,9 @@ export interface PlayerRound {
   playerName: string;
   scores: Score[];
   totalScore: number;
+  // Handicap Index (Scandicap) used for this round/player at time of play.
+  handicapIndex?: number;
+  // Course Handicap used for net scoring on this course/tee.
   handicapUsed?: number;
   netScore?: number;
   teeColor?: string;

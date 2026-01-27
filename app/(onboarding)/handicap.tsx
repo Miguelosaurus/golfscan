@@ -44,16 +44,24 @@ export default function HandicapScreen() {
     };
 
     const handleHandicapChange = (text: string) => {
-        // Only allow numbers and one decimal point
-        const cleaned = text.replace(/[^0-9.]/g, '');
+        const raw = text.trim();
+        const hasLeadingMinus = raw.startsWith('-');
+        const cleaned = raw.replace(/[^0-9.]/g, '');
         const parts = cleaned.split('.');
         if (parts.length > 2) return;
         if (parts[1] && parts[1].length > 1) return;
 
-        const num = parseFloat(cleaned);
-        if (cleaned && (isNaN(num) || num < 0 || num > 54)) return;
+        const normalized = parts.length <= 1 ? cleaned : `${parts[0]}.${parts[1] ?? ''}`;
+        if (hasLeadingMinus && normalized === '') {
+            setHandicapValue('-');
+            return;
+        }
 
-        setHandicapValue(cleaned);
+        const candidate = hasLeadingMinus ? `-${normalized}` : normalized;
+        const num = candidate === '-' ? NaN : parseFloat(candidate);
+        if (candidate && candidate !== '-' && (isNaN(num) || num < -10 || num > 54)) return;
+
+        setHandicapValue(candidate);
     };
 
     const handleContinue = () => {
@@ -61,7 +69,10 @@ export default function HandicapScreen() {
 
         setHasExistingHandicap(hasHandicap);
         if (hasHandicap && handicapValue !== '') {
-            setExistingHandicap(parseFloat(handicapValue));
+            const parsed = parseFloat(handicapValue);
+            if (Number.isFinite(parsed)) {
+                setExistingHandicap(parsed);
+            }
         }
 
         setCurrentStep('handicap');
@@ -132,17 +143,20 @@ export default function HandicapScreen() {
                                         onChangeText={handleHandicapChange}
                                         placeholder="e.g. 15.4"
                                         placeholderTextColor={colors.textSecondary}
-                                        keyboardType="decimal-pad"
-                                        maxLength={4}
+                                        keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
+                                        maxLength={5}
                                         autoFocus
                                     />
                                     <Text style={styles.inputHint}>
                                         This will be your starting Scandicap™
                                     </Text>
 
-                                    {handicapValue !== '' && (
-                                        <SeedRoundsStory handicap={parseFloat(handicapValue)} />
-                                    )}
+                                    {handicapValue !== '' &&
+                                        handicapValue !== '-' &&
+                                        !handicapValue.endsWith('.') &&
+                                        Number.isFinite(parseFloat(handicapValue)) && (
+                                            <SeedRoundsStory handicap={parseFloat(handicapValue)} />
+                                        )}
                                 </View>
                             )}
                         </TouchableOpacity>

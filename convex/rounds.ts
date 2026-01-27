@@ -2,8 +2,12 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
   calculateHandicapFromDiffs,
+  calculateCourseHandicapWHS,
+  buildHandicapDifferentialsForIndex,
+  computeAdjustedGrossForHandicapRound,
+  getHoleNumbersForRoundSelection,
+  roundToTenth,
   validateDifferential,
-  computeAdjustedGross,
   applyNetDoubleBogey,
   pickTeeMeta,
   getRatingSlopeForScore,
@@ -78,6 +82,26 @@ const computeNetDoubleBogeyAdjustment = (
   return { adjustedGross, adjustedHoleData };
 };
 
+const sumParForSelection = (
+  courseHoles: Array<{ number: number; par: number }>,
+  holeCount: 9 | 18,
+  holeData: Array<{ hole: number }>
+): number | null => {
+  const holeNumbers = getHoleNumbersForRoundSelection(holeCount, holeData);
+  const byNumber = new Map<number, { number: number; par: number }>();
+  for (const h of courseHoles ?? []) {
+    if (typeof h?.number === "number") byNumber.set(h.number, h);
+  }
+
+  let sum = 0;
+  for (const n of holeNumbers) {
+    const h = byNumber.get(n);
+    if (!h || typeof h.par !== "number" || !Number.isFinite(h.par)) return null;
+    sum += h.par;
+  }
+  return sum;
+};
+
 // Fallback for when we don't have course handicap - uses Par+3 cap
 const computeAdjustedGrossFallback = (
   holeData: Array<{ hole: number; score: number; par: number }>
@@ -102,9 +126,15 @@ const normalizeHoles = (
   }>,
   holeCount: 9 | 18
 ) => {
-  const maxHole = holeCount === 9 ? 9 : 18;
-  return holes
-    .filter((h) => h.hole >= 1 && h.hole <= maxHole)
+  const valid = holes.filter((h) => typeof h.hole === "number" && h.hole >= 1 && h.hole <= 18);
+  const frontCount = valid.filter((h) => h.hole <= 9).length;
+  const backCount = valid.filter((h) => h.hole >= 10).length;
+  const isBackNine = holeCount === 9 && backCount > frontCount;
+  const minHole = holeCount === 9 && isBackNine ? 10 : 1;
+  const maxHole = holeCount === 9 ? (isBackNine ? 18 : 9) : 18;
+
+  return valid
+    .filter((h) => h.hole >= minHole && h.hole <= maxHole)
     .map((h) => ({
       hole: h.hole,
       score: h.score,
@@ -129,7 +159,12 @@ const computePlayerHandicap = async (
     .order("desc")
     .take(50);
 
-  const differentials: number[] = [];
+  const scoreLikes: Array<{
+    _id: any;
+    createdAt: number;
+    holeCount?: number;
+    handicapDifferential?: number;
+  }> = [];
 
   for (const score of scores) {
     const courseId = score.courseId;
@@ -140,21 +175,58 @@ const computePlayerHandicap = async (
       coursesCache.set(courseId, course);
     }
 
+    const holeCount = (score.holeCount === 9 ? 9 : 18) as 9 | 18;
+
     // Prefer pre-computed differential when available (Scandicap path).
     if (typeof score.handicapDifferential === "number") {
-      differentials.push(score.handicapDifferential);
+      scoreLikes.push({
+        _id: score._id,
+        createdAt: score.createdAt,
+        holeCount,
+        handicapDifferential: roundToTenth(score.handicapDifferential),
+      });
       continue;
     }
 
-    const coursePar = course.holes.reduce((sum: number, h: any) => sum + (h.par ?? 4), 0);
-    const courseRating = course.rating ?? coursePar;
-    const courseSlope = course.slope ?? 113;
-    const differential = ((score.grossScore - courseRating) * 113) / courseSlope;
-    differentials.push(differential);
+    const courseHandicapUsed = (score as any).handicapUsed;
+    if (typeof courseHandicapUsed !== "number" || !Number.isFinite(courseHandicapUsed)) {
+      continue;
+    }
+
+    const holeData = Array.isArray(score.holeData)
+      ? score.holeData.map((h: any) => ({ hole: h.hole }))
+      : [];
+
+    const teeMeta = pickTeeMeta(course, (score as any).teeName, (score as any).teeGender);
+    const { ratingUsed, slopeUsed } = getRatingSlopeForScore(course, teeMeta, holeCount, holeData);
+
+    const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+    const adjustedGross =
+      typeof (score as any).adjustedGrossScore === "number" && Number.isFinite((score as any).adjustedGrossScore)
+        ? (score as any).adjustedGrossScore
+        : computeAdjustedGrossForHandicapRound({
+            holeCount,
+            holeData: Array.isArray(score.holeData)
+              ? score.holeData.map((h: any) => ({ hole: h.hole, score: h.score, par: h.par }))
+              : [],
+            courseHoles,
+            courseHandicap: courseHandicapUsed,
+          });
+    if (typeof adjustedGross !== "number") continue;
+
+    const differential = roundToTenth(((adjustedGross - ratingUsed) * 113) / slopeUsed);
+
+    scoreLikes.push({
+      _id: score._id,
+      createdAt: score.createdAt,
+      holeCount,
+      handicapDifferential: differential,
+    });
   }
 
-  const limited = differentials.slice(0, 20);
-  return calculateHandicapFromDiffs(limited);
+  const events = buildHandicapDifferentialsForIndex(scoreLikes);
+  const diffs = events.slice(0, 20).map((e) => e.differential);
+  return calculateHandicapFromDiffs(diffs);
 };
 
 export const saveRound = mutation({
@@ -200,54 +272,6 @@ export const saveRound = mutation({
     });
 
     const holeCount = args.holeCount;
-
-    const pickTeeMeta = (teeName?: string | null, teeGender?: string | null) => {
-      const teeSets = (course as any).teeSets as any[] | undefined;
-      if (!Array.isArray(teeSets) || !teeName) return null;
-      const lowerName = teeName.toString().toLowerCase();
-      const candidates = teeSets.filter(
-        (t) => t?.name && t.name.toString().toLowerCase() === lowerName
-      );
-      if (!candidates.length) return null;
-      if (teeGender) {
-        const genderMatch = candidates.find((t) => t.gender === teeGender);
-        if (genderMatch) return genderMatch;
-      }
-      return candidates[0];
-    };
-
-    const getRatingSlopeForScore = (
-      teeMeta: any | null,
-      holeData: Array<{ hole: number; score: number; par: number }>
-    ) => {
-      const coursePar = course.holes.reduce((sum: number, h: any) => sum + (h.par ?? 4), 0);
-      const baseRating = (teeMeta && teeMeta.rating) ?? course.rating ?? coursePar;
-      const baseSlope = (teeMeta && teeMeta.slope) ?? course.slope ?? 113;
-
-      if (holeCount === 18) {
-        return { ratingUsed: baseRating, slopeUsed: baseSlope, scaleTo18: 1 };
-      }
-
-      const allHoles = holeData.map((h) => h.hole);
-      const isFront = allHoles.length > 0 && allHoles.every((h) => h <= 9);
-      const isBack = allHoles.length > 0 && allHoles.every((h) => h >= 10);
-
-      const frontRating = teeMeta?.frontRating as number | undefined;
-      const frontSlope = teeMeta?.frontSlope as number | undefined;
-      const backRating = teeMeta?.backRating as number | undefined;
-      const backSlope = teeMeta?.backSlope as number | undefined;
-
-      if (isFront && typeof frontRating === "number" && typeof frontSlope === "number") {
-        return { ratingUsed: frontRating, slopeUsed: frontSlope, scaleTo18: 2 };
-      }
-      if (isBack && typeof backRating === "number" && typeof backSlope === "number") {
-        return { ratingUsed: backRating, slopeUsed: backSlope, scaleTo18: 2 };
-      }
-
-      const rating9 = baseRating / 2;
-      const slope9 = baseSlope / 2;
-      return { ratingUsed: rating9, slopeUsed: slope9, scaleTo18: 2 };
-    };
 
     let ownerPlayers = await ctx.db
       .query("players")
@@ -302,31 +326,41 @@ export const saveRound = mutation({
       const holeData = normalizeHoles(player.holeData, holeCount);
       const stats = computeStats(holeData);
 
-      const teeMeta = pickTeeMeta(player.teeName, player.teeGender);
+      const teeMeta = pickTeeMeta(course, player.teeName, player.teeGender);
 
       // Warn if tee not found but was specified
       if (player.teeName && !teeMeta) {
         console.warn(`[Handicap] Tee "${player.teeName}" not found for course "${course.name}". Using fallback rating/slope.`);
       }
 
-      const { ratingUsed, slopeUsed, scaleTo18 } = getRatingSlopeForScore(teeMeta, holeData);
+      const { ratingUsed, slopeUsed } = getRatingSlopeForScore(course, teeMeta, holeCount, holeData);
 
       // Calculate course handicap first - needed for Net Double Bogey
-      // Course Handicap = Handicap Index × (Slope / 113)
-      const courseHandicap = player.handicap !== undefined && slopeUsed
-        ? Math.round(player.handicap * (slopeUsed / 113))
-        : player.handicap;
+      const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+      const parTotal =
+        sumParForSelection(courseHoles, holeCount, holeData) ??
+        holeData.reduce((sum, h) => sum + (h.par ?? 4), 0);
+      const courseHandicap =
+        player.handicap !== undefined && typeof slopeUsed === "number" && typeof ratingUsed === "number"
+          ? calculateCourseHandicapWHS(player.handicap, slopeUsed, ratingUsed, parTotal)
+          : player.handicap;
 
       // Apply Net Double Bogey adjustment using course handicap and hole stroke indexes
-      const hasValidCourseHandicap = typeof courseHandicap === 'number' && courseHandicap >= 0;
-      const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+      const hasValidCourseHandicap = typeof courseHandicap === 'number' && Number.isFinite(courseHandicap);
 
       let adjustedGross: number;
       let adjustedHoleData: Array<{ hole: number; score: number; par: number; adjustedScore?: number; hcp?: number }>;
+      let adjustedGrossForHandicap: number | null = null;
 
       if (hasValidCourseHandicap && courseHoles.length > 0) {
         const adjustment = computeNetDoubleBogeyAdjustment(holeData, courseHoles, courseHandicap);
-        adjustedGross = adjustment.adjustedGross;
+        adjustedGrossForHandicap = computeAdjustedGrossForHandicapRound({
+          holeCount,
+          holeData,
+          courseHoles,
+          courseHandicap,
+        });
+        adjustedGross = adjustedGrossForHandicap ?? adjustment.adjustedGross;
         adjustedHoleData = adjustment.adjustedHoleData;
       } else {
         // Fallback to Par+3 cap if missing required data
@@ -335,14 +369,17 @@ export const saveRound = mutation({
       }
 
       let handicapDifferential: number | undefined = undefined;
-      if (ratingUsed && slopeUsed) {
+      const canComputeDifferential =
+        !!ratingUsed &&
+        !!slopeUsed &&
+        (!hasValidCourseHandicap || courseHoles.length === 0 || adjustedGrossForHandicap !== null);
+      if (canComputeDifferential && ratingUsed && slopeUsed) {
         const rawDiff = ((adjustedGross - ratingUsed) * 113) / slopeUsed;
-        const scaled = rawDiff * (scaleTo18 || 1);
 
         // Validate differential range
-        validateDifferential(scaled, { courseName: course.name, grossScore: stats.grossScore });
+        validateDifferential(rawDiff, { courseName: course.name, grossScore: stats.grossScore });
 
-        handicapDifferential = scaled;
+        handicapDifferential = roundToTenth(rawDiff);
       }
 
       await ctx.db.insert("scores", {
@@ -359,7 +396,10 @@ export const saveRound = mutation({
         courseRatingUsed: ratingUsed,
         courseSlopeUsed: slopeUsed,
         handicapDifferential,
-        adjustedGrossScore: adjustedGross,
+        adjustedGrossScore:
+          hasValidCourseHandicap && courseHoles.length > 0
+            ? (adjustedGrossForHandicap ?? undefined)
+            : adjustedGross,
         blowUpHoles: stats.blowUpHoles,
         par3Score: stats.par3Score,
         par4Score: stats.par4Score,
@@ -438,55 +478,6 @@ export const updateRound = mutation({
 
     const course = await ctx.db.get(args.courseId);
     if (!course) throw new Error("Course not found");
-
-    // Helper functions for handicap calculation (same as saveRound)
-    const pickTeeMeta = (teeName?: string | null, teeGender?: string | null) => {
-      const teeSets = (course as any).teeSets as any[] | undefined;
-      if (!Array.isArray(teeSets) || !teeName) return null;
-      const lowerName = teeName.toString().toLowerCase();
-      const candidates = teeSets.filter(
-        (t) => t?.name && t.name.toString().toLowerCase() === lowerName
-      );
-      if (!candidates.length) return null;
-      if (teeGender) {
-        const genderMatch = candidates.find((t) => t.gender === teeGender);
-        if (genderMatch) return genderMatch;
-      }
-      return candidates[0];
-    };
-
-    const getRatingSlopeForScore = (
-      teeMeta: any | null,
-      holeData: Array<{ hole: number; score: number; par: number }>
-    ) => {
-      const coursePar = course.holes.reduce((sum: number, h: any) => sum + (h.par ?? 4), 0);
-      const baseRating = (teeMeta && teeMeta.rating) ?? course.rating ?? coursePar;
-      const baseSlope = (teeMeta && teeMeta.slope) ?? course.slope ?? 113;
-
-      if (args.holeCount === 18) {
-        return { ratingUsed: baseRating, slopeUsed: baseSlope, scaleTo18: 1 };
-      }
-
-      const allHoles = holeData.map((h) => h.hole);
-      const isFront = allHoles.length > 0 && allHoles.every((h) => h <= 9);
-      const isBack = allHoles.length > 0 && allHoles.every((h) => h >= 10);
-
-      const frontRating = teeMeta?.frontRating as number | undefined;
-      const frontSlope = teeMeta?.frontSlope as number | undefined;
-      const backRating = teeMeta?.backRating as number | undefined;
-      const backSlope = teeMeta?.backSlope as number | undefined;
-
-      if (isFront && typeof frontRating === "number" && typeof frontSlope === "number") {
-        return { ratingUsed: frontRating, slopeUsed: frontSlope, scaleTo18: 2 };
-      }
-      if (isBack && typeof backRating === "number" && typeof backSlope === "number") {
-        return { ratingUsed: backRating, slopeUsed: backSlope, scaleTo18: 2 };
-      }
-
-      const rating9 = baseRating / 2;
-      const slope9 = baseSlope;
-      return { ratingUsed: rating9, slopeUsed: slope9, scaleTo18: 2 };
-    };
 
     const now = Date.now();
     const canonicalDate = (() => {
@@ -568,25 +559,35 @@ export const updateRound = mutation({
       const holeData = normalizeHoles(player.holeData, args.holeCount);
       const stats = computeStats(holeData);
 
-      const teeMeta = pickTeeMeta(player.teeName, player.teeGender);
-      const { ratingUsed, slopeUsed, scaleTo18 } = getRatingSlopeForScore(teeMeta, holeData);
+      const teeMeta = pickTeeMeta(course, player.teeName, player.teeGender);
+      const { ratingUsed, slopeUsed } = getRatingSlopeForScore(course, teeMeta, args.holeCount, holeData);
 
       // Calculate course handicap first - needed for Net Double Bogey
-      // Course Handicap = Handicap Index × (Slope / 113)
-      const courseHandicap = player.handicap !== undefined && slopeUsed
-        ? Math.round(player.handicap * (slopeUsed / 113))
-        : player.handicap;
+      const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+      const parTotal =
+        sumParForSelection(courseHoles, args.holeCount, holeData) ??
+        holeData.reduce((sum, h) => sum + (h.par ?? 4), 0);
+      const courseHandicap =
+        player.handicap !== undefined && typeof slopeUsed === "number" && typeof ratingUsed === "number"
+          ? calculateCourseHandicapWHS(player.handicap, slopeUsed, ratingUsed, parTotal)
+          : player.handicap;
 
       // Apply Net Double Bogey adjustment using course handicap and hole stroke indexes
-      const hasValidCourseHandicap = typeof courseHandicap === 'number' && courseHandicap >= 0;
-      const courseHoles = (course.holes as Array<{ number: number; par: number; hcp: number }>) || [];
+      const hasValidCourseHandicap = typeof courseHandicap === 'number' && Number.isFinite(courseHandicap);
 
       let adjustedGross: number;
       let adjustedHoleData: Array<{ hole: number; score: number; par: number; adjustedScore?: number; hcp?: number }>;
+      let adjustedGrossForHandicap: number | null = null;
 
       if (hasValidCourseHandicap && courseHoles.length > 0) {
         const adjustment = computeNetDoubleBogeyAdjustment(holeData, courseHoles, courseHandicap);
-        adjustedGross = adjustment.adjustedGross;
+        adjustedGrossForHandicap = computeAdjustedGrossForHandicapRound({
+          holeCount: args.holeCount,
+          holeData,
+          courseHoles,
+          courseHandicap,
+        });
+        adjustedGross = adjustedGrossForHandicap ?? adjustment.adjustedGross;
         adjustedHoleData = adjustment.adjustedHoleData;
       } else {
         // Fallback to Par+3 cap if missing required data
@@ -595,9 +596,14 @@ export const updateRound = mutation({
       }
 
       let handicapDifferential: number | undefined = undefined;
-      if (ratingUsed && slopeUsed) {
+      const canComputeDifferential =
+        !!ratingUsed &&
+        !!slopeUsed &&
+        (!hasValidCourseHandicap || courseHoles.length === 0 || adjustedGrossForHandicap !== null);
+      if (canComputeDifferential && ratingUsed && slopeUsed) {
         const rawDiff = ((adjustedGross - ratingUsed) * 113) / slopeUsed;
-        handicapDifferential = rawDiff * (scaleTo18 || 1);
+        validateDifferential(rawDiff, { courseName: course.name, grossScore: stats.grossScore });
+        handicapDifferential = roundToTenth(rawDiff);
       }
 
       await ctx.db.insert("scores", {
@@ -613,7 +619,10 @@ export const updateRound = mutation({
         courseRatingUsed: ratingUsed,
         courseSlopeUsed: slopeUsed,
         handicapDifferential,
-        adjustedGrossScore: adjustedGross,
+        adjustedGrossScore:
+          hasValidCourseHandicap && courseHoles.length > 0
+            ? (adjustedGrossForHandicap ?? undefined)
+            : adjustedGross,
         blowUpHoles: stats.blowUpHoles,
         par3Score: stats.par3Score,
         par4Score: stats.par4Score,

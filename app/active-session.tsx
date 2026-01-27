@@ -13,6 +13,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQuery, useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { formatBetLineFromSession, type HoleSelection, type PayoutMode } from '@/utils/betDisplay';
 import {
     Camera,
     Users,
@@ -86,7 +87,8 @@ interface SessionData {
     _id: string;
     gameType: string;
     gameMode: string;
-    holeSelection: string;
+    holeSelection: HoleSelection;
+    payoutMode?: PayoutMode;
     course?: { name: string; holes?: { number: number; hcp: number }[] } | null;
     playerDetails: PlayerDetail[];
     netStrokeAllocations: StrokeAllocation[];
@@ -318,18 +320,12 @@ export default function ActiveSessionScreen() {
         router.push(`/scan-scorecard?sessionId=${sessionId}`);
     };
 
-    const betAmountDollars = session.betSettings?.enabled
-        ? (session.betSettings.betPerUnitCents / 100).toFixed(0)
-        : null;
-
-    const getBetUnitLabel = () => {
-        switch (session.gameType) {
-            case 'skins': return 'per skin';
-            case 'match_play': return 'per match';
-            case 'nassau': return 'per point';
-            default: return 'per player';
-        }
-    };
+    const betLine = formatBetLineFromSession({
+        gameType: session.gameType,
+        holeSelection: session.holeSelection,
+        payoutMode: (session.payoutMode ?? 'war') as PayoutMode,
+        betSettings: session.betSettings,
+    });
 
     // Calculate strokes based on course handicap differences (for display purposes)
     // The lowest HCP player gives strokes to others
@@ -513,7 +509,7 @@ export default function ActiveSessionScreen() {
                 )}
 
                 {/* Betting */}
-                {session.betSettings?.enabled && betAmountDollars && (
+                {session.betSettings?.enabled && betLine && (
                     <>
                         <View style={styles.sectionHeader}>
                             <DollarSign size={18} color={THEME.textMain} />
@@ -522,7 +518,7 @@ export default function ActiveSessionScreen() {
 
                         <View style={styles.betCard}>
                             <Text style={styles.betAmount}>
-                                ${betAmountDollars} {getBetUnitLabel()}
+                                {betLine}
                             </Text>
                             {session.betSettings.carryover && (
                                 <Text style={styles.betDetail}>Carryover enabled</Text>

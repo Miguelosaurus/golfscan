@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   Animated,
+  Platform,
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -439,7 +440,10 @@ export default function HomeScreen() {
             r={radius}
           />
         </Svg>
-        <Text style={[styles.scanCardProgressLabel, status === 'error' && styles.scanCardProgressLabelError]}>
+        <Text
+          style={[styles.scanCardProgressLabel, status === 'error' && styles.scanCardProgressLabelError]}
+          maxFontSizeMultiplier={1.2}
+        >
           {label}
         </Text>
       </View>
@@ -560,13 +564,17 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.scanCardInfo}>
-          <Text style={styles.scanCardTitle} numberOfLines={1}>
+          <Text style={styles.scanCardTitle} numberOfLines={1} maxFontSizeMultiplier={1.2}>
             {isProcessing ? 'Processing scorecard…' : isError ? 'Scan failed' : 'Ready to review'}
           </Text>
-          <Text style={styles.scanCardMessage} numberOfLines={2}>
+          <Text style={styles.scanCardMessage} numberOfLines={2} maxFontSizeMultiplier={1.2}>
             {message}
           </Text>
-          <Text style={isReady ? styles.scanCardSubtextAction : styles.scanCardSubtext} numberOfLines={1}>
+          <Text
+            style={isReady ? styles.scanCardSubtextAction : styles.scanCardSubtext}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.2}
+          >
             {subtext}
           </Text>
           {isDevJob && (
@@ -1056,7 +1064,7 @@ export default function HomeScreen() {
                 value={handicapInput}
                 onChangeText={setHandicapInput}
                 placeholder="Enter your current index"
-                keyboardType="decimal-pad"
+                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
               />
               <Text style={styles.ghinNote}>
                 This seeds your Scandicap so future rounds can adjust it over time.
@@ -1310,10 +1318,11 @@ const styles = StyleSheet.create({
   },
   scanCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: colors.card,
     borderRadius: 16,
     padding: 16,
+    minHeight: 112,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
@@ -1369,6 +1378,7 @@ const styles = StyleSheet.create({
   },
   scanCardInfo: {
     flex: 1,
+    minWidth: 0,
   },
   scanCardTitle: {
     fontSize: 16,

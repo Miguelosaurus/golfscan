@@ -5,6 +5,182 @@
  * and related utilities. ALL handicap calculations should use these functions.
  */
 
+export function roundHalfUpToInt(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    // Tiny epsilon prevents cases like 30.4999999997 from rounding down unexpectedly.
+    const epsilon = 1e-9;
+    return value >= 0 ? Math.floor(value + 0.5 + epsilon) : Math.ceil(value - 0.5 - epsilon);
+}
+
+export function roundToTenth(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    const factor = 10;
+    const scaled = value * factor;
+    const epsilon = 1e-9;
+    const rounded = value >= 0 ? Math.round(scaled + epsilon) : Math.round(scaled - epsilon);
+    return rounded / factor;
+}
+
+/**
+ * WHS Course Handicap calculation.
+ * Formula: Handicap Index × (Slope Rating ÷ 113) + (Course Rating − Par)
+ * Rounded to the nearest whole number (half up).
+ */
+export function calculateCourseHandicapWHS(
+    handicapIndex: number,
+    slopeRating: number,
+    courseRating: number,
+    par: number
+): number {
+    const courseHandicap = handicapIndex * (slopeRating / 113) + (courseRating - par);
+    return roundHalfUpToInt(courseHandicap);
+}
+
+export type HandicapDifferentialEvent = {
+    createdAt: number;
+    differential: number;
+    scoreIds: string[];
+};
+
+export function getWHSMinimumPlayedHoles(holeCount: 9 | 18): number {
+    return holeCount === 18 ? 14 : 7;
+}
+
+export function getHoleNumbersForRoundSelection(
+    holeCount: 9 | 18,
+    holeData: Array<{ hole: number }>
+): number[] {
+    if (holeCount === 18) {
+        return Array.from({ length: 18 }, (_, i) => i + 1);
+    }
+
+    const holes = (holeData ?? [])
+        .map((h) => h?.hole)
+        .filter((n): n is number => typeof n === "number" && Number.isFinite(n))
+        .map((n) => Math.trunc(n))
+        .filter((n) => n >= 1 && n <= 18);
+
+    const frontCount = holes.filter((n) => n <= 9).length;
+    const backCount = holes.filter((n) => n >= 10).length;
+    const isBack = backCount > frontCount;
+
+    const start = isBack ? 10 : 1;
+    return Array.from({ length: 9 }, (_, i) => start + i);
+}
+
+export function countUniquePlayedHoles(
+    holeData: Array<{ hole: number; score?: number }>,
+    allowedHoles: number[]
+): number {
+    const allowed = new Set(allowedHoles);
+    const played = new Set<number>();
+    for (const h of holeData ?? []) {
+        const hole = typeof h?.hole === "number" ? Math.trunc(h.hole) : NaN;
+        if (!Number.isFinite(hole) || !allowed.has(hole)) continue;
+        const score = (h as any)?.score;
+        if (typeof score !== "number" || !Number.isFinite(score) || score <= 0) continue;
+        played.add(hole);
+    }
+    return played.size;
+}
+
+export function computeAdjustedGrossForHandicapRound(args: {
+    holeCount: 9 | 18;
+    holeData: Array<{ hole: number; score: number; par?: number }>;
+    courseHoles: Array<{ number: number; par: number; hcp: number }>;
+    courseHandicap: number;
+}): number | null {
+    const { holeCount, holeData, courseHoles, courseHandicap } = args;
+    if (!Number.isFinite(courseHandicap)) return null;
+    if (!Array.isArray(courseHoles) || courseHoles.length === 0) return null;
+
+    const holeNumbers = getHoleNumbersForRoundSelection(holeCount, holeData);
+    const minPlayed = getWHSMinimumPlayedHoles(holeCount);
+    const playedCount = countUniquePlayedHoles(holeData, holeNumbers);
+    if (playedCount < minPlayed) return null;
+
+    const courseHoleByNumber = new Map<number, { number: number; par: number; hcp: number }>();
+    for (const h of courseHoles) {
+        if (typeof h?.number !== "number") continue;
+        courseHoleByNumber.set(h.number, h);
+    }
+
+    const inputByHole = new Map<number, { hole: number; score: number; par?: number }>();
+    for (const h of holeData ?? []) {
+        const hole = typeof h?.hole === "number" ? Math.trunc(h.hole) : NaN;
+        if (!Number.isFinite(hole)) continue;
+        if (!holeNumbers.includes(hole)) continue;
+        if (inputByHole.has(hole)) continue;
+        inputByHole.set(hole, h);
+    }
+
+    const completed = holeNumbers.map((n) => {
+        const courseHole = courseHoleByNumber.get(n);
+        if (!courseHole) return null;
+        if (typeof courseHole.par !== "number" || !Number.isFinite(courseHole.par)) return null;
+        if (typeof courseHole.hcp !== "number" || !Number.isFinite(courseHole.hcp)) return null;
+
+        const input = inputByHole.get(n);
+        const par = courseHole.par;
+        const hcp = courseHole.hcp;
+        const strokesReceived = getStrokesReceivedOnHole(hcp, courseHandicap);
+
+        const score =
+            input && typeof input.score === "number" && Number.isFinite(input.score) && input.score > 0
+                ? input.score
+                : par + strokesReceived; // Net par for unplayed holes per WHS incomplete round rules
+
+        return { hole: n, score, par, hcp };
+    });
+
+    if (completed.some((x) => x === null)) return null;
+
+    const adjusted = applyNetDoubleBogey(completed as any, courseHandicap);
+    return adjusted.reduce((sum, h) => sum + h.adjustedScore, 0);
+}
+
+export function buildHandicapDifferentialEventsFromScores(
+    scores: Array<{ _id: any; createdAt: number; holeCount?: number; handicapDifferential?: number }>
+): HandicapDifferentialEvent[] {
+    const valid = scores
+        .filter((s) => typeof s.createdAt === "number" && Number.isFinite(s.createdAt))
+        .filter((s) => typeof s.handicapDifferential === "number" && Number.isFinite(s.handicapDifferential as number))
+        .map((s) => ({
+            id: String(s._id),
+            createdAt: s.createdAt,
+            holeCount: (s.holeCount === 9 ? 9 : 18) as 9 | 18,
+            differential: roundToTenth(s.handicapDifferential as number),
+        }));
+
+    const nine = valid.filter((s) => s.holeCount === 9).sort((a, b) => a.createdAt - b.createdAt);
+    const eighteen = valid
+        .filter((s) => s.holeCount === 18)
+        .map((s) => ({
+            createdAt: s.createdAt,
+            differential: s.differential,
+            scoreIds: [s.id],
+        }));
+
+    const combinedNine: HandicapDifferentialEvent[] = [];
+    for (let i = 0; i + 1 < nine.length; i += 2) {
+        const a = nine[i];
+        const b = nine[i + 1];
+        combinedNine.push({
+            createdAt: b.createdAt,
+            differential: roundToTenth((a.differential + b.differential) / 2),
+            scoreIds: [a.id, b.id],
+        });
+    }
+
+    return [...eighteen, ...combinedNine].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export function buildHandicapDifferentialsForIndex(
+    scores: Array<{ _id: any; createdAt: number; holeCount?: number; handicapDifferential?: number }>
+): HandicapDifferentialEvent[] {
+    return buildHandicapDifferentialEventsFromScores(scores).sort((a, b) => b.createdAt - a.createdAt);
+}
+
 /**
  * Official WHS table for number of differentials used and adjustments.
  * Returns the handicap and which indices were used in the calculation.
@@ -72,9 +248,8 @@ export function calculateHandicapWithSelection(
     const sum = usedSorted.reduce((acc, item) => acc + item.diff, 0);
     const average = sum / scoresUsed;
     // Per WHS: subtract adjustment (makes handicap lower/harder for few rounds)
-    // Floor at 0.0 (no negative handicaps displayed)
-    const rawHandicap = Math.round((average - adjustment) * 10) / 10;
-    const handicap = Math.max(0, rawHandicap);
+    const rawHandicap = roundToTenth(average - adjustment);
+    const handicap = rawHandicap;
     const usedIndices = usedSorted.map((item) => item.index);
 
     return { handicap, usedIndices };
@@ -97,7 +272,7 @@ export function calculateDifferential(
     courseRating: number,
     slopeRating: number
 ): number {
-    return ((adjustedGrossScore - courseRating) * 113) / slopeRating;
+    return roundToTenth(((adjustedGrossScore - courseRating) * 113) / slopeRating);
 }
 
 /**
@@ -129,16 +304,25 @@ export function getStrokesReceivedOnHole(
     holeStrokeIndex: number,
     courseHandicap: number
 ): number {
-    if (courseHandicap <= 0) return 0;
+    if (!Number.isFinite(courseHandicap) || courseHandicap === 0) return 0;
+    if (!Number.isFinite(holeStrokeIndex)) return 0;
 
-    let strokes = 0;
-    // First allocation: holes 1-18 where stroke index <= course handicap
-    if (holeStrokeIndex <= courseHandicap) strokes++;
-    // Second allocation: if course handicap > 18, get extra stroke on holes where stroke index <= (CH - 18)
-    if (courseHandicap > 18 && holeStrokeIndex <= (courseHandicap - 18)) strokes++;
-    // Third allocation: if course handicap > 36, get extra stroke on holes where stroke index <= (CH - 36)
-    if (courseHandicap > 36 && holeStrokeIndex <= (courseHandicap - 36)) strokes++;
+    const strokeIndex = Math.min(18, Math.max(1, Math.trunc(holeStrokeIndex)));
+    const magnitude = Math.abs(Math.trunc(courseHandicap));
 
+    const fullLoops = Math.floor(magnitude / 18);
+    const remainder = magnitude % 18;
+
+    if (courseHandicap > 0) {
+        // Positive course handicap: strokes received on hardest holes (lowest stroke index).
+        let strokes = fullLoops;
+        if (remainder > 0 && strokeIndex <= remainder) strokes += 1;
+        return strokes;
+    }
+
+    // Plus handicap (negative course handicap): strokes GIVEN on easiest holes (highest stroke index).
+    let strokes = -fullLoops;
+    if (remainder > 0 && strokeIndex > 18 - remainder) strokes -= 1;
     return strokes;
 }
 
@@ -254,13 +438,13 @@ export function getRatingSlopeForScore(
     const backSlope = teeMeta?.backSlope as number | undefined;
 
     if (isFront && typeof frontRating === "number" && typeof frontSlope === "number") {
-        return { ratingUsed: frontRating, slopeUsed: frontSlope, scaleTo18: 2 };
+        return { ratingUsed: frontRating, slopeUsed: frontSlope, scaleTo18: 1 };
     }
     if (isBack && typeof backRating === "number" && typeof backSlope === "number") {
-        return { ratingUsed: backRating, slopeUsed: backSlope, scaleTo18: 2 };
+        return { ratingUsed: backRating, slopeUsed: backSlope, scaleTo18: 1 };
     }
 
     const rating9 = baseRating / 2;
     const slope9 = baseSlope;
-    return { ratingUsed: rating9, slopeUsed: slope9, scaleTo18: 2 };
+    return { ratingUsed: rating9, slopeUsed: slope9, scaleTo18: 1 };
 }

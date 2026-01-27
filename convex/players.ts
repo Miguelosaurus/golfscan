@@ -1,6 +1,13 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { calculateHandicapFromDiffs } from "./lib/handicapUtils";
+import {
+  buildHandicapDifferentialsForIndex,
+  calculateHandicapFromDiffs,
+  computeAdjustedGrossForHandicapRound,
+  getRatingSlopeForScore,
+  pickTeeMeta,
+  roundToTenth,
+} from "./lib/handicapUtils";
 import { getClerkIdFromIdentity } from "./lib/authUtils";
 
 const getRoundHoleCount = (holeData: any[], roundHoleCount?: number) => {
@@ -21,6 +28,34 @@ const convertNineHoleToEighteenEquivalent = (
     return nineHoleScore + expectedNineHoleScore;
   }
   return nineHoleScore + (coursePar9 + 4);
+};
+
+const computeFallbackDifferential = (
+  score: any,
+  course: any,
+  holeCount: 9 | 18
+): number | null => {
+  const teeMeta = pickTeeMeta(course, (score as any).teeName, (score as any).teeGender);
+  const holeData = Array.isArray(score.holeData) ? score.holeData.map((h: any) => ({ hole: h.hole })) : [];
+  const { ratingUsed, slopeUsed } = getRatingSlopeForScore(course, teeMeta, holeCount, holeData);
+
+  const courseHandicapUsed = (score as any).handicapUsed;
+  const adjustedGross =
+    typeof (score as any).adjustedGrossScore === "number" && Number.isFinite((score as any).adjustedGrossScore)
+      ? (score as any).adjustedGrossScore
+      : (typeof courseHandicapUsed === "number" && Number.isFinite(courseHandicapUsed)
+        ? computeAdjustedGrossForHandicapRound({
+          holeCount,
+          holeData: Array.isArray(score.holeData)
+            ? score.holeData.map((h: any) => ({ hole: h.hole, score: h.score, par: h.par }))
+            : [],
+          courseHoles: (course.holes as any[]) ?? [],
+          courseHandicap: courseHandicapUsed,
+        })
+        : null);
+
+  if (typeof adjustedGross !== "number") return null;
+  return roundToTenth(((adjustedGross - ratingUsed) * 113) / slopeUsed);
 };
 
 export const getSelf = query({
@@ -140,30 +175,46 @@ export const getHandicap = query({
       return { playerId: args.playerId, handicap: null, roundsPlayed: 0 };
     }
 
-    const differentials: number[] = [];
+    const scoreLikes: Array<{
+      _id: any;
+      createdAt: number;
+      holeCount?: number;
+      handicapDifferential?: number;
+    }> = [];
 
     for (const score of realScores) {
-      // Prefer pre-calculated handicapDifferential (uses correct tee-specific rating/slope)
+      const holeCount = (score.holeCount === 9 ? 9 : 18) as 9 | 18;
+
       if (typeof score.handicapDifferential === "number") {
-        differentials.push(score.handicapDifferential);
+        scoreLikes.push({
+          _id: score._id,
+          createdAt: score.createdAt,
+          holeCount,
+          handicapDifferential: roundToTenth(score.handicapDifferential),
+        });
         continue;
       }
 
-      // Fall back to course-level calculation if differential not stored
       const course = await ctx.db.get(score.courseId);
       if (!course) continue;
 
-      const courseRating = course.rating ?? course.holes.reduce((sum: number, h: any) => sum + (h.par ?? 4), 0);
-      const courseSlope = course.slope ?? 113;
-      const differential = ((score.grossScore - courseRating) * 113) / courseSlope;
-      differentials.push(differential);
+      const fallback = computeFallbackDifferential(score, course, holeCount);
+      if (typeof fallback !== "number") continue;
+
+      scoreLikes.push({
+        _id: score._id,
+        createdAt: score.createdAt,
+        holeCount,
+        handicapDifferential: fallback,
+      });
     }
 
-    const handicapVal = calculateHandicapFromDiffs(differentials.slice(0, 20));
+    const events = buildHandicapDifferentialsForIndex(scoreLikes);
+    const handicapVal = calculateHandicapFromDiffs(events.slice(0, 20).map((e) => e.differential));
 
     return {
       playerId: args.playerId,
-      handicap: handicapVal !== null ? Math.max(0, handicapVal) : null,  // Floor at 0
+      handicap: handicapVal,
       roundsPlayed: realScores.length,
     };
   },
@@ -197,27 +248,44 @@ export const getHandicapsBatch = query({
         continue;
       }
 
-      const differentials: number[] = [];
+      const scoreLikes: Array<{
+        _id: any;
+        createdAt: number;
+        holeCount?: number;
+        handicapDifferential?: number;
+      }> = [];
+
       for (const score of realScores) {
-        // Prefer pre-calculated handicapDifferential (uses correct tee-specific rating/slope)
+        const holeCount = (score.holeCount === 9 ? 9 : 18) as 9 | 18;
+
         if (typeof score.handicapDifferential === "number") {
-          differentials.push(score.handicapDifferential);
+          scoreLikes.push({
+            _id: score._id,
+            createdAt: score.createdAt,
+            holeCount,
+            handicapDifferential: roundToTenth(score.handicapDifferential),
+          });
           continue;
         }
 
-        // Fall back to course-level calculation if differential not stored
         const course = await ctx.db.get(score.courseId);
         if (!course) continue;
 
-        const courseRating = course.rating ?? course.holes.reduce((sum: number, h: any) => sum + (h.par ?? 4), 0);
-        const courseSlope = course.slope ?? 113;
-        const differential = ((score.grossScore - courseRating) * 113) / courseSlope;
-        differentials.push(differential);
+        const fallback = computeFallbackDifferential(score, course, holeCount);
+        if (typeof fallback !== "number") continue;
+
+        scoreLikes.push({
+          _id: score._id,
+          createdAt: score.createdAt,
+          holeCount,
+          handicapDifferential: fallback,
+        });
       }
 
-      const handicapVal = calculateHandicapFromDiffs(differentials.slice(0, 20));
+      const events = buildHandicapDifferentialsForIndex(scoreLikes);
+      const handicapVal = calculateHandicapFromDiffs(events.slice(0, 20).map((e) => e.differential));
       results[playerId] = {
-        handicap: handicapVal !== null ? Math.max(0, handicapVal) : null,
+        handicap: handicapVal,
         roundsPlayed: realScores.length,
       };
     }
@@ -295,7 +363,12 @@ export const getStats = query({
     let blowUpCount = 0;
     let blowUpRounds = 0;
 
-    const differentials: number[] = [];
+    const scoreLikes: Array<{
+      _id: any;
+      createdAt: number;
+      holeCount?: number;
+      handicapDifferential?: number;
+    }> = [];
 
     // Aggregates for performance by par/difficulty
     const parTotals: Record<number, { rel: number; count: number }> = {
@@ -329,13 +402,19 @@ export const getStats = query({
       totalEighteenPar += holeCount === 18 ? coursePar : coursePar9 + 36;
       roundsPlayed += 1;
 
-      if (typeof score.handicapDifferential === "number") {
-        differentials.push(score.handicapDifferential);
-      } else {
-        const courseRating = course.rating ?? coursePar;
-        const courseSlope = course.slope ?? 113;
-        const differential = ((score.grossScore - courseRating) * 113) / courseSlope;
-        differentials.push(differential);
+      const holeCountTyped = (holeCount === 9 ? 9 : 18) as 9 | 18;
+      const differential =
+        typeof score.handicapDifferential === "number"
+          ? roundToTenth(score.handicapDifferential)
+          : computeFallbackDifferential(score, course, holeCountTyped);
+
+      if (typeof differential === "number") {
+        scoreLikes.push({
+          _id: score._id,
+          createdAt: score.createdAt,
+          holeCount: holeCountTyped,
+          handicapDifferential: differential,
+        });
       }
 
       let countedRound = false;
@@ -378,7 +457,8 @@ export const getStats = query({
       if (countedRound) blowUpRounds += 1;
     }
 
-    const handicapVal = calculateHandicapFromDiffs(differentials.slice(0, 20));
+    const events = buildHandicapDifferentialsForIndex(scoreLikes);
+    const handicapVal = calculateHandicapFromDiffs(events.slice(0, 20).map((e) => e.differential));
 
     const performanceByPar = {
       par3: parTotals[3].count ? parTotals[3].rel / parTotals[3].count : null,

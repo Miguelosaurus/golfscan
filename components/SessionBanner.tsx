@@ -75,28 +75,34 @@ export function SessionBanner({
 
             {/* Middle: Details */}
             <View style={styles.content}>
-                <Text style={styles.statusLabel}>
+                <Text style={styles.statusLabel} numberOfLines={1} maxFontSizeMultiplier={1.2}>
                     {status === 'pending' ? 'Active Session' : 'Game In Progress'}
                 </Text>
-                <Text style={styles.gameType} numberOfLines={1}>
+                <Text style={styles.gameType} numberOfLines={1} maxFontSizeMultiplier={1.2}>
                     {formatGameType(gameType)}
                 </Text>
 
                 <View style={styles.detailsRow}>
                     <View style={styles.detailItem}>
                         <Users size={12} color={THEME.textSub} />
-                        <Text style={styles.detailText}>{playerCount} players</Text>
+                        <Text style={styles.detailText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+                            {playerCount} players
+                        </Text>
                     </View>
                     <View style={styles.detailItem}>
                         <MapPin size={12} color={THEME.textSub} />
-                        <Text style={styles.detailText} numberOfLines={1}>{courseName}</Text>
+                        <Text style={styles.detailText} numberOfLines={1} maxFontSizeMultiplier={1.2}>
+                            {courseName}
+                        </Text>
                     </View>
                 </View>
             </View>
 
             {/* Right: Action Indicator */}
             <View style={styles.action}>
-                <Text style={styles.actionText}>View</Text>
+                <Text style={styles.actionText} maxFontSizeMultiplier={1.2}>
+                    View
+                </Text>
             </View>
         </TouchableOpacity>
     );
@@ -109,10 +115,11 @@ export function SessionBanner({
 const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         backgroundColor: THEME.lightGreenBg,
         borderRadius: 16,
         padding: 16,
+        minHeight: 112,
         // Remove individual marginVertical to let ListHeaderComponent handle it
         borderWidth: 2,
         borderColor: THEME.primaryGreen,
@@ -141,6 +148,7 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         overflow: 'hidden',
         marginRight: 16, // Matched scanCardImageWrapper
+        alignSelf: 'center',
     },
     iconContainer: {
         width: '100%',
@@ -151,6 +159,7 @@ const styles = StyleSheet.create({
     },
     content: {
         flex: 1,
+        minWidth: 0,
     },
     statusLabel: {
         fontSize: 11,
@@ -193,6 +202,7 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         marginLeft: 10,
         marginRight: 24, // Separation from X button
+        alignSelf: 'center',
     },
     actionText: {
         color: 'white',

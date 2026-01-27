@@ -2,8 +2,11 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
+  buildHandicapDifferentialEventsFromScores,
+  buildHandicapDifferentialsForIndex,
   calculateHandicapWithSelection,
   calculateHandicapFromDiffs,
+  roundToTenth,
 } from "./lib/handicapUtils";
 import { getClerkIdFromIdentity } from "./lib/authUtils";
 
@@ -48,7 +51,8 @@ export const getSummary = query({
     // Filter to scores with valid handicapDifferential (already ordered by createdAt desc)
     const scored = scores.filter((s) => typeof s.handicapDifferential === "number");
 
-    const roundsCount = Math.min(20, scored.length);
+    const events = buildHandicapDifferentialsForIndex(scored);
+    const roundsCount = Math.min(20, events.length);
     const isProvisional = roundsCount > 0 && roundsCount < 3;
 
     // Compute currentHandicap from diffs (not user.handicap cache)
@@ -61,7 +65,7 @@ export const getSummary = query({
       };
     }
 
-    const diffs = scored.slice(0, 20).map((s) => s.handicapDifferential as number);
+    const diffs = events.slice(0, 20).map((e) => e.differential);
     const computedHandicap = calculateHandicapFromDiffs(diffs);
 
     return {
@@ -106,10 +110,9 @@ export const recalculate = internalMutation({
       return null;
     }
 
-    // Only consider scores with a stored handicapDifferential.
-    const differentials = scores
-      .map((s) => s.handicapDifferential)
-      .filter((d): d is number => typeof d === "number");
+    const scored = scores.filter((s) => typeof s.handicapDifferential === "number");
+    const events = buildHandicapDifferentialsForIndex(scored);
+    const differentials = events.slice(0, 20).map((e) => e.differential);
 
     if (!differentials.length) {
       // No valid differentials - clear handicap AND history
@@ -121,9 +124,7 @@ export const recalculate = internalMutation({
       return null;
     }
 
-    // Use last 20 stored differentials (most recent first)
-    const limitedDiffs = differentials.slice(0, 20);
-    const handicap = calculateHandicapFromDiffs(limitedDiffs);
+    const handicap = calculateHandicapFromDiffs(differentials);
 
     const now = Date.now();
     const todayISO = new Date(now).toISOString().split("T")[0];
@@ -185,92 +186,74 @@ export const rebuildHistory = mutation({
       .withIndex("by_player", (q) => q.eq("playerId", selfPlayer._id))
       .collect();
 
-    // Fetch rounds to get dates, then pair scores with dates
-    const scoresWithDates = await Promise.all(
-      scores
-        .filter((s) => typeof s.handicapDifferential === "number")
-        .map(async (s) => {
-          // For synthesized scores, use the score's createdAt (which is backdated)
-          // For real scores, use the round's date
-          if (s.isSynthesized) {
-            return { score: s, date: new Date(s.createdAt).toISOString() };
-          }
-          const round = await ctx.db.get(s.roundId);
-          return { score: s, date: round?.date ?? new Date(s.createdAt).toISOString() };
-        })
-    );
-
-    // Sort by date ascending (oldest first)
-    const validScores = scoresWithDates.sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-
-    console.log("[rebuildHistory] Total scores:", validScores.length);
-    console.log("[rebuildHistory] First 5 scores (oldest):", validScores.slice(0, 5).map(s => ({
-      date: s.date,
-      diff: s.score.handicapDifferential,
-      isSynthesized: s.score.isSynthesized,
-    })));
-    console.log("[rebuildHistory] Last 5 scores (newest):", validScores.slice(-5).map(s => ({
-      date: s.date,
-      diff: s.score.handicapDifferential,
-      isSynthesized: s.score.isSynthesized,
-    })));
-
-    if (!validScores.length) {
+    const scoredScores = scores.filter((s) => typeof s.handicapDifferential === "number");
+    if (!scoredScores.length) {
       await ctx.db.patch(user._id, { handicapIndexHistory: [], handicap: undefined });
       return { success: true, message: "No valid scores found" };
     }
 
-    // Build history progressively: for each score, calculate what handicap would be
-    const history: { date: string; value: number; isSynthesized?: boolean }[] = [];
-    for (let i = 0; i < validScores.length; i++) {
-      const currentScore = validScores[i];
+    const scoreMeta = await Promise.all(
+      scoredScores.map(async (s) => {
+        if (s.isSynthesized) {
+          return { score: s, date: new Date(s.createdAt).toISOString() };
+        }
+        const round = await ctx.db.get(s.roundId);
+        return { score: s, date: round?.date ?? new Date(s.createdAt).toISOString() };
+      })
+    );
 
-      // For synthesized/seeded scores, use the seeded differential directly
-      // (no progressive adjustment - it represents an "imported baseline")
-      if (currentScore.score.isSynthesized) {
-        const seededHandicap = Math.max(0, Math.round((currentScore.score.handicapDifferential as number) * 10) / 10);
-        history.push({
-          date: currentScore.date,
-          value: seededHandicap,
-          isSynthesized: true,
-        });
+    const metaByScoreId = new Map<
+      string,
+      { createdAt: number; date: string; isSynthesized: boolean }
+    >(
+      scoreMeta.map(({ score, date }) => [
+        String(score._id),
+        { createdAt: score.createdAt, date, isSynthesized: !!score.isSynthesized },
+      ])
+    );
+
+    const eventsAsc = buildHandicapDifferentialEventsFromScores(scoredScores).sort(
+      (a, b) => a.createdAt - b.createdAt
+    );
+
+    const pickEventDate = (scoreIds: string[], fallbackCreatedAt: number): string => {
+      let best: { createdAt: number; date: string } | null = null;
+      for (const id of scoreIds) {
+        const meta = metaByScoreId.get(id);
+        if (!meta) continue;
+        if (!best || meta.createdAt > best.createdAt) {
+          best = { createdAt: meta.createdAt, date: meta.date };
+        }
+      }
+      return best?.date ?? new Date(fallbackCreatedAt).toISOString();
+    };
+
+    const history: { date: string; value: number; isSynthesized?: boolean }[] = [];
+    for (let i = 0; i < eventsAsc.length; i++) {
+      const event = eventsAsc[i];
+      const date = pickEventDate(event.scoreIds, event.createdAt);
+      const isSynthesized = event.scoreIds.every(
+        (id) => metaByScoreId.get(id)?.isSynthesized === true
+      );
+
+      if (isSynthesized) {
+        history.push({ date, value: roundToTenth(event.differential), isSynthesized: true });
         continue;
       }
 
-      // For real scores, use the full progressive WHS calculation
-      const diffsUpToNow = validScores
+      const diffsUpToNow = eventsAsc
         .slice(0, i + 1)
-        .map((item) => item.score.handicapDifferential as number)
-        .reverse(); // Most recent first for calculation
+        .map((e) => e.differential)
+        .reverse(); // Most recent first
 
       const result = calculateHandicapWithSelection(diffsUpToNow);
-
-      // Log first few and last few calculations
-      if (i < 3 || i >= validScores.length - 3) {
-        console.log(`[rebuildHistory] Score ${i}: diffs=[${diffsUpToNow.slice(0, 5).join(", ")}${diffsUpToNow.length > 5 ? "..." : ""}], handicap=${result.handicap}`);
-      }
-
       if (result.handicap !== null) {
-        history.push({
-          date: currentScore.date,
-          value: result.handicap,
-          isSynthesized: false,
-        });
+        history.push({ date, value: result.handicap, isSynthesized: false });
       }
     }
 
-    console.log("[rebuildHistory] History entries:", history.length);
-    console.log("[rebuildHistory] First 3 history values:", history.slice(0, 3).map(h => h.value));
-    console.log("[rebuildHistory] Last 3 history values:", history.slice(-3).map(h => h.value));
-
-    // Calculate current handicap from all diffs
-    const allDiffs = validScores.map((item) => item.score.handicapDifferential as number).reverse();
+    const allDiffs = [...eventsAsc].sort((a, b) => b.createdAt - a.createdAt).map((e) => e.differential);
     const currentHandicap = calculateHandicapFromDiffs(allDiffs);
-
-    console.log("[rebuildHistory] All diffs:", allDiffs.slice(0, 10), "...");
-    console.log("[rebuildHistory] Current handicap:", currentHandicap);
 
     await ctx.db.patch(user._id, {
       handicapIndexHistory: history,
@@ -557,14 +540,16 @@ export const getDetails = query({
       };
     }
 
-    const limited = scored.slice(0, 20);
-    const diffs = limited.map((s) => s.handicapDifferential as number);
+    const events = buildHandicapDifferentialsForIndex(scored);
+    const limitedEvents = events.slice(0, 20);
+    const diffs = limitedEvents.map((e) => e.differential);
     const { handicap, usedIndices } = calculateHandicapWithSelection(diffs);
-    const usedIdSet = new Set(
-      usedIndices
-        .map((idx) => limited[idx]?._id)
-        .filter((id) => !!id)
-    );
+    const usedIdSet = new Set<string>();
+    for (const idx of usedIndices) {
+      const event = limitedEvents[idx];
+      if (!event) continue;
+      for (const scoreId of event.scoreIds) usedIdSet.add(scoreId);
+    }
 
     const roundsCount = diffs.length;
     const isProvisional = roundsCount > 0 && roundsCount < 3;
@@ -620,7 +605,7 @@ export const getDetails = query({
           courseName,
           grossScore: score.grossScore,
           differential: score.handicapDifferential as number,
-          usedInCalculation: usedIdSet.has(score._id),
+          usedInCalculation: usedIdSet.has(String(score._id)),
           isSynthesized,
         };
       })

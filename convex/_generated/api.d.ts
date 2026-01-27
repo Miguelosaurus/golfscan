@@ -18,6 +18,7 @@ import type * as golfCourse from "../golfCourse.js";
 import type * as handicap from "../handicap.js";
 import type * as http from "../http.js";
 import type * as lib_authUtils from "../lib/authUtils.js";
+import type * as lib_gameOutcome from "../lib/gameOutcome.js";
 import type * as lib_gameSettlement from "../lib/gameSettlement.js";
 import type * as lib_gameSettlementV2 from "../lib/gameSettlementV2.js";
 import type * as lib_handicapUtils from "../lib/handicapUtils.js";
@@ -47,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   handicap: typeof handicap;
   http: typeof http;
   "lib/authUtils": typeof lib_authUtils;
+  "lib/gameOutcome": typeof lib_gameOutcome;
   "lib/gameSettlement": typeof lib_gameSettlement;
   "lib/gameSettlementV2": typeof lib_gameSettlementV2;
   "lib/handicapUtils": typeof lib_handicapUtils;
