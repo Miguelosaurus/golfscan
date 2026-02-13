@@ -3,9 +3,11 @@ import { Text, TouchableOpacity } from "react-native";
 import { useClerk } from "@clerk/clerk-expo";
 import * as Linking from "expo-linking";
 import { useGolfStore } from "@/store/useGolfStore";
+import { useT } from "@/lib/i18n";
 
 export const SignOutButton = () => {
   const { signOut } = useClerk();
+  const t = useT();
 
   const handleSignOut = async () => {
     try {
@@ -20,7 +22,7 @@ export const SignOutButton = () => {
 
   return (
     <TouchableOpacity onPress={handleSignOut}>
-      <Text>Sign out</Text>
+      <Text>{t("Sign Out")}</Text>
     </TouchableOpacity>
   );
 };

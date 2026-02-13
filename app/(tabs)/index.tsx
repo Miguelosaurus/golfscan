@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import { RoundCard } from '@/components/RoundCard';
 import { mockCourses } from '@/mocks/courses';
 import { Settings, User, Edit3, Crown, ArrowDown, Flag, Camera, Trash2, Info, X } from 'lucide-react-native';
 import { Round, ScorecardScanResult, Course } from '@/types';
-import { calculateAverageScoreWithHoleAdjustment, calculateNetScore } from '@/utils/helpers';
+import { calculateAverageScoreWithHoleAdjustment, calculateNetScore, getLocalDateString, parseAnyDateStringToLocalDate } from '@/utils/helpers';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { useMutation, useQuery } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
@@ -34,9 +34,11 @@ import { SessionBanner } from '@/components/SessionBanner';
 import { useCourseImage } from '@/hooks/useCourseImage';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useT } from '@/lib/i18n';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const t = useT();
 
 
   const {
@@ -103,6 +105,7 @@ export default function HomeScreen() {
     if (hasNavigatedToReviewRef.current) return;
 
     // Check if scan just completed and requires review
+    if (activeScanJob?.onboardingDemo) return;
     if (activeScanJob?.requiresReview && activeScanJob.result && activeScanJob.status !== 'processing') {
       console.log('[HOME] Onboarding: scan complete, navigating to scan-review');
       // Set ref immediately to prevent any re-runs from navigating again
@@ -130,12 +133,12 @@ export default function HomeScreen() {
   const [displayProgress, setDisplayProgress] = useState(30);
   const [processingMessageIndex, setProcessingMessageIndex] = useState(0);
   const processingMessages = [
-    'AI is reading your scorecard...',
-    'Detecting scorecard format...',
-    'Analyzing handwriting...',
-    'Identifying players...',
-    'Extracting scores...',
-    'Calculating stats...',
+    t('AI is reading your scorecard...'),
+    t('Detecting scorecard format...'),
+    t('Analyzing handwriting...'),
+    t('Identifying players...'),
+    t('Extracting scores...'),
+    t('Calculating stats...'),
   ];
 
   // Animate progress smoothly when processing
@@ -305,14 +308,14 @@ export default function HomeScreen() {
     typeof handicapSummary?.currentHandicap === 'number'
       ? handicapSummary.currentHandicap
       : (typeof profile?.handicap === 'number' ? profile.handicap : 0);
-  const displayName = profile?.name ?? currentUser?.name ?? 'Golf Player';
+  const displayName = profile?.name ?? currentUser?.name ?? t('Golf Player');
   const avatarUrl = profile?.avatarUrl ?? currentUser?.photoUrl;
   const canSaveProfileName = profileNameInput.trim().length > 0;
 
   const handlePickProfilePhoto = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission required', 'Media library permission is required to select a photo.');
+      Alert.alert(t('Permission required'), t('Media library permission is required to select a photo.'));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -356,10 +359,18 @@ export default function HomeScreen() {
     return { ...round, userWon };
   };
 
-  const recentRounds = userRounds
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 3)
-    .map(getRoundWithWinStatus);
+  const recentRounds = useMemo(
+    () =>
+      [...userRounds]
+        .sort((a, b) => {
+          const da = parseAnyDateStringToLocalDate(a.date);
+          const db = parseAnyDateStringToLocalDate(b.date);
+          return (db?.getTime() ?? 0) - (da?.getTime() ?? 0);
+        })
+        .slice(0, 3)
+        .map(getRoundWithWinStatus),
+    [userRounds]
+  );
 
   const scanJob = activeScanJob;
   const hasActiveScanCard = !!scanJob && (
@@ -369,10 +380,6 @@ export default function HomeScreen() {
   );
 
   const buildDevSampleResult = (): ScorecardScanResult => ({
-    courseName: "Dev National Doral - Blue",
-    courseNameConfidence: 0.92,
-    date: new Date().toISOString().split("T")[0],
-    dateConfidence: 0.9,
     overallConfidence: 0.9,
     players: [
       {
@@ -565,7 +572,11 @@ export default function HomeScreen() {
 
         <View style={styles.scanCardInfo}>
           <Text style={styles.scanCardTitle} numberOfLines={1} maxFontSizeMultiplier={1.2}>
-            {isProcessing ? 'Processing scorecard…' : isError ? 'Scan failed' : 'Ready to review'}
+            {isProcessing
+              ? t('Processing scorecard…')
+              : isError
+                ? t('Scan failed')
+                : t('Ready to review')}
           </Text>
           <Text style={styles.scanCardMessage} numberOfLines={2} maxFontSizeMultiplier={1.2}>
             {message}
@@ -580,7 +591,7 @@ export default function HomeScreen() {
           {isDevJob && (
             <View style={styles.scanCardDevRow}>
               <TouchableOpacity style={styles.scanCardDevButton} onPress={handleDevSimulateResponse}>
-                <Text style={styles.scanCardDevButtonText}>Simulate response</Text>
+                <Text style={styles.scanCardDevButtonText}>{t('Simulate response')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.scanCardDevIcon} onPress={handleDevDiscardScan} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Trash2 size={18} color={colors.error} />
@@ -599,8 +610,8 @@ export default function HomeScreen() {
   const navigateToScanScorecard = () => {
     if (!devMode && activeScanJob && activeScanJob.status === 'processing') {
       Alert.alert(
-        'Scan in progress',
-        'Please wait for your current scorecard to finish processing before starting another.'
+        t('Scan in progress'),
+        t('Please wait for your current scorecard to finish processing before starting another.')
       );
       return;
     }
@@ -624,12 +635,9 @@ export default function HomeScreen() {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit'
-    });
+    const d = parseAnyDateStringToLocalDate(dateString);
+    if (!d) return dateString;
+    return d.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: '2-digit' });
   };
 
   const formatAverageScore = () => {
@@ -664,7 +672,7 @@ export default function HomeScreen() {
       loc && !loc.includes('undefined') && !loc.includes('Unknown');
     const displayLocation = isValidLocation(remoteCourseLocation)
       ? remoteCourseLocation
-      : (isValidLocation(course?.location) ? course?.location : 'Unknown Location');
+      : (isValidLocation(course?.location) ? course?.location : t('Unknown Location'));
 
     return (
       <TouchableOpacity
@@ -672,7 +680,7 @@ export default function HomeScreen() {
         onPress={() => navigateToRoundDetails(item.id)}
       >
         <View style={styles.roundHeader}>
-          <Text style={styles.roundTitle}>Game {formatDate(item.date)}</Text>
+          <Text style={styles.roundTitle}>{t('Game')} {formatDate(item.date)}</Text>
           <Text style={styles.roundArrow}>›</Text>
         </View>
 
@@ -688,7 +696,7 @@ export default function HomeScreen() {
             </View>
           )}
           <View style={styles.scoreOverlay}>
-            <Text style={styles.scoreText}>Total</Text>
+            <Text style={styles.scoreText}>{t('Total')}</Text>
             <Text style={styles.scoreValue}>{userPlayer?.totalScore ?? 0}</Text>
           </View>
           {/* Overlay course info on image */}
@@ -833,17 +841,17 @@ export default function HomeScreen() {
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <View style={styles.statBox}>
-              <Text style={styles.statValue}>{formatAverageScore()}</Text>
-            </View>
-            <Text style={styles.statLabel}>AVG SCORE</Text>
+            <Text style={styles.statValue}>{formatAverageScore()}</Text>
           </View>
+          <Text style={styles.statLabel}>{t('AVG SCORE')}</Text>
+        </View>
 
           <View style={styles.statItem}>
             <View style={styles.statBox}>
-              <Text style={styles.statValue}>{totalRounds}</Text>
-            </View>
-            <Text style={styles.statLabel}>ROUNDS</Text>
+            <Text style={styles.statValue}>{totalRounds}</Text>
           </View>
+          <Text style={styles.statLabel}>{t('ROUNDS')}</Text>
+        </View>
 
           <TouchableOpacity style={styles.statItem} onPress={handleHandicapPress}>
             <View style={[styles.statBox, styles.statBoxInteractive]}>
@@ -852,12 +860,12 @@ export default function HomeScreen() {
                 <Info size={14} color={colors.text} />
               </View>
             </View>
-            <Text style={styles.statLabel}>SCANDICAP</Text>
+            <Text style={styles.statLabel}>{t('SCANDICAP')}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.roundsSection}>
-          <Text style={styles.sectionTitle}>My rounds</Text>
+          <Text style={styles.sectionTitle}>{t('My rounds')}</Text>
 
 
 
@@ -876,7 +884,7 @@ export default function HomeScreen() {
                     <View style={{ marginBottom: 12 }}>
                       <SessionBanner
                         sessionId={activeSession._id}
-                        courseName={activeSession.course?.name || 'Unknown Course'}
+                        courseName={activeSession.course?.name || t('Unknown Course')}
                         gameType={activeSession.gameType}
                         playerCount={activeSession.participants?.length || 0}
                         status={activeSession.status}
@@ -903,7 +911,7 @@ export default function HomeScreen() {
                   <View style={{ marginBottom: 12 }}>
                     <SessionBanner
                       sessionId={activeSession._id}
-                      courseName={activeSession.course?.name || 'Unknown Course'}
+                      courseName={activeSession.course?.name || t('Unknown Course')}
                       gameType={activeSession.gameType}
                       playerCount={activeSession.participants?.length || 0}
                       status={activeSession.status}
@@ -923,9 +931,9 @@ export default function HomeScreen() {
 
               {(!hasActiveScanCard && !activeSession) && (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyTitle}>No rounds yet</Text>
+                  <Text style={styles.emptyTitle}>{t('No rounds yet')}</Text>
                   <Text style={styles.emptyMessage}>
-                    Scan your scorecard with AI to add your scores and get your round summary
+                    {t('Scan your scorecard with AI to add your scores and get your round summary')}
                   </Text>
                   <CurvedArrow />
                 </View>
@@ -942,9 +950,9 @@ export default function HomeScreen() {
         >
           <View style={styles.onboardingOverlay}>
             <SafeAreaView style={styles.onboardingOverlayContent}>
-              <Text style={styles.onboardingOverlayTitle}>Processing your scorecard...</Text>
+              <Text style={styles.onboardingOverlayTitle}>{t('Processing your scorecard...')}</Text>
               <Text style={styles.onboardingOverlaySubtitle}>
-                Our AI is reading handwritten scores and identifying players
+                {t('Our AI is reading handwritten scores and identifying players')}
               </Text>
 
               {/* Render the scan card inside the modal */}
@@ -953,10 +961,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.onboardingExplanationBox}>
-                <Text style={styles.onboardingExplanationTitle}>💡 How it works</Text>
+                <Text style={styles.onboardingExplanationTitle}>{t('💡 How it works')}</Text>
                 <Text style={styles.onboardingExplanationText}>
-                  ScanCaddie uses AI to read handwritten scorecards, identify players,
-                  and automatically calculate your stats - all in seconds!
+                  {t('ScanCaddie uses AI to read handwritten scorecards, identify players, and automatically calculate your stats - all in seconds!')}
                 </Text>
               </View>
             </SafeAreaView>
@@ -971,7 +978,7 @@ export default function HomeScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Set up your profile</Text>
+              <Text style={styles.modalTitle}>{t('Set up your profile')}</Text>
               <TouchableOpacity
                 style={[styles.avatarContainer, styles.profileSetupAvatar]}
                 onPress={handlePickProfilePhoto}
@@ -988,12 +995,12 @@ export default function HomeScreen() {
                   <Edit3 size={14} color={colors.card} />
                 </View>
               </TouchableOpacity>
-              <Text style={styles.inputLabel}>Name</Text>
+              <Text style={styles.inputLabel}>{t('Name')}</Text>
               <TextInput
                 style={styles.input}
                 value={profileNameInput}
                 onChangeText={setProfileNameInput}
-                placeholder="Enter your name"
+                placeholder={t('Enter your name')}
               />
               <View style={[styles.modalButtons, { justifyContent: 'center' }]}>
                 <TouchableOpacity
@@ -1006,7 +1013,7 @@ export default function HomeScreen() {
                   onPress={async () => {
                     const trimmed = profileNameInput.trim();
                     if (!user || !isUserLoaded) {
-                      Alert.alert('Sign in required', 'Please sign in again to save your profile.');
+                      Alert.alert(t('Sign in required'), t('Please sign in again to save your profile.'));
                       return;
                     }
                     try {
@@ -1030,7 +1037,7 @@ export default function HomeScreen() {
                       setShowProfileSetup(false);
                       setProfileSetupSeen(true);
                     } catch {
-                      Alert.alert('Error', 'Could not save your profile. Please try again.');
+                      Alert.alert(t('Error'), t('Could not save your profile. Please try again.'));
                     }
                   }}
                 >
@@ -1040,7 +1047,7 @@ export default function HomeScreen() {
                       !canSaveProfileName && styles.saveButtonTextDisabled,
                     ]}
                   >
-                    Save
+                    {t('Save')}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1056,18 +1063,18 @@ export default function HomeScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Set Your Handicap</Text>
+              <Text style={styles.modalTitle}>{t('Set Your Handicap')}</Text>
 
-              <Text style={styles.inputLabel}>Handicap Index</Text>
+              <Text style={styles.inputLabel}>{t('Handicap Index')}</Text>
               <TextInput
                 style={styles.input}
                 value={handicapInput}
                 onChangeText={setHandicapInput}
-                placeholder="Enter your current index"
+                placeholder={t('Enter your current index')}
                 keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
               />
               <Text style={styles.ghinNote}>
-                This seeds your Scandicap so future rounds can adjust it over time.
+                {t('This seeds your Scandicap so future rounds can adjust it over time.')}
               </Text>
 
               <View style={styles.modalButtons}>
@@ -1075,7 +1082,7 @@ export default function HomeScreen() {
                   style={[styles.modalButton, styles.cancelButton]}
                   onPress={() => setShowHandicapModal(false)}
                 >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                  <Text style={styles.cancelButtonText}>{t('Cancel')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1083,22 +1090,22 @@ export default function HomeScreen() {
                   onPress={async () => {
                     const parsed = parseFloat(handicapInput);
                     if (isNaN(parsed)) {
-                      Alert.alert('Error', 'Please enter a valid handicap');
+                      Alert.alert(t('Error'), t('Please enter a valid handicap'));
                       return;
                     }
                     try {
                       await seedHandicap({ initialHandicap: parsed });
                       setShowHandicapModal(false);
-                      Alert.alert('Success', 'Your Scandicap has been seeded.');
+                      Alert.alert(t('Success'), t('Your Scandicap has been seeded.'));
                     } catch (e: any) {
                       Alert.alert(
-                        'Error',
-                        e?.message || 'Could not seed handicap. Please try again.'
+                        t('Error'),
+                        e?.message || t('Could not seed handicap. Please try again.')
                       );
                     }
                   }}
                 >
-                  <Text style={styles.saveButtonText}>Save</Text>
+                  <Text style={styles.saveButtonText}>{t('Save')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

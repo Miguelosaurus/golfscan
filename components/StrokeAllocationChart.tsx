@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { colors } from '@/constants/colors';
+import { useT } from '@/lib/i18n';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -36,6 +37,8 @@ export function StrokeAllocationChart({
     holeSelection,
     format = 'usga',
 }: StrokeAllocationChartProps) {
+    const t = useT();
+
     // Filter holes based on selection
     const displayHoles = holes.filter((h) => {
         if (holeSelection === 'front_9') return h.number <= 9;
@@ -52,9 +55,9 @@ export function StrokeAllocationChart({
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <Text style={styles.title}>Stroke Allocation</Text>
+                <Text style={styles.title}>{t("Stroke Allocation")}</Text>
                 <Text style={styles.formatBadge}>
-                    {format === 'usga' ? 'Based on Best Player' : 'Full Handicap'}
+                    {format === 'usga' ? t("Based on Best Player") : t("Full Handicap")}
                 </Text>
             </View>
 
@@ -64,7 +67,7 @@ export function StrokeAllocationChart({
                     {/* Column Headers (Hole Numbers) */}
                     <View style={styles.row}>
                         <View style={styles.labelCell}>
-                            <Text style={styles.labelText}>Hole</Text>
+                            <Text style={styles.labelText}>{t("Hole")}</Text>
                         </View>
                         {displayHoles.map((hole) => (
                             <View key={`h-${hole.number}`} style={styles.cell}>
@@ -76,7 +79,7 @@ export function StrokeAllocationChart({
                     {/* Par Row */}
                     <View style={styles.row}>
                         <View style={styles.labelCell}>
-                            <Text style={styles.labelText}>Par</Text>
+                            <Text style={styles.labelText}>{t("Par")}</Text>
                         </View>
                         {displayHoles.map((hole) => (
                             <View key={`p-${hole.number}`} style={styles.cell}>
@@ -88,7 +91,7 @@ export function StrokeAllocationChart({
                     {/* HCP (Stroke Index) Row */}
                     <View style={styles.row}>
                         <View style={styles.labelCell}>
-                            <Text style={styles.labelText}>HCP</Text>
+                            <Text style={styles.labelText}>{t("HCP")}</Text>
                         </View>
                         {displayHoles.map((hole) => (
                             <View key={`hcp-${hole.number}`} style={styles.cell}>
@@ -137,7 +140,7 @@ export function StrokeAllocationChart({
             <View style={styles.legend}>
                 <View style={styles.legendItem}>
                     <View style={styles.strokeDot} />
-                    <Text style={styles.legendText}>Get Strokes</Text>
+                    <Text style={styles.legendText}>{t("Get Strokes")}</Text>
                 </View>
             </View>
         </View>

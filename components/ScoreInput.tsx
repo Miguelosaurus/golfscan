@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput } from 'react-native';
 import { colors } from '@/constants/colors';
 import { Hole } from '@/types';
+import { useT } from '@/lib/i18n';
 
 interface ScoreInputProps {
   hole: Hole;
@@ -16,6 +17,7 @@ export const ScoreInput: React.FC<ScoreInputProps> = ({
   initialValue,
   onScoreChange
 }) => {
+  const t = useT();
   const [score, setScore] = useState(initialValue?.toString() || '');
   
   const handleScoreChange = (value: string) => {
@@ -40,8 +42,8 @@ export const ScoreInput: React.FC<ScoreInputProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.holeInfo}>
-        <Text style={styles.holeNumber}>Hole {hole.number}</Text>
-        <Text style={styles.holePar}>Par {hole.par}</Text>
+        <Text style={styles.holeNumber}>{t('Hole')} {hole.number}</Text>
+        <Text style={styles.holePar}>{t('Par')} {hole.par}</Text>
       </View>
       
       <View style={styles.scoreContainer}>

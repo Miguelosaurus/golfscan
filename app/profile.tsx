@@ -9,38 +9,33 @@ import {
     TextInput,
     Modal,
     Image,
-    Platform
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack, useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
-import { Button } from '@/components/Button';
 import { ActivityCalendar } from '@/components/ActivityCalendar';
 import {
     User,
-    Edit3,
     Camera,
-    Link as LinkIcon,
-    ChevronRight
+    ChevronRight,
+    TrendingUp,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useMutation, useQuery } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { useUser } from '@clerk/clerk-expo';
+import { useT } from '@/lib/i18n';
 
 export default function ProfileScreen() {
-    const router = useRouter();
+    const t = useT();
     const { players, updatePlayer } = useGolfStore();
     const profile = useQuery(api.users.getProfile);
     const updateProfile = useMutation(api.users.updateProfile);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [showHandicapModal, setShowHandicapModal] = useState(false);
-    const [showGhinModal, setShowGhinModal] = useState(false);
+    const [showScandicapModal, setShowScandicapModal] = useState(false);
     const [editName, setEditName] = useState('');
-    const [editHandicap, setEditHandicap] = useState('');
-    const [ghinNumber, setGhinNumber] = useState('');
     const { user, isLoaded: isUserLoaded } = useUser();
 
     const currentUser = players.find(p => p.isUser);
@@ -53,7 +48,7 @@ export default function ProfileScreen() {
 
     const handleSaveProfile = async () => {
         if (!editName.trim()) {
-            Alert.alert('Error', 'Please enter a valid name');
+            Alert.alert(t('Error'), t('Please enter a valid name'));
             return;
         }
         const trimmed = editName.trim();
@@ -77,80 +72,29 @@ export default function ProfileScreen() {
                 await user.update(updatePayload);
             }
         } catch {
-            Alert.alert('Error', 'Could not update your profile. Please try again.');
+            Alert.alert(t('Error'), t('Could not update your profile. Please try again.'));
             return;
         }
 
         setShowEditModal(false);
-        Alert.alert('Success', 'Profile updated successfully');
+        Alert.alert(t('Success'), t('Profile updated successfully'));
     };
 
-    const handleEditHandicap = () => {
-        setEditHandicap(currentUser?.handicap?.toString() || '');
-        setShowHandicapModal(true);
-    };
-
-    const updateHandicapMutation = useMutation(api.users.updateHandicap);
-
-    const handleSaveHandicap = async () => {
-        if (!currentUser && !profile) return;
-
-        const newHandicap = parseFloat(editHandicap);
-        if (isNaN(newHandicap)) {
-            Alert.alert('Error', 'Please enter a valid handicap');
-            return;
-        }
-
-        try {
-            await updateHandicapMutation({ handicap: newHandicap });
-            if (currentUser) {
-                updatePlayer({
-                    ...currentUser,
-                    handicap: newHandicap
-                });
-            }
-            setShowHandicapModal(false);
-            Alert.alert('Success', 'Handicap updated successfully');
-        } catch (e) {
-            Alert.alert('Error', 'Could not update handicap. Please try again.');
-        }
-    };
-
-    const handleGhinLink = () => {
-        setGhinNumber('');
-        setShowGhinModal(true);
-    };
-
-    const handleSaveGhin = () => {
-        if (!ghinNumber.trim()) {
-            Alert.alert('Error', 'Please enter a valid GHIN number');
-            return;
-        }
-
-        // Simulate GHIN linking
-        Alert.alert(
-            'GHIN Linked',
-            `Your GHIN account ${ghinNumber} has been linked successfully. Your official handicap will be synced automatically.`,
-            [
-                {
-                    text: 'OK',
-                    onPress: () => setShowGhinModal(false)
-                }
-            ]
-        );
+    const handleScandicapPress = () => {
+        setShowScandicapModal(true);
     };
 
     const handleChangePhoto = async () => {
         Alert.alert(
-            'Change Profile Photo',
-            'Choose an option',
+            t('Change Profile Photo'),
+            t('Choose an option'),
             [
                 {
-                    text: 'Camera',
+                    text: t('Camera'),
                     onPress: async () => {
                         const permission = await ImagePicker.requestCameraPermissionsAsync();
                         if (!permission.granted) {
-                            Alert.alert('Permission required', 'Camera permission is required to take a photo.');
+                            Alert.alert(t('Permission required'), t('Camera permission is required to take a photo.'));
                             return;
                         }
                         const result = await ImagePicker.launchCameraAsync({
@@ -165,11 +109,11 @@ export default function ProfileScreen() {
                     },
                 },
                 {
-                    text: 'Photo Library',
+                    text: t('Photo Library'),
                     onPress: async () => {
                         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
                         if (!permission.granted) {
-                            Alert.alert('Permission required', 'Media library permission is required to select a photo.');
+                            Alert.alert(t('Permission required'), t('Media library permission is required to select a photo.'));
                             return;
                         }
                         const result = await ImagePicker.launchImageLibraryAsync({
@@ -183,7 +127,7 @@ export default function ProfileScreen() {
                         }
                     },
                 },
-                { text: 'Cancel', style: 'cancel' },
+                { text: t('Cancel'), style: 'cancel' },
             ]
         );
     };
@@ -198,7 +142,7 @@ export default function ProfileScreen() {
             <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
                 <Stack.Screen
                     options={{
-                        title: "Profile",
+                        title: t("Profile"),
                         headerStyle: {
                             backgroundColor: colors.background,
                         },
@@ -226,7 +170,7 @@ export default function ProfileScreen() {
                             </View>
                         </TouchableOpacity>
                         <Text style={styles.userName}>{displayName}</Text>
-                        <Text style={styles.userInfo}>Member since June 2025</Text>
+                        <Text style={styles.userInfo}>{t('Member since June 2025')}</Text>
                     </View>
 
                     <ActivityCalendar />
@@ -234,33 +178,26 @@ export default function ProfileScreen() {
                     {/* Wager Stats Card Removed */}
 
                     <View style={styles.menuSection}>
-                        <Text style={styles.menuSectionTitle}>Profile Information</Text>
+                        <Text style={styles.menuSectionTitle}>{t('Profile Information')}</Text>
 
                         <TouchableOpacity style={styles.menuItem} onPress={handleEditProfile}>
                             <User size={20} color={colors.text} />
                             <View style={styles.menuItemContent}>
-                                <Text style={styles.menuItemText}>Name</Text>
-                                <Text style={styles.menuItemValue}>{displayName || 'Not set'}</Text>
+                                <Text style={styles.menuItemText}>{t('Name')}</Text>
+                                <Text style={styles.menuItemValue}>{displayName || t('Not set')}</Text>
                             </View>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={handleEditHandicap}>
-                            <Edit3 size={20} color={colors.text} />
+                        <TouchableOpacity style={styles.menuItem} onPress={handleScandicapPress}>
+                            <TrendingUp size={20} color={colors.text} />
                             <View style={styles.menuItemContent}>
-                                <Text style={styles.menuItemText}>Handicap</Text>
+                                <Text style={styles.menuItemText}>{t('Scandicap')}</Text>
                                 <Text style={styles.menuItemValue}>
-                                    {currentUser?.handicap !== undefined ? currentUser.handicap.toFixed(1) : 'Not set'}
+                                    {typeof (profile?.handicap ?? currentUser?.handicap) === 'number'
+                                        ? (profile?.handicap ?? currentUser?.handicap)!.toFixed(1)
+                                        : t('Not set')}
                                 </Text>
-                            </View>
-                            <ChevronRight size={20} color={colors.text} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={handleGhinLink}>
-                            <LinkIcon size={20} color={colors.text} />
-                            <View style={styles.menuItemContent}>
-                                <Text style={styles.menuItemText}>GHIN Account</Text>
-                                <Text style={styles.menuItemValue}>Not linked</Text>
                             </View>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
@@ -276,14 +213,14 @@ export default function ProfileScreen() {
                 >
                     <View style={styles.modalOverlay}>
                         <View style={styles.modalContent}>
-                            <Text style={styles.modalTitle}>Edit Profile</Text>
+                            <Text style={styles.modalTitle}>{t('Edit Profile')}</Text>
 
-                            <Text style={styles.inputLabel}>Name</Text>
+                            <Text style={styles.inputLabel}>{t('Name')}</Text>
                             <TextInput
                                 style={styles.input}
                                 value={editName}
                                 onChangeText={setEditName}
-                                placeholder="Enter your name"
+                                placeholder={t('Enter your name')}
                             />
 
                             <View style={styles.modalButtons}>
@@ -291,100 +228,40 @@ export default function ProfileScreen() {
                                     style={[styles.modalButton, styles.cancelButton]}
                                     onPress={() => setShowEditModal(false)}
                                 >
-                                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                                    <Text style={styles.cancelButtonText}>{t('Cancel')}</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
                                     style={[styles.modalButton, styles.saveButton]}
                                     onPress={handleSaveProfile}
                                 >
-                                    <Text style={styles.saveButtonText}>Save</Text>
+                                    <Text style={styles.saveButtonText}>{t('Save')}</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
                     </View>
                 </Modal>
 
-                {/* Edit Handicap Modal */}
+                {/* Scandicap Info Modal */}
                 <Modal
-                    visible={showHandicapModal}
+                    visible={showScandicapModal}
                     transparent
                     animationType="fade"
-                    onRequestClose={() => setShowHandicapModal(false)}
+                    onRequestClose={() => setShowScandicapModal(false)}
                 >
                     <View style={styles.modalOverlay}>
                         <View style={styles.modalContent}>
-                            <Text style={styles.modalTitle}>Edit Handicap</Text>
-
-                            <Text style={styles.inputLabel}>Handicap Index</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={editHandicap}
-                                onChangeText={setEditHandicap}
-                                placeholder="Enter handicap"
-                                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
-                            />
-
-                            <Text style={styles.note}>
-                                Enter your current handicap index. This will be used for net score calculations.
+                            <Text style={styles.modalTitle}>{t('Scandicap')}</Text>
+                            <Text style={styles.scandicapNote}>
+                                {t('Scandicap is calculated from your saved rounds. You can’t manually edit it after onboarding.')}
                             </Text>
 
                             <View style={styles.modalButtons}>
                                 <TouchableOpacity
-                                    style={[styles.modalButton, styles.cancelButton]}
-                                    onPress={() => setShowHandicapModal(false)}
-                                >
-                                    <Text style={styles.cancelButtonText}>Cancel</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
                                     style={[styles.modalButton, styles.saveButton]}
-                                    onPress={handleSaveHandicap}
+                                    onPress={() => setShowScandicapModal(false)}
                                 >
-                                    <Text style={styles.saveButtonText}>Save</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </Modal>
-
-                {/* GHIN Link Modal */}
-                <Modal
-                    visible={showGhinModal}
-                    transparent
-                    animationType="fade"
-                    onRequestClose={() => setShowGhinModal(false)}
-                >
-                    <View style={styles.modalOverlay}>
-                        <View style={styles.modalContent}>
-                            <Text style={styles.modalTitle}>Link GHIN Account</Text>
-
-                            <Text style={styles.inputLabel}>GHIN Number</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={ghinNumber}
-                                onChangeText={setGhinNumber}
-                                placeholder="Enter your GHIN number"
-                                keyboardType="number-pad"
-                            />
-
-                            <Text style={styles.note}>
-                                Link your GHIN account to automatically sync your official handicap index. Your GHIN number can be found on your membership card or in the GHIN app.
-                            </Text>
-
-                            <View style={styles.modalButtons}>
-                                <TouchableOpacity
-                                    style={[styles.modalButton, styles.cancelButton]}
-                                    onPress={() => setShowGhinModal(false)}
-                                >
-                                    <Text style={styles.cancelButtonText}>Cancel</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    style={[styles.modalButton, styles.saveButton]}
-                                    onPress={handleSaveGhin}
-                                >
-                                    <Text style={styles.saveButtonText}>Link Account</Text>
+                                    <Text style={styles.saveButtonText}>{t('OK')}</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -518,6 +395,13 @@ const styles = StyleSheet.create({
         marginBottom: 24,
         textAlign: 'center',
         lineHeight: 16,
+    },
+    scandicapNote: {
+        fontSize: 14,
+        color: colors.text,
+        marginBottom: 24,
+        textAlign: 'center',
+        lineHeight: 18,
     },
     modalButtons: {
         flexDirection: 'row',

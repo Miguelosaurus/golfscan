@@ -2,6 +2,7 @@
 
 export type HandwritingStyle = 'neat' | 'average' | 'rushed';
 export type DistanceUnit = 'yards' | 'meters';
+export type AppLanguage = 'en' | 'es';
 export type AgeGroup = '18-24' | '25-34' | '35-44' | '45-54' | '55-64' | '65+';
 
 export interface OnboardingPreferences {
@@ -10,6 +11,7 @@ export interface OnboardingPreferences {
     existingHandicap?: number;
     handwritingStyle?: HandwritingStyle;
     distanceUnit: DistanceUnit;
+    language: AppLanguage;
 }
 
 export type OnboardingStep =

@@ -19,27 +19,35 @@ import { ScoreTrendCard } from "@/components/ScoreTrendCard";
 import { RoundCard } from "@/components/RoundCard";
 import { HeadToHeadCard } from "@/components/HeadToHeadCard";
 import { Round } from "@/types";
-import { calculateAverageScoreWithHoleAdjustment } from "@/utils/helpers";
+import { calculateAverageScoreWithHoleAdjustment, parseAnyDateStringToLocalDate } from "@/utils/helpers";
 import { ScoreTrendData } from "@/utils/stats";
 import { TrendingUp, Calendar, Info, DollarSign } from "lucide-react-native";
 import { PieChart } from "react-native-gifted-charts";
 import { useQuery } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { useT } from "@/lib/i18n";
+import { useOnboardingStore } from "@/store/useOnboardingStore";
 
 type TooltipKey = "blowup" | "avgVsPar" | "performanceByPar" | "difficulty" | null;
 
-const buildTrendFromRounds = (rounds: Round[], playerId: string | undefined): ScoreTrendData => {
+const buildTrendFromRounds = (
+    rounds: Round[],
+    playerId: string | undefined,
+    locale: string | undefined
+): ScoreTrendData => {
     const sorted = [...rounds]
         .filter((r) => r.players.some((p) => p.playerId === playerId))
         .map((r) => ({
-            date: new Date(r.date),
+            date: parseAnyDateStringToLocalDate(r.date),
             score: r.players.find((p) => p.playerId === playerId)?.totalScore ?? 0,
         }))
-        .filter((r) => !isNaN(r.date.getTime()))
-        .sort((a, b) => a.date.getTime() - b.date.getTime());
+        .filter((r) => !!r.date && !isNaN((r.date as Date).getTime()))
+        .sort((a, b) => (a.date as Date).getTime() - (b.date as Date).getTime());
 
-    const labels = sorted.map((r) => r.date.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+    const labels = sorted.map((r) =>
+        (r.date as Date).toLocaleDateString(locale, { month: "short", day: "numeric" })
+    );
     const scores = sorted.map((r) => r.score);
 
     const movingAverage: number[] = [];
@@ -62,6 +70,9 @@ export default function PlayerProfileScreen() {
     const router = useRouter();
     const { width: windowWidth } = useWindowDimensions();
     const [activeTooltip, setActiveTooltip] = useState<TooltipKey>(null);
+    const t = useT();
+    const language = useOnboardingStore((s) => s.language);
+    const localeForDates = language === "es" ? "es-ES" : "en-US";
 
     const profile = useQuery(api.users.getProfile);
     const hostRounds =
@@ -115,19 +126,19 @@ export default function PlayerProfileScreen() {
     const playerName =
         stats?.playerName ||
         playerRounds[0]?.players.find((p) => p.playerId === id)?.playerName ||
-        "Unknown Player";
+        t("Unknown Player");
     const isLoading = stats === undefined;
     const isEmpty = stats === null && playerRounds.length === 0;
 
     const scoreDistributionEntries =
         stats &&
         [
-            { label: "Eagles", value: stats.eagles, color: "#F7B32B" },
-            { label: "Birdies", value: stats.birdies, color: "#4CAF50" },
-            { label: "Pars", value: stats.pars, color: "#1E6059" },
-            { label: "Bogeys", value: stats.bogeys, color: "#FFB347" },
-            { label: "Doubles", value: stats.doubleBogeys, color: "#F44336" },
-            { label: "Worse", value: stats.worseThanDouble, color: "#B71C1C" },
+            { label: t("Eagles"), value: stats.eagles, color: "#F7B32B" },
+            { label: t("Birdies"), value: stats.birdies, color: "#4CAF50" },
+            { label: t("Pars"), value: stats.pars, color: "#1E6059" },
+            { label: t("Bogeys"), value: stats.bogeys, color: "#FFB347" },
+            { label: t("Doubles"), value: stats.doubleBogeys, color: "#F44336" },
+            { label: t("Worse"), value: stats.worseThanDouble, color: "#B71C1C" },
         ];
     const hasScoreDistribution = !!scoreDistributionEntries?.some((item: { value: number }) => item.value > 0);
     const pieRadius = Math.max(Math.min((windowWidth - 96) / 2.2, 130), 90);
@@ -145,30 +156,33 @@ export default function PlayerProfileScreen() {
                 shiftY: 0,
             })) || [];
 
-    const scoreTrend = useMemo(() => buildTrendFromRounds(playerRounds, id), [playerRounds, id]);
+    const scoreTrend = useMemo(
+        () => buildTrendFromRounds(playerRounds, id, localeForDates),
+        [playerRounds, id, localeForDates]
+    );
 
     const averageVsParNumber = stats ? Number(stats.averageVsPar) : 0;
 
     const tooltipContent = {
         blowup: {
-            title: "Blow-Up Holes/Rd",
+            title: t("Blow-Up Holes/Rd"),
             body: stats?.isSelf
-                ? "Average number of holes per round where you scored triple bogey or worse."
-                : `Average number of holes per round where ${playerName} scored triple bogey or worse.`,
+                ? t("Average number of holes per round where you scored triple bogey or worse.")
+                : t("Average number of holes per round where {{name}} scored triple bogey or worse.", { name: playerName }),
         },
         avgVsPar: {
-            title: "Avg vs Par",
+            title: t("Avg vs Par"),
             body: stats?.isSelf
-                ? "How many strokes over/under par you typically shoot each round."
-                : `How many strokes over/under par ${playerName} typically shoots each round.`,
+                ? t("How many strokes over/under par you typically shoot each round.")
+                : t("How many strokes over/under par {{name}} typically shoots each round.", { name: playerName }),
         },
         performanceByPar: {
-            title: "Performance by Par",
-            body: "Average score relative to par for Par 3s, 4s, and 5s.",
+            title: t("Performance by Par"),
+            body: t("Average score relative to par for Par 3s, 4s, and 5s."),
         },
         difficulty: {
-            title: "Performance vs Difficulty",
-            body: "Average score relative to par grouped by hole handicap (hard, medium, easy).",
+            title: t("Performance vs Difficulty"),
+            body: t("Average score relative to par grouped by hole handicap (hard, medium, easy)."),
         },
     } as const;
 
@@ -233,21 +247,21 @@ export default function PlayerProfileScreen() {
                             <Text style={styles.avatarText}>{playerName.charAt(0)}</Text>
                         </View>
                         <Text style={styles.playerName}>
-                            {playerName} {stats?.isSelf && <Text style={styles.userLabel}>(You)</Text>}
+                            {playerName} {stats?.isSelf && <Text style={styles.userLabel}>({t("You")})</Text>}
                         </Text>
                         <View style={styles.handicapContainer}>
-                            <Text style={styles.handicapLabel}>Handicap</Text>
+                            <Text style={styles.handicapLabel}>{t("Handicap")}</Text>
                             <Text style={styles.handicapValue}>{headerHandicap}</Text>
                         </View>
                     </View>
 
-                    {isLoading && <Text style={styles.loading}>Loading player…</Text>}
+                    {isLoading && <Text style={styles.loading}>{t("Loading player…")}</Text>}
 
                     {isEmpty && (
                         <View style={styles.emptyState}>
-                            <Text style={styles.emptyTitle}>No data for this player yet</Text>
-                            <Text style={styles.emptyMessage}>Save a round with this player to view stats.</Text>
-                            <Button title="Back" onPress={() => router.back()} />
+                            <Text style={styles.emptyTitle}>{t("No data for this player yet")}</Text>
+                            <Text style={styles.emptyMessage}>{t("Save a round with this player to view stats.")}</Text>
+                            <Button title={t("Back")} onPress={() => router.back()} />
                         </View>
                     )}
 
@@ -256,14 +270,14 @@ export default function PlayerProfileScreen() {
                             <View style={styles.statsContainer}>
                                 <View style={styles.statItem}>
                                     <Text style={styles.statValue}>{roundsPlayed}</Text>
-                                    <Text style={styles.statLabel}>Rounds</Text>
+                                    <Text style={styles.statLabel}>{t("Rounds")}</Text>
                                 </View>
 
                                 <View style={styles.statDivider} />
 
                                 <View style={styles.statItem}>
                                     <Text style={styles.statValue}>{averageScore}</Text>
-                                    <Text style={styles.statLabel}>Avg. Score</Text>
+                                    <Text style={styles.statLabel}>{t("Avg. Score")}</Text>
                                 </View>
 
                                 {stats && (
@@ -274,7 +288,7 @@ export default function PlayerProfileScreen() {
                                             <Text style={styles.statValue}>
                                                 {stats.blowUp.averagePerRound.toFixed(1)}
                                             </Text>
-                                            <Text style={styles.statLabel}>Blow-Up Holes/Rd</Text>
+                                            <Text style={styles.statLabel}>{t("Blow-Up Holes/Rd")}</Text>
                                             <TouchableOpacity
                                                 onPress={() => setActiveTooltip("blowup")}
                                                 style={styles.statInfoButton}
@@ -296,13 +310,13 @@ export default function PlayerProfileScreen() {
                                             <DollarSign size={24} color="#2E7D32" />
                                         </View>
                                         <View style={{ flex: 1 }}>
-                                            <Text style={{ fontSize: 13, color: colors.textSecondary }}>Net Earnings</Text>
+                                            <Text style={{ fontSize: 13, color: colors.textSecondary }}>{t("Net Earnings")}</Text>
                                             <Text style={{ fontSize: 24, fontWeight: '700', color: wagerStats.netBalanceCents >= 0 ? '#2E7D32' : '#C62828' }}>
                                                 {wagerStats.netBalanceCents >= 0 ? '+' : '-'}${Math.abs(wagerStats.netBalanceCents / 100).toFixed(2)}
                                             </Text>
                                             <View style={{ flexDirection: 'row', marginTop: 4 }}>
-                                                <Text style={{ fontSize: 12, color: colors.textSecondary, marginRight: 8 }}>Won: <Text style={{ color: '#2E7D32', fontWeight: '600' }}>${(wagerStats.totalWonCents / 100).toFixed(2)}</Text></Text>
-                                                <Text style={{ fontSize: 12, color: colors.textSecondary }}>Lost: <Text style={{ color: '#C62828', fontWeight: '600' }}>${(wagerStats.totalLostCents / 100).toFixed(2)}</Text></Text>
+                                                <Text style={{ fontSize: 12, color: colors.textSecondary, marginRight: 8 }}>{t("Won")}: <Text style={{ color: '#2E7D32', fontWeight: '600' }}>${(wagerStats.totalWonCents / 100).toFixed(2)}</Text></Text>
+                                                <Text style={{ fontSize: 12, color: colors.textSecondary }}>{t("Lost")}: <Text style={{ color: '#C62828', fontWeight: '600' }}>${(wagerStats.totalLostCents / 100).toFixed(2)}</Text></Text>
                                             </View>
 
                                             {(wagerStats.bestWin || wagerStats.biggestDonor) && (
@@ -310,15 +324,15 @@ export default function PlayerProfileScreen() {
                                                     {wagerStats.bestWin && (
                                                         <TouchableOpacity onPress={() => wagerStats.bestWin && router.push(`/round/${wagerStats.bestWin.roundId}`)} activeOpacity={0.7} style={{ marginBottom: 4 }}>
                                                             <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                                                                🏆 Best Win: <Text style={{ color: '#2E7D32', fontWeight: '600' }}>${(wagerStats.bestWin.amountCents / 100).toFixed(0)}</Text>
-                                                                <Text style={{ fontSize: 11 }}> ({new Date(wagerStats.bestWin.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})</Text>
+                                                                🏆 {t("Best Win")}: <Text style={{ color: '#2E7D32', fontWeight: '600' }}>${(wagerStats.bestWin.amountCents / 100).toFixed(0)}</Text>
+                                                                <Text style={{ fontSize: 11 }}> ({new Date(wagerStats.bestWin.date).toLocaleDateString(localeForDates, { month: 'short', day: 'numeric' })})</Text>
                                                             </Text>
                                                         </TouchableOpacity>
                                                     )}
                                                     {wagerStats.biggestDonor && (
                                                         <TouchableOpacity onPress={() => wagerStats.biggestDonor && router.push(`/player/${wagerStats.biggestDonor.playerId}`)} activeOpacity={0.7}>
                                                             <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-                                                                💸 Your ATM: <Text style={{ color: colors.text, fontWeight: '600' }}>{wagerStats.biggestDonor.name}</Text>
+                                                                💸 {t("Your ATM")}: <Text style={{ color: colors.text, fontWeight: '600' }}>{wagerStats.biggestDonor.name}</Text>
                                                                 <Text style={{ color: '#2E7D32', fontWeight: '600' }}> (+${(wagerStats.biggestDonor.amountCents / 100).toFixed(0)})</Text>
                                                             </Text>
                                                         </TouchableOpacity>
@@ -338,9 +352,9 @@ export default function PlayerProfileScreen() {
                                             <DollarSign size={24} color="#2E7D32" />
                                         </View>
                                         <View>
-                                            <Text style={{ fontSize: 13, color: colors.textSecondary }}>Wager History</Text>
+                                            <Text style={{ fontSize: 13, color: colors.textSecondary }}>{t("Wager History")}</Text>
                                             <Text style={{ fontSize: 18, fontWeight: '700', color: wagerH2H.netBalanceCents >= 0 ? '#2E7D32' : '#C62828' }}>
-                                                {wagerH2H.netBalanceCents >= 0 ? 'You won' : 'You lost'} ${Math.abs(wagerH2H.netBalanceCents / 100).toFixed(2)}
+                                                {wagerH2H.netBalanceCents >= 0 ? t("You won") : t("You lost")} ${Math.abs(wagerH2H.netBalanceCents / 100).toFixed(2)}
                                             </Text>
                                         </View>
                                     </View>
@@ -360,12 +374,12 @@ export default function PlayerProfileScreen() {
                                 <View style={styles.keyInsightsCard}>
                                     <View style={styles.sectionHeaderLeft}>
                                         <TrendingUp size={18} color={colors.primary} />
-                                        <Text style={styles.sectionTitle}>Key Insights</Text>
+                                        <Text style={styles.sectionTitle}>{t("Key Insights")}</Text>
                                     </View>
 
                                     <View style={styles.avgVsParRow}>
                                         <View style={styles.sectionLabelRow}>
-                                            <Text style={styles.avgVsParLabel}>Avg vs Par</Text>
+                                            <Text style={styles.avgVsParLabel}>{t("Avg vs Par")}</Text>
                                             <TouchableOpacity onPress={() => setActiveTooltip("avgVsPar")} style={styles.infoButtonSmall} hitSlop={8}>
                                                 <Info size={16} color={colors.text} />
                                             </TouchableOpacity>
@@ -384,29 +398,29 @@ export default function PlayerProfileScreen() {
                                     <View style={styles.sectionDivider} />
 
                                     <View style={styles.sectionLabelRow}>
-                                        <Text style={styles.sectionSubtitle}>Performance by Par</Text>
+                                        <Text style={styles.sectionSubtitle}>{t("Performance by Par")}</Text>
                                         <TouchableOpacity onPress={() => setActiveTooltip("performanceByPar")} style={styles.infoButtonSmall} hitSlop={8}>
                                             <Info size={16} color={colors.text} />
                                         </TouchableOpacity>
                                     </View>
                                     <View style={styles.performanceByParRow}>
-                                        <ParStat label="Par 3s" value={stats?.performanceByPar.par3 ?? null} />
-                                        <ParStat label="Par 4s" value={stats?.performanceByPar.par4 ?? null} />
-                                        <ParStat label="Par 5s" value={stats?.performanceByPar.par5 ?? null} />
+                                        <ParStat label={t("Par 3s")} value={stats?.performanceByPar.par3 ?? null} />
+                                        <ParStat label={t("Par 4s")} value={stats?.performanceByPar.par4 ?? null} />
+                                        <ParStat label={t("Par 5s")} value={stats?.performanceByPar.par5 ?? null} />
                                     </View>
 
                                     <View style={styles.sectionDivider} />
 
                                     <View style={styles.sectionLabelRow}>
-                                        <Text style={styles.sectionSubtitle}>Performance vs Difficulty</Text>
+                                        <Text style={styles.sectionSubtitle}>{t("Performance vs Difficulty")}</Text>
                                         <TouchableOpacity onPress={() => setActiveTooltip("difficulty")} style={styles.infoButtonSmall} hitSlop={8}>
                                             <Info size={16} color={colors.text} />
                                         </TouchableOpacity>
                                     </View>
                                     <View style={styles.performanceDifficultyRow}>
-                                        <ParStat label="Hard (HCP 1-6)" value={stats?.performanceByDifficulty.hard ?? null} />
-                                        <ParStat label="Medium (7-12)" value={stats?.performanceByDifficulty.medium ?? null} />
-                                        <ParStat label="Easy (13-18)" value={stats?.performanceByDifficulty.easy ?? null} />
+                                        <ParStat label={t("Hard (HCP 1-6)")} value={stats?.performanceByDifficulty.hard ?? null} />
+                                        <ParStat label={t("Medium (7-12)")} value={stats?.performanceByDifficulty.medium ?? null} />
+                                        <ParStat label={t("Easy (13-18)")} value={stats?.performanceByDifficulty.easy ?? null} />
                                     </View>
                                 </View>
                             )}
@@ -416,10 +430,10 @@ export default function PlayerProfileScreen() {
                             <View style={styles.scoreDistributionContainer}>
                                 <View style={styles.sectionHeader}>
                                     <TrendingUp size={18} color={colors.primary} />
-                                    <Text style={styles.sectionTitle}>Score Distribution</Text>
+                                    <Text style={styles.sectionTitle}>{t("Score Distribution")}</Text>
                                 </View>
 
-                                <Text style={styles.sectionSubtitle}>Score Distribution (All-Time)</Text>
+                                <Text style={styles.sectionSubtitle}>{t("Score Distribution (All-Time)")}</Text>
 
                                 {hasScoreDistribution ? (
                                     <>
@@ -447,14 +461,14 @@ export default function PlayerProfileScreen() {
                                         </View>
                                     </>
                                 ) : (
-                                    <Text style={styles.pieChartPlaceholder}>Play a few more rounds to see your scoring mix.</Text>
+                                    <Text style={styles.pieChartPlaceholder}>{t("Play a few more rounds to see your scoring mix.")}</Text>
                                 )}
                             </View>
 
                             <View style={styles.roundsContainer}>
                                 <View style={styles.sectionHeader}>
                                     <Calendar size={18} color={colors.primary} />
-                                    <Text style={styles.sectionTitle}>Recent Rounds</Text>
+                                    <Text style={styles.sectionTitle}>{t("Recent Rounds")}</Text>
                                 </View>
 
                                 {playerRounds.slice(0, 5).map((round) => (
@@ -462,7 +476,7 @@ export default function PlayerProfileScreen() {
                                 ))}
 
                                 {playerRounds.length > 5 && (
-                                    <Button title="View All Rounds" onPress={() => router.push("/history")} variant="outline" style={styles.viewAllButton} />
+                                    <Button title={t("View All Rounds")} onPress={() => router.push("/history")} variant="outline" style={styles.viewAllButton} />
                                 )}
                             </View>
                         </>

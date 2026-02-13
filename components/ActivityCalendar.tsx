@@ -5,6 +5,9 @@ import { Info, X } from 'lucide-react-native';
 import { useQuery } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { extractYmdDate, getLocalDateString, parseLocalDateString } from '@/utils/helpers';
+import { useT } from '@/lib/i18n';
+import { useOnboardingStore } from '@/store/useOnboardingStore';
 
 interface ActivityCalendarProps {
   year?: number;
@@ -12,6 +15,9 @@ interface ActivityCalendarProps {
 
 export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new Date().getFullYear() }) => {
   const [showInfo, setShowInfo] = useState(false);
+  const t = useT();
+  const language = useOnboardingStore((s) => s.language);
+  const localeForDates = language === "es" ? "es-ES" : "en-US";
 
   // Fetch only round dates from Convex backend (lightweight query)
   const profile = useQuery(api.users.getProfile);
@@ -28,11 +34,13 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
   const activityMap = new Map<string, number>();
 
   roundDates.forEach((dateStr: string) => {
-    const roundDate = new Date(dateStr);
-    if (roundDate.getFullYear() === year) {
-      const dateKey = roundDate.toISOString().split('T')[0];
-      activityMap.set(dateKey, (activityMap.get(dateKey) || 0) + 1);
-    }
+    const ymd = extractYmdDate(dateStr);
+    if (!ymd) return;
+    const roundDate = parseLocalDateString(ymd);
+    if (!roundDate) return;
+    if (roundDate.getFullYear() !== year) return;
+    const dateKey = getLocalDateString(roundDate);
+    activityMap.set(dateKey, (activityMap.get(dateKey) || 0) + 1);
   });
 
   // Generate all days in the year
@@ -40,7 +48,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
   const currentDate = new Date(startDate);
 
   while (currentDate <= endDate) {
-    const dateKey = currentDate.toISOString().split('T')[0];
+    const dateKey = getLocalDateString(currentDate);
     days.push({
       date: new Date(currentDate),
       count: activityMap.get(dateKey) || 0
@@ -83,17 +91,16 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
     return '#216e39';
   };
 
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
+  const months = Array.from({ length: 12 }, (_, idx) =>
+    new Date(2000, idx, 1).toLocaleString(localeForDates, { month: 'short' })
+  );
 
-  const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const weekdays = language === "es" ? ['D', 'L', 'M', 'X', 'J', 'V', 'S'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
   return (
     <View style={styles.container}>
       <View style={styles.titleContainer}>
-        <Text style={styles.title}>Activity</Text>
+        <Text style={styles.title}>{t("Activity")}</Text>
         <TouchableOpacity
           style={styles.infoButton}
           onPress={() => setShowInfo(true)}
@@ -153,7 +160,7 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Activity Calendar</Text>
+              <Text style={styles.modalTitle}>{t("Activity Calendar")}</Text>
               <TouchableOpacity
                 style={styles.modalCloseButton}
                 onPress={() => setShowInfo(false)}
@@ -163,30 +170,30 @@ export const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ year = new D
             </View>
 
             <Text style={styles.modalText}>
-              This calendar shows your golf activity throughout the year. Each square represents a day:
+              {t("This calendar shows your golf activity throughout the year. Each square represents a day:")}
             </Text>
 
             <View style={styles.modalLegend}>
               <View style={styles.modalLegendItem}>
                 <View style={[styles.modalLegendSquare, { backgroundColor: colors.border }]} />
-                <Text style={styles.modalLegendText}>No rounds played</Text>
+                <Text style={styles.modalLegendText}>{t("No rounds played")}</Text>
               </View>
               <View style={styles.modalLegendItem}>
                 <View style={[styles.modalLegendSquare, { backgroundColor: '#9be9a8' }]} />
-                <Text style={styles.modalLegendText}>1 round played</Text>
+                <Text style={styles.modalLegendText}>{t("1 round played")}</Text>
               </View>
               <View style={styles.modalLegendItem}>
                 <View style={[styles.modalLegendSquare, { backgroundColor: '#40c463' }]} />
-                <Text style={styles.modalLegendText}>2 rounds played</Text>
+                <Text style={styles.modalLegendText}>{t("2 rounds played")}</Text>
               </View>
               <View style={styles.modalLegendItem}>
                 <View style={[styles.modalLegendSquare, { backgroundColor: '#30a14e' }]} />
-                <Text style={styles.modalLegendText}>3+ rounds played</Text>
+                <Text style={styles.modalLegendText}>{t("3+ rounds played")}</Text>
               </View>
             </View>
 
             <Text style={styles.modalFooterText}>
-              The more you play, the more filled out your calendar becomes!
+              {t("The more you play, the more filled out your calendar becomes!")}
             </Text>
           </View>
         </View>

@@ -64,22 +64,8 @@ const levenshteinDistance = (str1: string, str2: string): number => {
   return matrix[str2.length][str1.length];
 };
 
-const fuzzyMatchCourse = async (courseName: string): Promise<any> => {
-  try {
-    // This would integrate with your golf course API
-    // For now, return null (no match) - implement based on your API
-    return null;
-  } catch (error) {
-    console.warn('Course matching error:', error);
-    return null;
-  }
-};
-
 const calculateOverallConfidence = (data: ScorecardScanResult): number => {
   const confidences: number[] = [];
-
-  if (data.courseNameConfidence !== undefined) confidences.push(data.courseNameConfidence);
-  if (data.dateConfidence !== undefined) confidences.push(data.dateConfidence);
 
   data.players.forEach(player => {
     if (player.nameConfidence !== undefined) confidences.push(player.nameConfidence);
@@ -190,10 +176,6 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
           responseSchema: {
             type: 'object',
             properties: {
-              courseName: { type: 'string', nullable: true },
-              courseNameConfidence: { type: 'number' },
-              date: { type: 'string', nullable: true },
-              dateConfidence: { type: 'number' },
               players: {
                 type: 'array',
                 items: {
@@ -288,19 +270,13 @@ async function scanScorecardImpl(input: { images?: string[]; files?: { path: str
         throw new Error('Failed to parse JSON from Gemini response.');
       }
 
+      delete (parsedJson as any).courseName;
+      delete (parsedJson as any).courseNameConfidence;
+      delete (parsedJson as any).date;
+      delete (parsedJson as any).dateConfidence;
+      delete (parsedJson as any).holes;
       // Calculate overall confidence
       parsedJson.overallConfidence = calculateOverallConfidence(parsedJson);
-
-      // Course matching if course name detected with high confidence
-      if (parsedJson.courseName && parsedJson.courseNameConfidence >= 0.7) {
-        const matchedCourse = await fuzzyMatchCourse(parsedJson.courseName);
-
-        if (matchedCourse) {
-          parsedJson.courseName = matchedCourse.course_name || matchedCourse.club_name;
-        } else {
-          parsedJson.courseName = null;
-        }
-      }
 
       const routeElapsed = Date.now() - routeStart;
       console.log(`[SCAN] success total ${routeElapsed}ms`);

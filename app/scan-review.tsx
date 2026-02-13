@@ -40,7 +40,7 @@ import {
   Check
 } from 'lucide-react-native';
 import { colors } from '@/constants/colors';
-import { generateUniqueId, ensureValidDate, formatLocalDateString, getLocalDateString, parseLocalDateString } from '@/utils/helpers';
+import { generateUniqueId, ensureValidDate, formatLocalDateString, getLocalDateString, parseAnyDateStringToLocalDate, parseLocalDateString, toLocalDateTimeString } from '@/utils/helpers';
 import { useGolfStore } from '@/store/useGolfStore';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { mockCourses } from '@/mocks/courses';
@@ -56,6 +56,7 @@ import { convertApiCourseToLocal, getDeterministicCourseId } from '@/utils/cours
 import { matchCourseToLocal, extractUserLocation, LocationData } from '@/utils/course-matching';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
 import { calculateCourseHandicapForRound, roundHalfUpToInt } from '@/utils/handicapCourse';
+import { useT } from '@/lib/i18n';
 
 interface DetectedPlayer {
   id: string;
@@ -102,6 +103,7 @@ const MAX_IMAGES = 3;
 export default function ScanScorecardScreen() {
   const { courseId, editRoundId, prefilled, review, onboardingMode, onboardingDemo } = useLocalSearchParams<{ courseId?: string, editRoundId?: string, prefilled?: string, review?: string, onboardingMode?: string, onboardingDemo?: string }>();
   const router = useRouter();
+  const t = useT();
   const pathname = usePathname();
   const isOnboardingMode = onboardingMode === 'true';
   const isOnboardingDemo = isOnboardingMode && (onboardingDemo === 'true' || onboardingDemo === '1');
@@ -113,7 +115,7 @@ export default function ScanScorecardScreen() {
   const onboardingExistingHandicap = useOnboardingStore((s) => s.existingHandicap);
   const reviewHeaderOptions = useMemo(() => {
     return {
-      title: "Review Scorecard",
+      title: t("Review Scorecard"),
       gestureEnabled: !isOnboardingMode,
       headerStyle: {
         backgroundColor: colors.background,
@@ -123,7 +125,7 @@ export default function ScanScorecardScreen() {
       },
       headerTintColor: colors.text,
     };
-  }, [isOnboardingMode]);
+  }, [isOnboardingMode, t]);
   useEffect(() => {
     console.log(`[scan-review ${instanceId.current}] mount`, {
       pathname,
@@ -260,7 +262,7 @@ export default function ScanScorecardScreen() {
 
   const linkPlayerScreenOptions = useMemo(() => {
     return {
-      title: "Link to Existing Player",
+      title: t("Link to Existing Player"),
       gestureEnabled: !isOnboardingMode,
       headerStyle: {
         backgroundColor: colors.background,
@@ -275,7 +277,7 @@ export default function ScanScorecardScreen() {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={styles.headerButton}
         >
-          <Text style={styles.headerButtonText}>{linkingWasRemoved ? 'Back' : 'Cancel'}</Text>
+          <Text style={styles.headerButtonText}>{linkingWasRemoved ? t('Back') : t('Cancel')}</Text>
         </TouchableOpacity>
       ),
       headerRight: () => (
@@ -285,12 +287,12 @@ export default function ScanScorecardScreen() {
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={styles.headerButton}
           >
-            <Text style={styles.headerButtonText}>Remove Link</Text>
+            <Text style={styles.headerButtonText}>{t('Remove Link')}</Text>
           </TouchableOpacity>
         ) : null
       ),
     };
-  }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking, isOnboardingMode]);
+  }, [handleCloseLinking, handleUnlinkSelectedPlayer, linkingWasRemoved, selectedLinkedIdForLinking, isOnboardingMode, t]);
   const teePickerIndexRef = useRef<number | null>(null);
   const [notes, setNotes] = useState('');
   // Game type for winner calculation (only for post-round scans without pre-round setup)
@@ -463,9 +465,11 @@ export default function ScanScorecardScreen() {
     if (currentUserName) userNames.add(currentUserName);
 
     // Sort rounds by date (newest first) to get most recent handicap
-    const sortedRounds = [...roundsSummary].sort((a: any, b: any) =>
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    const sortedRounds = [...roundsSummary].sort((a: any, b: any) => {
+      const da = parseAnyDateStringToLocalDate(a.date);
+      const db = parseAnyDateStringToLocalDate(b.date);
+      return (db?.getTime() ?? 0) - (da?.getTime() ?? 0);
+    });
 
     sortedRounds.forEach((round: any) => {
       (round.players || []).forEach((p: any) => {
@@ -526,10 +530,6 @@ export default function ScanScorecardScreen() {
   });
 
   const buildDevSampleResult = (): ScorecardScanResult => ({
-    courseName: 'Dev National - Demo Course',
-    courseNameConfidence: 0.9,
-    date: getLocalDateString(),
-    dateConfidence: 0.9,
     overallConfidence: 0.9,
     players: [
       {
@@ -955,8 +955,8 @@ export default function ScanScorecardScreen() {
         };
       });
 
-      // Set date
-      setDate(ensureValidDate(scanResult.date));
+      // Date comes from local device (not OCR).
+      setDate(getLocalDateString());
       // Save scanned players for cycling feature
       setSessionScannedPlayers(scannedPlayers.map(p => ({
         index: p.index,
@@ -995,8 +995,8 @@ export default function ScanScorecardScreen() {
       }))
       : linkedPlayers.map(p => ({ ...p, teeGender: userGender ?? 'M' }));
 
-    // Set date - use detected date if valid, otherwise default to today's date
-    setDate(ensureValidDate(scanResult.date));
+    // Date comes from local device (not OCR).
+    setDate(getLocalDateString());
 
     setDetectedPlayers(playersWithTee);
     setProcessingComplete(true);
@@ -1276,42 +1276,79 @@ export default function ScanScorecardScreen() {
 
       if (scoreIndex >= 0) {
         updated[playerIndex].scores[scoreIndex].strokes = strokes;
+      } else {
+        updated[playerIndex].scores.push({
+          holeNumber,
+          strokes,
+        });
+        updated[playerIndex].scores.sort((a, b) => a.holeNumber - b.holeNumber);
       }
 
       return updated;
     });
   };
 
-  const handleRemovePlayer = (index: number) => {
-    Alert.alert(
-      "Remove Player",
-      "Are you sure you want to remove this player?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            setDetectedPlayers(prev => prev.filter((_, i) => i !== index));
-            setListVersion(v => v + 1);
+  const scoreRows = useMemo(() => {
+    const holeNumbers = new Set<number>();
+    detectedPlayers.forEach((player) => {
+      player.scores.forEach((score) => {
+        if (typeof score.holeNumber === "number") {
+          holeNumbers.add(score.holeNumber);
+        }
+      });
+    });
+
+    if (holeNumbers.size === 0) {
+      const course = selectedCourse ? courses.find((c) => c.id === selectedCourse) : null;
+      const fallbackHoles = (course?.holes ?? [])
+        .map((h) => h.number)
+        .filter((n): n is number => typeof n === "number");
+
+      const resolved = fallbackHoles.length > 0
+        ? fallbackHoles
+        : Array.from({ length: 18 }, (_, i) => i + 1);
+
+      return resolved
+        .slice()
+        .sort((a, b) => a - b)
+        .map((holeNumber) => ({ holeNumber, strokes: 0 }));
+    }
+
+    return Array.from(holeNumbers)
+      .sort((a, b) => a - b)
+      .map((holeNumber) => ({ holeNumber, strokes: 0 }));
+  }, [detectedPlayers, selectedCourse, courses]);
+
+	  const handleRemovePlayer = (index: number) => {
+	    Alert.alert(
+	      t("Remove Player"),
+	      t("Are you sure you want to remove this player?"),
+	      [
+	        { text: t("Cancel"), style: "cancel" },
+	        {
+	          text: t("Remove"),
+	          style: "destructive",
+	          onPress: () => {
+	            setDetectedPlayers(prev => prev.filter((_, i) => i !== index));
+	            setListVersion(v => v + 1);
           }
         }
       ]
     );
   };
 
-  const handleRemovePlayerById = (playerId: string) => {
-    Alert.alert(
-      "Remove Player",
-      "Are you sure you want to remove this player?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => {
-            setDetectedPlayers(prev => prev.filter(p => p.id !== playerId));
-            setListVersion(v => v + 1);
+	  const handleRemovePlayerById = (playerId: string) => {
+	    Alert.alert(
+	      t("Remove Player"),
+	      t("Are you sure you want to remove this player?"),
+	      [
+	        { text: t("Cancel"), style: "cancel" },
+	        {
+	          text: t("Remove"),
+	          style: "destructive",
+	          onPress: () => {
+	            setDetectedPlayers(prev => prev.filter(p => p.id !== playerId));
+	            setListVersion(v => v + 1);
           }
         }
       ]
@@ -1613,26 +1650,26 @@ export default function ScanScorecardScreen() {
 
   const validateForm = () => {
     if (!selectedCourse) {
-      Alert.alert("Error", "Please select a course before continuing");
+      Alert.alert(t("Error"), t("Please select a course before continuing"));
       return false;
     }
 
     if (detectedPlayers.length === 0) {
-      Alert.alert("Error", "No players detected. Please try scanning again or add players manually");
+      Alert.alert(t("Error"), t("No players detected. Please try scanning again or add players manually"));
       return false;
     }
 
     // Check if all players have names
     const emptyNamePlayer = detectedPlayers.find(p => !p.name.trim());
     if (emptyNamePlayer) {
-      Alert.alert("Error", "All players must have names");
+      Alert.alert(t("Error"), t("All players must have names"));
       return false;
     }
 
     // Check if all scores are entered
     for (const player of detectedPlayers) {
       if (player.scores.some(s => s.strokes === 0)) {
-        Alert.alert("Error", "Please enter scores for all holes");
+        Alert.alert(t("Error"), t("Please enter scores for all holes"));
         return false;
       }
     }
@@ -1649,9 +1686,12 @@ export default function ScanScorecardScreen() {
     const hasUserLinked = detectedPlayers.some(p => p.isUser);
     if (!hasUserLinked) {
       Alert.alert(
-        'Link Yourself',
-        'Please link at least one player as "You" by tapping on the player card and tapping the "Link as Me" button.',
-        [{ text: 'OK' }]
+        t('Link Yourself'),
+        t('Please link at least one player as "{{you}}" by tapping on the player card and tapping the "{{linkAsMe}}" button.', {
+          you: t('You'),
+          linkAsMe: t('Link as Me'),
+        }),
+        [{ text: t('OK') }]
       );
       return;
     }
@@ -1942,7 +1982,7 @@ export default function ScanScorecardScreen() {
 	      const newRound = {
 	      id: existingRound?.id ?? roundId,
       ...(resolvedRemoteId ? { remoteId: resolvedRemoteId } : {}),
-      date,
+      date: toLocalDateTimeString(date),
       courseId: finalCourseId,
       courseName: finalCourseName,
 	      players: playersWithTotalScores.map(player => {
@@ -2074,7 +2114,7 @@ export default function ScanScorecardScreen() {
   }, [clearActiveScanJob, clearPendingScanPhotos, clearScanData, markActiveScanReviewed, router]);
   const resultsScreenOptions = useMemo(() => {
     return {
-      title: isEditMode ? "Edit Round" : "Scorecard Results",
+      title: isEditMode ? t("Edit Round") : t("Scorecard Results"),
       gestureEnabled: !isOnboardingMode,
       headerStyle: {
         backgroundColor: colors.background,
@@ -2089,7 +2129,7 @@ export default function ScanScorecardScreen() {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           style={styles.headerButton}
         >
-          <Text style={styles.headerButtonText}>Cancel</Text>
+          <Text style={styles.headerButtonText}>{t("Cancel")}</Text>
         </TouchableOpacity>
       ) : undefined,
       headerRight: () => (
@@ -2097,11 +2137,11 @@ export default function ScanScorecardScreen() {
           onPress={onPressSaveRound}
           style={styles.headerButton}
         >
-          <Text style={styles.headerButtonText}>Save</Text>
+          <Text style={styles.headerButtonText}>{t("Save")}</Text>
         </TouchableOpacity>
       )
     };
-  }, [isEditMode, onPressCancelEdit, onPressSaveRound, isOnboardingMode]);
+  }, [isEditMode, onPressCancelEdit, onPressSaveRound, isOnboardingMode, t]);
 
   if (showPlayerLinking) {
     return (
@@ -2148,7 +2188,7 @@ export default function ScanScorecardScreen() {
                           if (aliases.length > 0) {
                             return (
                               <Text style={styles.playerLinkAlias}>
-                                {' '}aka {aliases.slice(0, 2).join(', ')}
+                                {' '}{t('aka')} {aliases.slice(0, 2).join(', ')}
                                 {aliases.length > 2 && '...'}
                               </Text>
                             );
@@ -2157,7 +2197,7 @@ export default function ScanScorecardScreen() {
                         })()}
                       </View>
                       {player.handicap !== undefined && (
-                        <Text style={styles.playerLinkHandicap}>Scandicap: {player.handicap}</Text>
+                        <Text style={styles.playerLinkHandicap}>{t('Scandicap')}: {player.handicap}</Text>
                       )}
                     </View>
                     {isSelected ? (
@@ -2170,12 +2210,12 @@ export default function ScanScorecardScreen() {
               })
           ) : (
             <View style={styles.noPlayersContainer}>
-              <Text style={styles.noPlayersText}>No existing players found.</Text>
+              <Text style={styles.noPlayersText}>{t('No existing players found.')}</Text>
               <Text style={styles.noPlayersSubtext}>
-                Continue without linking to create a new player profile.
+                {t('Continue without linking to create a new player profile.')}
               </Text>
               <Button
-                title="Continue Without Linking"
+                title={t('Continue Without Linking')}
                 onPress={() => {
                   setShowPlayerLinking(false);
                   setSelectedPlayerIndex(null);
@@ -2204,21 +2244,21 @@ export default function ScanScorecardScreen() {
             // Onboarding mode - centered title, no back button, Continue button
             <>
               <View style={{ width: 50 }} />
-              <Text style={styles.customHeaderTitle}>Review Your Round</Text>
+              <Text style={styles.customHeaderTitle}>{t('Review Your Round')}</Text>
               <TouchableOpacity
                 style={styles.customHeaderButton}
                 onPress={isOnboardingDemo ? handleOnboardingContinueWithoutSave : onPressSaveRound}
               >
-                <Text style={styles.customHeaderButtonText}>Continue</Text>
+                <Text style={styles.customHeaderButtonText}>{t('Continue')}</Text>
               </TouchableOpacity>
             </>
           ) : (
             // Normal mode - standard header
             <>
               <View style={{ width: 50 }} />
-              <Text style={styles.customHeaderTitle}>Scorecard Results</Text>
+              <Text style={styles.customHeaderTitle}>{t('Scorecard Results')}</Text>
               <TouchableOpacity style={styles.customHeaderButton} onPress={onPressSaveRound}>
-                <Text style={styles.customHeaderButtonText}>Save</Text>
+                <Text style={styles.customHeaderButtonText}>{t('Save')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -2236,7 +2276,7 @@ export default function ScanScorecardScreen() {
             onPress={() => setActiveTab('players')}
           >
             <User size={18} color={colors.text} />
-            <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
+            <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>{t('Players')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2244,7 +2284,7 @@ export default function ScanScorecardScreen() {
             onPress={() => setActiveTab('scores')}
           >
             <Users size={18} color={colors.text} />
-            <Text style={[styles.tabText, activeTab === 'scores' && styles.activeTabText]}>Scores</Text>
+            <Text style={[styles.tabText, activeTab === 'scores' && styles.activeTabText]}>{t('Scores')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2252,7 +2292,7 @@ export default function ScanScorecardScreen() {
             onPress={() => setActiveTab('details')}
           >
             <MapPin size={18} color={colors.text} />
-            <Text style={[styles.tabText, activeTab === 'details' && styles.activeTabText]}>Details</Text>
+            <Text style={[styles.tabText, activeTab === 'details' && styles.activeTabText]}>{t('Details')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -2301,46 +2341,46 @@ export default function ScanScorecardScreen() {
                 <View>
                   <View style={[styles.sectionHeader, isDragging && { pointerEvents: 'none' }]}>
                     <Text style={styles.sectionTitle}>
-                      {detectedPlayers.some(p => p.isFromSession) ? 'Session Players' : 'Detected Players'}
+                      {detectedPlayers.some(p => p.isFromSession) ? t('Session Players') : t('Detected Players')}
                     </Text>
                     {!detectedPlayers.some(p => p.isFromSession) && (
-                      <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
-                        <Plus size={16} color={colors.primary} />
-                        <Text style={styles.addPlayerText}>Add Player</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
+	                      <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer} disabled={isDragging}>
+	                        <Plus size={16} color={colors.primary} />
+	                        <Text style={styles.addPlayerText}>{t('Add Player')}</Text>
+	                      </TouchableOpacity>
+	                    )}
+	                  </View>
                   {/* Onboarding guidance - show when in onboarding mode and no player is marked as "You" yet */}
-                  {onboardingMode === 'true' && !detectedPlayers.some(p => p.isUser) && (
-                    <View style={styles.onboardingBanner}>
-                      <Text style={styles.onboardingBannerTitle}>Select Your Player</Text>
-                      <Text style={styles.onboardingBannerText}>
-                        Tap the person icon next to your name to link scores to your profile and track your handicap.
-                      </Text>
-                    </View>
-                  )}
+	                  {onboardingMode === 'true' && !detectedPlayers.some(p => p.isUser) && (
+	                    <View style={styles.onboardingBanner}>
+	                      <Text style={styles.onboardingBannerTitle}>{t('Select Your Player')}</Text>
+	                      <Text style={styles.onboardingBannerText}>
+	                        {t('Tap the person icon next to your name to link scores to your profile and track your handicap.')}
+	                      </Text>
+	                    </View>
+	                  )}
                 </View>
               }
               ListFooterComponent={
-                detectedPlayers.some(p => p.isFromSession) ? (
-                  <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
-                    <Text style={styles.infoTitle}>Score Assignment</Text>
-                    <Text style={styles.infoText}>• Players are from your pre-round setup</Text>
-                    <Text style={styles.infoText}>• Scores are automatically matched to players</Text>
-                    <Text style={styles.infoText}>• Tap "Detected as" to cycle through options</Text>
-                  </View>
-                ) : (
-                  <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
-                    <Text style={styles.infoTitle}>Player Management</Text>
-                    <Text style={styles.infoText}>• Drag to reorder players if they were detected incorrectly</Text>
-                    <Text style={styles.infoText}>• Edit names by clicking on them and changing the text</Text>
-                    <Text style={styles.infoText}>• Link players to existing profiles using the link icon</Text>
-                    <Text style={styles.infoText}>• Mark yourself using the user icon</Text>
-                    <Text style={styles.infoText}>• Set Scandicaps and tee colors for accurate scoring</Text>
-                    <Text style={styles.infoText}>• Tap tee color to cycle through available options</Text>
-                  </View>
-                )
-              }
+	                detectedPlayers.some(p => p.isFromSession) ? (
+	                  <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
+	                    <Text style={styles.infoTitle}>{t('Score Assignment')}</Text>
+	                    <Text style={styles.infoText}>• {t('Players are from your pre-round setup')}</Text>
+	                    <Text style={styles.infoText}>• {t('Scores are automatically matched to players')}</Text>
+	                    <Text style={styles.infoText}>• {t('Tap "Detected as" to cycle through options')}</Text>
+	                  </View>
+	                ) : (
+	                  <View style={[styles.infoBox, isDragging && { pointerEvents: 'none' }]}>
+	                    <Text style={styles.infoTitle}>{t('Player Management')}</Text>
+	                    <Text style={styles.infoText}>• {t('Drag to reorder players if they were detected incorrectly')}</Text>
+	                    <Text style={styles.infoText}>• {t('Edit names by clicking on them and changing the text')}</Text>
+	                    <Text style={styles.infoText}>• {t('Link players to existing profiles using the link icon')}</Text>
+	                    <Text style={styles.infoText}>• {t('Mark yourself using the user icon')}</Text>
+	                    <Text style={styles.infoText}>• {t('Set Scandicaps and tee colors for accurate scoring')}</Text>
+	                    <Text style={styles.infoText}>• {t('Tap tee color to cycle through available options')}</Text>
+	                  </View>
+	                )
+	              }
               renderItem={({ item: player, index, drag, isActive, getIndex }: any) => (
                 <TouchableOpacity
                   key={player.id}
@@ -2374,7 +2414,7 @@ export default function ScanScorecardScreen() {
                         value={player.name}
                         onChangeText={(text) => handleEditPlayerNameById(player.id, text)}
                         editable={!player.linkedPlayerId && !player.isFromSession}
-                        placeholder="Player Name"
+                        placeholder={t("Player Name")}
                       />
                       {/* Session mode: always show detected assignment and allow cycling through all scanned players */}
                       {player.isFromSession && (
@@ -2383,7 +2423,7 @@ export default function ScanScorecardScreen() {
                           disabled={sessionScannedPlayers.length === 0}
                           style={{ flexDirection: 'row' }}
                         >
-                          <Text style={styles.detectedAsText}>Detected as </Text>
+                          <Text style={styles.detectedAsText}>{t("Detected as")} </Text>
                           <Text
                             style={[
                               styles.detectedAsText,
@@ -2396,7 +2436,7 @@ export default function ScanScorecardScreen() {
                             "{(
                               sessionScannedPlayers.find(sp => sp.index === player.scannedPlayerIndex)?.name ??
                               player.detectedAsName ??
-                              'Tap to assign'
+                              t('None')
                             )}"
                           </Text>
                         </TouchableOpacity>
@@ -2404,15 +2444,15 @@ export default function ScanScorecardScreen() {
                     </View>
                     <View style={styles.headerRightRow}>
                       {player.isUser && (
-                        <View style={styles.userBadge}><Text style={styles.userBadgeText}>You</Text></View>
+                        <View style={styles.userBadge}><Text style={styles.userBadgeText}>{t("You")}</Text></View>
                       )}
                       {/* Show Pre-Round badge for session players */}
                       {player.isFromSession && (
-                        <View style={styles.sessionBadge}><Text style={styles.sessionBadgeText}>Pre-Round</Text></View>
+                        <View style={styles.sessionBadge}><Text style={styles.sessionBadgeText}>{t("Pre-Round")}</Text></View>
                       )}
                       {/* Show Linked badge for non-session linked players */}
                       {player.linkedPlayerId && !player.isUser && !player.isFromSession && (
-                        <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>Linked</Text></View>
+                        <View style={styles.linkedBadge}><Text style={styles.linkedBadgeText}>{t("Linked")}</Text></View>
                       )}
                       {/* Hide action icons for session players */}
                       {!player.isFromSession && (
@@ -2441,26 +2481,26 @@ export default function ScanScorecardScreen() {
                   </View>
                   <View style={styles.playerDetailsRow}>
                     <View style={styles.handicapContainer}>
-                      <Text style={styles.handicapLabel}>Scandicap:</Text>
+                      <Text style={styles.handicapLabel}>{t("Scandicap")}:</Text>
                       <TextInput
                         style={[styles.handicapInput, player.isUser && styles.handicapInputDisabled]}
                         value={player.handicapInputText ?? (player.handicap !== undefined ? String(player.handicap) : '')}
                         onChangeText={(text) => handleEditPlayerHandicapById(player.id, text)}
-                        placeholder="Not set"
+                        placeholder={t("Not set")}
                         placeholderTextColor={colors.text}
                         keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
                         editable={!player.isUser}
                       />
                     </View>
                     <View style={styles.teeColorContainer}>
-                      <Text style={styles.teeColorLabel}>Tee:</Text>
+                      <Text style={styles.teeColorLabel}>{t("Tee")}:</Text>
                       <TouchableOpacity
                         style={styles.teeColorSelector}
                         onPress={() => openTeePicker(player.id, getIndex ? getIndex() : index)}
                         activeOpacity={0.9}
                       >
                         <Text style={styles.teeColorText}>
-                          {player.teeColor || 'Select'}
+                          {player.teeColor || t('Select')}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -2472,7 +2512,7 @@ export default function ScanScorecardScreen() {
         ) : activeTab === 'scores' ? (
           <View style={styles.flexFill} onLayout={updateLayoutMetrics('scores')}>
             <RNFlatList
-              data={detectedPlayers.length > 0 ? detectedPlayers[0].scores : []}
+              data={scoreRows}
               keyExtractor={(item) => String(item.holeNumber)}
               style={styles.scrollView}
               contentContainerStyle={[
@@ -2488,13 +2528,13 @@ export default function ScanScorecardScreen() {
               ListHeaderComponent={
                 <View style={styles.tabContent}>
                   <View style={styles.sectionHeaderColumn}>
-                    <Text style={styles.sectionTitle}>Scores</Text>
-                    <Text style={styles.sectionSubtitle}>Review and edit scores for each hole</Text>
+                    <Text style={styles.sectionTitle}>{t('Scores')}</Text>
+                    <Text style={styles.sectionSubtitle}>{t('Review and edit scores for each hole')}</Text>
                     <View style={styles.retakeRow}>
                       <RotateCcw size={18} color={colors.text} style={{ marginRight: 10 }} />
-                      <Text style={styles.retakeRowText}>Scores look off? Retake a clearer photo.</Text>
+                      <Text style={styles.retakeRowText}>{t('Scores look off? Retake a clearer photo.')}</Text>
                       <Button
-                        title="Retake"
+                        title={t('Retake')}
                         variant="outline"
                         size="small"
                         onPress={handleRetake}
@@ -2514,14 +2554,14 @@ export default function ScanScorecardScreen() {
                           styles.holeHeaderLabel,
                         ]}
                       >
-                        HOLE
+                        {t('HOLE')}
                       </Text>
                       <Text
                         numberOfLines={1}
                         ellipsizeMode="clip"
                         style={[styles.scoresTableHeaderCell, styles.holeParCell, styles.headerLabel]}
                       >
-                        PAR
+                        {t('PAR')}
                       </Text>
                       {detectedPlayers.map((player) => (
                         <Text
@@ -2536,7 +2576,7 @@ export default function ScanScorecardScreen() {
                           ]}
                         >
                           {player.name}
-                          {player.isUser ? " (You)" : ""}
+                          {player.isUser ? ` (${t('You')})` : ""}
                         </Text>
                       ))}
                     </View>
@@ -2613,24 +2653,24 @@ export default function ScanScorecardScreen() {
               {activeTab === 'details' && (
                 <View style={styles.tabContent}>
                   <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>Course</Text>
+                    <Text style={styles.sectionTitle}>{t('Course')}</Text>
                     <TouchableOpacity
                       style={styles.courseSelector}
                       onPress={() => setShowCourseSearchModal(true)}
                     >
                       <Text style={selectedCourse ? styles.selectedCourseText : styles.placeholderText}>
-                        {selectedCourse ? getSelectedCourseName() : "Search for a course"}
+                        {selectedCourse ? getSelectedCourseName() : t("Search for a course")}
                       </Text>
                       <ChevronDown size={20} color={colors.text} />
                     </TouchableOpacity>
                   </View>
 
-	                  <View style={styles.sectionContainer}>
-	                    <Text style={styles.sectionTitle}>Date</Text>
-	                    <TouchableOpacity style={styles.dateContainer} onPress={openDatePicker} activeOpacity={0.85}>
-	                      <Calendar size={20} color={colors.text} style={styles.dateIcon} />
-	                      <Text style={styles.dateInput}>
-	                        {formatLocalDateString(date, 'short')}
+		                  <View style={styles.sectionContainer}>
+		                    <Text style={styles.sectionTitle}>{t('Date')}</Text>
+		                    <TouchableOpacity style={styles.dateContainer} onPress={openDatePicker} activeOpacity={0.85}>
+		                      <Calendar size={20} color={colors.text} style={styles.dateIcon} />
+		                      <Text style={styles.dateInput}>
+		                        {formatLocalDateString(date, 'short')}
 	                      </Text>
 	                      <ChevronDown size={18} color={colors.text} />
 	                    </TouchableOpacity>
@@ -2639,22 +2679,22 @@ export default function ScanScorecardScreen() {
                   {/* Game Type - only show for post-round scans (no active session) */}
                   {!activeSession && (
                     <View style={styles.sectionContainer}>
-                      <Text style={styles.sectionTitle}>Game Type</Text>
-                      <Text style={styles.sectionSubtitle}>How the winner will be determined</Text>
+                      <Text style={styles.sectionTitle}>{t('Game Type')}</Text>
+                      <Text style={styles.sectionSubtitle}>{t('How the winner will be determined')}</Text>
                       <View style={styles.gameTypeDropdown}>
                         <TouchableOpacity
                           style={[styles.gameTypeDropdownOption, gameType === 'stroke_play' && styles.gameTypeDropdownOptionActive]}
                           onPress={() => setGameType('stroke_play')}
                         >
-                          <Text style={[styles.gameTypeDropdownText, gameType === 'stroke_play' && styles.gameTypeDropdownTextActive]}>Stroke Play</Text>
-                          <Text style={styles.gameTypeDropdownDesc}>Lowest score wins</Text>
+                          <Text style={[styles.gameTypeDropdownText, gameType === 'stroke_play' && styles.gameTypeDropdownTextActive]}>{t('Stroke Play')}</Text>
+                          <Text style={styles.gameTypeDropdownDesc}>{t('Lowest score wins')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.gameTypeDropdownOption, gameType === 'match_play' && styles.gameTypeDropdownOptionActive]}
                           onPress={() => setGameType('match_play')}
                         >
-                          <Text style={[styles.gameTypeDropdownText, gameType === 'match_play' && styles.gameTypeDropdownTextActive]}>Match Play</Text>
-                          <Text style={styles.gameTypeDropdownDesc}>Most holes won</Text>
+                          <Text style={[styles.gameTypeDropdownText, gameType === 'match_play' && styles.gameTypeDropdownTextActive]}>{t('Match Play')}</Text>
+                          <Text style={styles.gameTypeDropdownDesc}>{t('Most holes won')}</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -2664,12 +2704,12 @@ export default function ScanScorecardScreen() {
                   {activeSession?.betSettings?.enabled && (
                     <View style={styles.sectionContainer}>
                       <View style={styles.betCardHeader}>
-                        <Text style={styles.sectionTitle}>Bets</Text>
+                        <Text style={styles.sectionTitle}>{t('Bets')}</Text>
                         <View style={styles.betTypeBadge}>
                           <Text style={styles.betTypeBadgeText}>
-                            {activeSession.gameType === 'nassau' ? 'Nassau' :
-                              activeSession.gameType === 'match_play' ? 'Match Play' :
-                                activeSession.gameType === 'skins' ? 'Skins' : 'Stroke Play'}
+                            {activeSession.gameType === 'nassau' ? t('Nassau') :
+                              activeSession.gameType === 'match_play' ? t('Match Play') :
+                                activeSession.gameType === 'skins' ? t('Skins') : t('Stroke Play')}
                           </Text>
                         </View>
                       </View>
@@ -2687,7 +2727,7 @@ export default function ScanScorecardScreen() {
                                 setShowBetEditModal(true);
                               }}
                             >
-                              <Text style={styles.nassauLabel}>Front 9</Text>
+                              <Text style={styles.nassauLabel}>{t('Front 9')}</Text>
                               <Text style={styles.nassauValue}>
                                 ${(((activeSession.betSettings.nassauAmounts?.frontCents ?? activeSession.betSettings.betPerUnitCents ?? 0)) / 100).toFixed(0)}
                               </Text>
@@ -2702,7 +2742,7 @@ export default function ScanScorecardScreen() {
                                 setShowBetEditModal(true);
                               }}
                             >
-                              <Text style={styles.nassauLabel}>Back 9</Text>
+                              <Text style={styles.nassauLabel}>{t('Back 9')}</Text>
                               <Text style={styles.nassauValue}>
                                 ${(((activeSession.betSettings.nassauAmounts?.backCents ?? activeSession.betSettings.betPerUnitCents ?? 0)) / 100).toFixed(0)}
                               </Text>
@@ -2717,16 +2757,16 @@ export default function ScanScorecardScreen() {
                                 setShowBetEditModal(true);
                               }}
                             >
-                              <Text style={styles.nassauLabel}>Overall</Text>
+                              <Text style={styles.nassauLabel}>{t('Overall')}</Text>
                               <Text style={styles.nassauValueTotal}>
                                 ${(((activeSession.betSettings.nassauAmounts?.overallCents ?? (activeSession.betSettings.betPerUnitCents ?? 0) * 2)) / 100).toFixed(0)}
                               </Text>
                             </TouchableOpacity>
                           </View>
                           {activeSession.betSettings.carryover && (
-                            <Text style={styles.carryoverBadge}>Ties carry over</Text>
+                            <Text style={styles.carryoverBadge}>{t('Ties carry over')}</Text>
                           )}
-                          <Text style={styles.tapToEditHint}>Tap an amount to edit</Text>
+                          <Text style={styles.tapToEditHint}>{t('Tap an amount to edit')}</Text>
                         </View>
                       )}
 
@@ -2742,45 +2782,45 @@ export default function ScanScorecardScreen() {
                         >
                           <Text style={styles.simpleAmountLabel}>
                             {activeSession.gameType === 'match_play'
-                              ? (activeSession.betSettings?.betUnit === 'match' ? 'Per Match' : 'Per Hole')
+                              ? (activeSession.betSettings?.betUnit === 'match' ? t('Per Match') : t('Per Hole'))
                               : activeSession.gameType === 'skins'
-                                ? 'Per Skin'
+                                ? t('Per Skin')
                                 : activeSession.gameType === 'stroke_play'
-                                  ? (activeSession.payoutMode === 'pot' ? 'Buy-in' : 'Per Stroke')
-                                  : 'Bet'}
+                                  ? (activeSession.payoutMode === 'pot' ? t('Buy-in') : t('Per Stroke'))
+                                  : t('Bet')}
                           </Text>
-                          <View style={styles.simpleAmountRight}>
-                            <Text style={styles.simpleAmountValue}>
-                              ${((activeSession.betSettings.betPerUnitCents || 0) / 100).toFixed(0)}
-                            </Text>
-                            <Text style={styles.tapToEditHint}>Tap to edit</Text>
-                          </View>
-                        </TouchableOpacity>
+                            <View style={styles.simpleAmountRight}>
+                              <Text style={styles.simpleAmountValue}>
+                                ${((activeSession.betSettings.betPerUnitCents || 0) / 100).toFixed(0)}
+                              </Text>
+                              <Text style={styles.tapToEditHint}>{t('Tap to edit')}</Text>
+                            </View>
+                          </TouchableOpacity>
                       )}
 
                       {/* Skins carryover info */}
                       {activeSession.gameType === 'skins' && activeSession.betSettings.carryover && (
-                        <Text style={styles.carryoverBadge}>Tied holes carry over to next skin</Text>
+                        <Text style={styles.carryoverBadge}>{t('Tied holes carry over to next skin')}</Text>
                       )}
 
                       {/* Side Bets - applicable to all game types */}
                       {activeSession.betSettings.sideBets &&
                         (activeSession.betSettings.sideBets.greenies || activeSession.betSettings.sideBets.sandies) && (
                           <View style={styles.sideBetsBox}>
-                            <Text style={styles.sideBetsTitle}>Side Bets</Text>
+                            <Text style={styles.sideBetsTitle}>{t('Side Bets')}</Text>
                             <View style={styles.sideBetsRow}>
                               {activeSession.betSettings.sideBets.greenies && (
                                 <View style={styles.sideBetChip}>
-                                  <Text style={styles.sideBetChipText}>🌿 Greenies</Text>
+                                  <Text style={styles.sideBetChipText}>🌿 {t('Greenies')}</Text>
                                 </View>
                               )}
                               {activeSession.betSettings.sideBets.sandies && (
                                 <View style={styles.sideBetChip}>
-                                  <Text style={styles.sideBetChipText}>🏖️ Sandies</Text>
+                                  <Text style={styles.sideBetChipText}>🏖️ {t('Sandies')}</Text>
                                 </View>
                               )}
                               <Text style={styles.sideBetAmount}>
-                                ${((activeSession.betSettings.sideBets.amountCents || 0) / 100).toFixed(0)} each
+                                {t('{{amount}} each', { amount: `$${((activeSession.betSettings.sideBets.amountCents || 0) / 100).toFixed(0)}` })}
                               </Text>
                             </View>
                           </View>
@@ -2791,13 +2831,13 @@ export default function ScanScorecardScreen() {
                         <View style={styles.pressesSection}>
                           <View style={styles.pressesSectionHeader}>
                             <Text style={styles.pressesSectionTitle}>
-                              Presses {activeSession.presses?.length > 0 ? `(${activeSession.presses.length})` : ''}
+                              {t("Presses")} {activeSession.presses?.length > 0 ? `(${activeSession.presses.length})` : ''}
                             </Text>
                             <TouchableOpacity
                               style={styles.addPressButton}
                               onPress={() => setShowPressModal(true)}
                             >
-                              <Text style={styles.addPressButtonText}>+ Add</Text>
+                              <Text style={styles.addPressButtonText}>+ {t("Add")}</Text>
                             </TouchableOpacity>
                           </View>
 
@@ -2807,10 +2847,10 @@ export default function ScanScorecardScreen() {
                                 <View key={press.pressId || idx} style={styles.pressReviewItem}>
                                   <View style={styles.pressReviewItemLeft}>
                                     <Text style={styles.pressReviewSegment}>
-                                      {press.segment === 'front' ? 'Front 9' : 'Back 9'}
+                                      {press.segment === 'front' ? t("Front 9") : t("Back 9")}
                                     </Text>
                                     <Text style={styles.pressReviewHole}>
-                                      Hole {press.startHole}
+                                      {t("Hole")} {press.startHole}
                                     </Text>
                                   </View>
                                   <View style={styles.pressReviewItemRight}>
@@ -2826,7 +2866,7 @@ export default function ScanScorecardScreen() {
                                             pressId: press.pressId,
                                           });
                                         } catch (e: any) {
-                                          Alert.alert('Error', e.message || 'Failed to remove press');
+                                          Alert.alert(t("Error"), e.message || t("Failed to remove press"));
                                         }
                                       }}
                                     >
@@ -2838,7 +2878,7 @@ export default function ScanScorecardScreen() {
                             </View>
                           ) : (
                             <Text style={styles.noPressesText}>
-                              No presses added yet
+                              {t("No presses added yet")}
                             </Text>
                           )}
                         </View>
@@ -2847,12 +2887,12 @@ export default function ScanScorecardScreen() {
                   )}
 
                   <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>Notes</Text>
+                    <Text style={styles.sectionTitle}>{t('Notes')}</Text>
                     <TextInput
                       style={styles.notesInput}
                       value={notes}
                       onChangeText={setNotes}
-                      placeholder="Add notes about this round..."
+                      placeholder={t("Add notes about this round...")}
                       multiline
                       numberOfLines={4}
                       textAlignVertical="top"
@@ -2872,7 +2912,7 @@ export default function ScanScorecardScreen() {
             ]}
           >
             <Button
-              title="Save Round"
+              title={t("Save Round")}
               onPress={handleSaveRound}
               style={styles.saveButton}
             />
@@ -2982,7 +3022,7 @@ export default function ScanScorecardScreen() {
 	                onPress={() => setShowDatePicker(false)}
 	                activeOpacity={0.85}
 	              >
-	                <Text style={styles.datePickerDoneText}>Done</Text>
+	                <Text style={styles.datePickerDoneText}>{t("Done")}</Text>
 	              </TouchableOpacity>
 	            </TouchableOpacity>
 	          </TouchableOpacity>
@@ -3005,19 +3045,19 @@ export default function ScanScorecardScreen() {
               onPress={() => { }}
             >
               <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Select a Tee</Text>
+                <Text style={styles.sheetTitle}>{t("Select a Tee")}</Text>
                 <View style={styles.sheetTabs}>
                   <TouchableOpacity
                     style={[styles.sheetTab, teePickerGenderTab === 'M' && styles.sheetTabActive]}
                     onPress={() => setTeePickerGenderTab('M')}
                   >
-                    <Text style={[styles.sheetTabText, teePickerGenderTab === 'M' && styles.sheetTabTextActive]}>Men</Text>
+                    <Text style={[styles.sheetTabText, teePickerGenderTab === 'M' && styles.sheetTabTextActive]}>{t("Men")}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.sheetTab, teePickerGenderTab === 'F' && styles.sheetTabActive]}
                     onPress={() => setTeePickerGenderTab('F')}
                   >
-                    <Text style={[styles.sheetTabText, teePickerGenderTab === 'F' && styles.sheetTabTextActive]}>Women</Text>
+                    <Text style={[styles.sheetTabText, teePickerGenderTab === 'F' && styles.sheetTabTextActive]}>{t("Women")}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -3039,7 +3079,7 @@ export default function ScanScorecardScreen() {
                           </Text>
                         ) : (
                           <Text style={styles.teeOptionGender}>
-                            {tee.gender === 'F' ? 'Women' : 'Men'}
+                            {tee.gender === 'F' ? t("Women") : t("Men")}
                           </Text>
                         )}
                       </View>
@@ -3061,7 +3101,7 @@ export default function ScanScorecardScreen() {
                     </TouchableOpacity>
                   ))}
                 {getAvailableTeeSets().length === 0 && (
-                  <Text style={styles.emptyTeeText}>No tee data available for this course.</Text>
+                  <Text style={styles.emptyTeeText}>{t("No tee data available for this course.")}</Text>
                 )}
               </ScrollView>
             </TouchableOpacity>
@@ -3081,10 +3121,10 @@ export default function ScanScorecardScreen() {
             onPress={() => setShowPressModal(false)}
           >
             <TouchableOpacity activeOpacity={1} style={styles.pressModalContent}>
-              <Text style={styles.sheetTitle}>Add Press</Text>
+              <Text style={styles.sheetTitle}>{t("Add Press")}</Text>
 
               <View style={styles.pressModalSection}>
-                <Text style={styles.pressModalLabel}>Segment</Text>
+                <Text style={styles.pressModalLabel}>{t("Segment")}</Text>
                 <View style={styles.segmentToggle}>
                   <TouchableOpacity
                     style={[
@@ -3096,7 +3136,7 @@ export default function ScanScorecardScreen() {
                     <Text style={[
                       styles.segmentButtonText,
                       pressSegment === 'front' && styles.segmentButtonTextActive
-                    ]}>Front 9</Text>
+                    ]}>{t("Front 9")}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
@@ -3108,13 +3148,13 @@ export default function ScanScorecardScreen() {
                     <Text style={[
                       styles.segmentButtonText,
                       pressSegment === 'back' && styles.segmentButtonTextActive
-                    ]}>Back 9</Text>
+                    ]}>{t("Back 9")}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
               <View style={styles.pressModalSection}>
-                <Text style={styles.pressModalLabel}>Starting Hole</Text>
+                <Text style={styles.pressModalLabel}>{t("Starting Hole")}</Text>
                 <TextInput
                   style={styles.pressModalInput}
                   value={pressStartHole}
@@ -3133,7 +3173,7 @@ export default function ScanScorecardScreen() {
                     setPressStartHole('');
                   }}
                 >
-                  <Text style={styles.pressModalCancelText}>Cancel</Text>
+                  <Text style={styles.pressModalCancelText}>{t("Cancel")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.pressModalAddButton, isPressLoading && { opacity: 0.6 }]}
@@ -3142,7 +3182,7 @@ export default function ScanScorecardScreen() {
                     if (!activeSession?._id) return;
                     const holeNum = parseInt(pressStartHole, 10);
                     if (isNaN(holeNum)) {
-                      Alert.alert('Error', 'Please enter a valid hole number');
+                      Alert.alert(t("Error"), t("Please enter a valid hole number"));
                       return;
                     }
                     setIsPressLoading(true);
@@ -3157,14 +3197,14 @@ export default function ScanScorecardScreen() {
                       setShowPressModal(false);
                       setPressStartHole('');
                     } catch (e: any) {
-                      Alert.alert('Error', e.message || 'Failed to add press');
+                      Alert.alert(t("Error"), e.message || t("Failed to add press"));
                     } finally {
                       setIsPressLoading(false);
                     }
                   }}
                 >
                   <Text style={styles.pressModalAddText}>
-                    {isPressLoading ? 'Adding...' : 'Add Press'}
+                    {isPressLoading ? t("Adding...") : t("Add Press")}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -3185,23 +3225,23 @@ export default function ScanScorecardScreen() {
             onPress={() => setShowBetEditModal(false)}
           >
             <TouchableOpacity activeOpacity={1} style={styles.pressModalContent}>
-              <Text style={styles.sheetTitle}>Edit Bet Amount</Text>
+              <Text style={styles.sheetTitle}>{t("Edit Bet Amount")}</Text>
 
               <View style={styles.pressModalSection}>
                 <Text style={styles.pressModalLabel}>
                   {activeSession?.gameType === 'nassau'
-                    ? betEditTarget === 'nassauFront' ? 'Front 9 amount' :
-                      betEditTarget === 'nassauBack' ? 'Back 9 amount' :
-                        betEditTarget === 'nassauOverall' ? 'Overall amount' :
-                          'Bet amount'
+                    ? betEditTarget === 'nassauFront' ? t("Front 9 amount") :
+                      betEditTarget === 'nassauBack' ? t("Back 9 amount") :
+                        betEditTarget === 'nassauOverall' ? t("Overall amount") :
+                          t("Bet amount")
                     :
                     activeSession?.gameType === 'match_play'
-                      ? (activeSession?.betSettings?.betUnit === 'match' ? 'Amount per match' : 'Amount per hole')
+                      ? (activeSession?.betSettings?.betUnit === 'match' ? t("Amount per match") : t("Amount per hole"))
                       : activeSession?.gameType === 'skins'
-                        ? 'Amount per skin'
+                        ? t("Amount per skin")
                         : activeSession?.gameType === 'stroke_play'
-                          ? (activeSession?.payoutMode === 'pot' ? 'Buy-in amount' : 'Amount per stroke')
-                          : 'Bet amount'}
+                          ? (activeSession?.payoutMode === 'pot' ? t("Buy-in amount") : t("Amount per stroke"))
+                          : t("Bet amount")}
                 </Text>
                 <View style={styles.betEditInputRow}>
                   <Text style={styles.betEditDollarSign}>$</Text>
@@ -3225,7 +3265,7 @@ export default function ScanScorecardScreen() {
                     setBetEditAmount('');
                   }}
                 >
-                  <Text style={styles.pressModalCancelText}>Cancel</Text>
+                  <Text style={styles.pressModalCancelText}>{t("Cancel")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.pressModalAddButton}
@@ -3233,7 +3273,7 @@ export default function ScanScorecardScreen() {
                     if (!activeSession?._id) return;
                     const amount = parseFloat(betEditAmount);
                     if (isNaN(amount) || amount <= 0) {
-                      Alert.alert('Error', 'Please enter a valid amount');
+                      Alert.alert(t("Error"), t("Please enter a valid amount"));
                       return;
                     }
                     try {
@@ -3256,11 +3296,11 @@ export default function ScanScorecardScreen() {
                       setShowBetEditModal(false);
                       setBetEditAmount('');
                     } catch (e: any) {
-                      Alert.alert('Error', e.message || 'Failed to update bet');
+                      Alert.alert(t("Error"), e.message || t("Failed to update bet"));
                     }
                   }}
                 >
-                  <Text style={styles.pressModalAddText}>Save</Text>
+                  <Text style={styles.pressModalAddText}>{t("Save")}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -3289,11 +3329,11 @@ export default function ScanScorecardScreen() {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.processingText, { marginTop: 16 }]}>
-          {activeScanJob?.message || 'Processing your scorecard...'}
+          {activeScanJob?.message || t("Processing your scorecard...")}
         </Text>
         {activeScanJob?.progress !== undefined && activeScanJob.progress > 0 && (
           <Text style={styles.processingSubText}>
-            {activeScanJob.progress}% complete
+            {t("{{progress}}% complete", { progress: activeScanJob.progress })}
           </Text>
         )}
       </View>

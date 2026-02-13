@@ -4,9 +4,11 @@ import { SignedIn, SignedOut, useOAuth } from "@clerk/clerk-expo";
 import { Redirect, useRouter } from "expo-router";
 import { colors } from "@/constants/colors";
 import { useOnboardingStore } from "@/store/useOnboardingStore";
+import { useT } from "@/lib/i18n";
 
 export default function HomeIndex() {
   const router = useRouter();
+  const t = useT();
   const appleOAuth = useOAuth({ strategy: "oauth_apple" });
   const googleOAuth = useOAuth({ strategy: "oauth_google" });
   const [email, setEmail] = useState("");
@@ -47,7 +49,7 @@ export default function HomeIndex() {
             <View style={styles.card}>
               <Text style={styles.title}>ScanCaddie</Text>
               <Text style={styles.subtitle}>
-                Sign in to save rounds, sync your Scandicap, and access your history anywhere.
+                {t("Sign in to save rounds, sync your Scandicap, and access your history anywhere.")}
               </Text>
 
               <TouchableOpacity
@@ -55,7 +57,7 @@ export default function HomeIndex() {
                 onPress={() => handleOAuth("apple")}
               >
                 <Text style={styles.oauthIcon}></Text>
-                <Text style={styles.oauthButtonText}>Sign up with Apple</Text>
+                <Text style={styles.oauthButtonText}>{t("Sign up with Apple")}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -63,17 +65,17 @@ export default function HomeIndex() {
                 onPress={() => handleOAuth("google")}
               >
                 <Text style={styles.oauthIcon}>G</Text>
-                <Text style={styles.oauthButtonText}>Sign up with Google</Text>
+                <Text style={styles.oauthButtonText}>{t("Sign up with Google")}</Text>
               </TouchableOpacity>
 
               <View style={styles.orRow}>
                 <View style={styles.orLine} />
-                <Text style={styles.orText}>or</Text>
+                <Text style={styles.orText}>{t("or")}</Text>
                 <View style={styles.orLine} />
               </View>
 
               <View style={styles.emailSection}>
-                <Text style={styles.emailLabel}>Email</Text>
+                <Text style={styles.emailLabel}>{t("Email")}</Text>
                 <TextInput
                   style={styles.emailInput}
                   placeholder="you@example.com"
@@ -97,7 +99,7 @@ export default function HomeIndex() {
                     })
                   }
                 >
-                  <Text style={styles.primaryButtonText}>Continue</Text>
+                  <Text style={styles.primaryButtonText}>{t("Continue")}</Text>
                 </TouchableOpacity>
               </View>
             </View>

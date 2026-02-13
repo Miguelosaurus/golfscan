@@ -24,39 +24,42 @@ import {
     Zap,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useT } from '@/lib/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const FEATURES = [
-    { icon: Camera, label: 'Unlimited scorecard scans' },
-    { icon: TrendingUp, label: 'Automatic Scandicap™ tracking' },
-    { icon: Target, label: 'Bet settlement calculator' },
-    { icon: History, label: 'Full round history' },
-    { icon: Zap, label: 'Strokes Gained analytics' },
+const FEATURE_KEYS = [
+    { icon: Camera, labelKey: 'Unlimited scorecard scans' },
+    { icon: TrendingUp, labelKey: 'Automatic Scandicap™ tracking' },
+    { icon: Target, labelKey: 'Bet settlement calculator' },
+    { icon: History, labelKey: 'Full round history' },
+    { icon: Zap, labelKey: 'Strokes Gained analytics' },
 ];
 
 const PLANS = [
     {
         id: 'weekly',
-        name: 'Weekly',
+        nameKey: 'Weekly',
         price: '$2.99',
-        period: '/week',
-        badge: null,
+        periodKey: '/week',
+        badgeKey: null,
+        savingsKey: null,
     },
     {
         id: 'annual',
-        name: 'Annual',
+        nameKey: 'Annual',
         price: '$29.99',
-        period: '/year',
-        badge: 'Best Value',
-        savings: 'Save 80%',
+        periodKey: '/year',
+        badgeKey: 'Best Value',
+        savingsKey: 'Save 80%',
     },
     {
         id: 'lifetime',
-        name: 'Lifetime',
+        nameKey: 'Lifetime',
         price: '$79.99',
-        period: 'one-time',
-        badge: null,
+        periodKey: 'one-time',
+        badgeKey: null,
+        savingsKey: null,
     },
 ];
 
@@ -64,6 +67,7 @@ export default function PaywallScreen() {
     const router = useRouter();
     const { setCurrentStep, completeOnboarding } = useOnboardingStore();
     const [selectedPlan, setSelectedPlan] = React.useState('annual');
+    const t = useT();
 
     // Animations
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -132,20 +136,20 @@ export default function PaywallScreen() {
                             <View style={styles.crownContainer}>
                                 <Crown size={40} color="#FFD700" fill="#FFD700" />
                             </View>
-                            <Text style={styles.title}>Unlock ScanCaddie Pro</Text>
+                            <Text style={styles.title}>{t('Unlock ScanCaddie Pro')}</Text>
                             <Text style={styles.subtitle}>
-                                Get unlimited access to all features
+                                {t('Get unlimited access to all features')}
                             </Text>
                         </View>
 
                         {/* Features list */}
                         <View style={styles.featuresContainer}>
-                            {FEATURES.map((feature, index) => (
+                            {FEATURE_KEYS.map((feature, index) => (
                                 <View key={index} style={styles.featureRow}>
                                     <View style={styles.featureCheck}>
                                         <Check size={16} color="#FFFFFF" strokeWidth={3} />
                                     </View>
-                                    <Text style={styles.featureText}>{feature.label}</Text>
+                                    <Text style={styles.featureText}>{t(feature.labelKey)}</Text>
                                 </View>
                             ))}
                         </View>
@@ -162,9 +166,9 @@ export default function PaywallScreen() {
                                     onPress={() => setSelectedPlan(plan.id)}
                                     activeOpacity={0.8}
                                 >
-                                    {plan.badge && (
+                                    {(plan as any).badgeKey && (
                                         <View style={styles.planBadge}>
-                                            <Text style={styles.planBadgeText}>{plan.badge}</Text>
+                                            <Text style={styles.planBadgeText}>{t((plan as any).badgeKey)}</Text>
                                         </View>
                                     )}
 
@@ -173,7 +177,7 @@ export default function PaywallScreen() {
                                             styles.planName,
                                             selectedPlan === plan.id && styles.planNameSelected,
                                         ]}>
-                                            {plan.name}
+                                            {t((plan as any).nameKey)}
                                         </Text>
                                         <View style={styles.planPricing}>
                                             <Text style={[
@@ -182,10 +186,10 @@ export default function PaywallScreen() {
                                             ]}>
                                                 {plan.price}
                                             </Text>
-                                            <Text style={styles.planPeriod}>{plan.period}</Text>
+                                            <Text style={styles.planPeriod}>{t((plan as any).periodKey)}</Text>
                                         </View>
-                                        {plan.savings && (
-                                            <Text style={styles.planSavings}>{plan.savings}</Text>
+                                        {(plan as any).savingsKey && (
+                                            <Text style={styles.planSavings}>{t((plan as any).savingsKey)}</Text>
                                         )}
                                     </View>
 
@@ -216,16 +220,16 @@ export default function PaywallScreen() {
                             end={{ x: 1, y: 1 }}
                             style={styles.subscribeGradient}
                         >
-                            <Text style={styles.subscribeText}>Start Free Trial</Text>
+                            <Text style={styles.subscribeText}>{t('Start Free Trial')}</Text>
                         </LinearGradient>
                     </TouchableOpacity>
 
                     <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
-                        <Text style={styles.skipText}>Continue with limited features</Text>
+                        <Text style={styles.skipText}>{t('Continue with limited features')}</Text>
                     </TouchableOpacity>
 
                     <Text style={styles.termsText}>
-                        Cancel anytime. Terms apply.
+                        {t('Cancel anytime. Terms apply.')}
                     </Text>
                 </View>
             </SafeAreaView>

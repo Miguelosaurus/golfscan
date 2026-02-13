@@ -3,19 +3,21 @@ import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { colors } from '@/constants/colors';
 import { ScoreTrendData } from '@/utils/stats';
+import { useT } from '@/lib/i18n';
 
 interface ScoreTrendCardProps {
   data: ScoreTrendData;
 }
 
 export const ScoreTrendCard = ({ data }: ScoreTrendCardProps) => {
+  const t = useT();
   const { width } = useWindowDimensions();
   const chartWidth = Math.max(width - 48, 280);
   const hasEnoughData = data.totalRounds >= 2 && data.scores.length >= 2;
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>▼ Score Trend</Text>
+      <Text style={styles.title}>▼ {t('Score Trend')}</Text>
       {hasEnoughData ? (
         <View style={styles.chartWrapper}>
           <LineChart
@@ -33,7 +35,7 @@ export const ScoreTrendCard = ({ data }: ScoreTrendCardProps) => {
                   strokeWidth: 2,
                 },
               ],
-              legend: ['Score', '5-Round Avg'],
+              legend: [t('Score'), t('5-Round Avg')],
             }}
             width={chartWidth}
             height={220}
@@ -63,7 +65,7 @@ export const ScoreTrendCard = ({ data }: ScoreTrendCardProps) => {
       ) : (
         <View style={styles.placeholder}>
           <Text style={styles.placeholderText}>
-            Play a few more rounds to see your scoring trend.
+            {t('Play a few more rounds to see your scoring trend.')}
           </Text>
         </View>
       )}

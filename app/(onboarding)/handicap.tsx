@@ -17,6 +17,7 @@ import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { Check, TrendingUp, Sparkles } from 'lucide-react-native';
 import { SeedRoundsStory } from '@/components/onboarding/SeedRoundsStory';
+import { useT } from '@/lib/i18n';
 
 export default function HandicapScreen() {
     const router = useRouter();
@@ -27,6 +28,7 @@ export default function HandicapScreen() {
         setExistingHandicap,
         setCurrentStep
     } = useOnboardingStore();
+    const t = useT();
 
     const [hasHandicap, setHasHandicap] = useState<boolean | null>(
         hasExistingHandicap === true ? true : hasExistingHandicap === false ? false : null
@@ -96,9 +98,9 @@ export default function HandicapScreen() {
                     keyboardShouldPersistTaps="handled"
                 >
                     <View style={styles.header}>
-                        <Text style={styles.title}>Do you have an established handicap?</Text>
+                        <Text style={styles.title}>{t('Do you have an established handicap?')}</Text>
                         <Text style={styles.subtitle}>
-                            We can pick up right where you left off
+                            {t('We can pick up right where you left off')}
                         </Text>
                     </View>
 
@@ -121,10 +123,10 @@ export default function HandicapScreen() {
                                         styles.optionTitle,
                                         hasHandicap === true && styles.optionTitleSelected
                                     ]}>
-                                        Yes, I have a handicap
+                                        {t('Yes, I have a handicap')}
                                     </Text>
                                     <Text style={styles.optionSubtitle}>
-                                        Import your current index
+                                        {t('Import your current index')}
                                     </Text>
                                 </View>
                                 {hasHandicap === true && (
@@ -136,19 +138,19 @@ export default function HandicapScreen() {
 
                             {hasHandicap === true && (
                                 <View style={styles.handicapInputContainer}>
-                                    <Text style={styles.inputLabel}>Your handicap index</Text>
+                                    <Text style={styles.inputLabel}>{t('Your handicap index')}</Text>
                                     <TextInput
                                         style={styles.handicapInput}
                                         value={handicapValue}
                                         onChangeText={handleHandicapChange}
-                                        placeholder="e.g. 15.4"
+                                        placeholder={t('e.g. 15.4')}
                                         placeholderTextColor={colors.textSecondary}
                                         keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
                                         maxLength={5}
                                         autoFocus
                                     />
                                     <Text style={styles.inputHint}>
-                                        This will be your starting Scandicap™
+                                        {t('This will be your starting Scandicap™')}
                                     </Text>
 
                                     {handicapValue !== '' &&
@@ -179,10 +181,10 @@ export default function HandicapScreen() {
                                         styles.optionTitle,
                                         hasHandicap === false && styles.optionTitleSelected
                                     ]}>
-                                        No, I'm new or casual
+                                        {t("No, I'm new or casual")}
                                     </Text>
                                     <Text style={styles.optionSubtitle}>
-                                        We'll build your Scandicap™ from your rounds
+                                        {t("We'll build your Scandicap™ from your rounds")}
                                     </Text>
                                 </View>
                                 {hasHandicap === false && (
@@ -197,7 +199,7 @@ export default function HandicapScreen() {
 
                 <View style={styles.bottomSection}>
                     <OnboardingButton
-                        title="Continue"
+                        title={t('Continue')}
                         onPress={handleContinue}
                         disabled={!canContinue}
                         variant="primary"

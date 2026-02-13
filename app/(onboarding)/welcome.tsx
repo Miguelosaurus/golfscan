@@ -14,12 +14,14 @@ import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { Camera, TrendingUp, Target } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useT } from '@/lib/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function WelcomeScreen() {
     const router = useRouter();
     const setCurrentStep = useOnboardingStore((s) => s.setCurrentStep);
+    const t = useT();
 
     // Animations
     const logoScale = useRef(new Animated.Value(0.8)).current;
@@ -79,18 +81,18 @@ export default function WelcomeScreen() {
     const features = [
         {
             icon: <Camera size={24} color={colors.primary} />,
-            title: 'Snap your scorecard',
-            description: 'AI reads your scores instantly',
+            title: t('Snap your scorecard'),
+            description: t('AI reads your scores instantly'),
         },
         {
             icon: <TrendingUp size={24} color={colors.primary} />,
-            title: 'Track your Scandicap™',
-            description: 'Watch your handicap evolve',
+            title: t('Track your Scandicap™'),
+            description: t('Watch your handicap evolve'),
         },
         {
             icon: <Target size={24} color={colors.primary} />,
-            title: 'Settle bets fairly',
-            description: 'Automatic stroke calculations',
+            title: t('Settle bets fairly'),
+            description: t('Automatic stroke calculations'),
         },
     ];
 
@@ -123,7 +125,7 @@ export default function WelcomeScreen() {
                     <Animated.View style={[styles.titleContainer, { opacity: titleOpacity }]}>
                         <Text style={styles.title}>ScanCaddie</Text>
                         <Text style={styles.subtitle}>
-                            The smartest way to track your golf game
+                            {t('The smartest way to track your golf game')}
                         </Text>
                     </Animated.View>
 
@@ -152,13 +154,13 @@ export default function WelcomeScreen() {
                 {/* Bottom Section */}
                 <Animated.View style={[styles.bottomSection, { opacity: buttonOpacity }]}>
                     <OnboardingButton
-                        title="Get Started"
+                        title={t('Get Started')}
                         onPress={handleGetStarted}
                         variant="primary"
                     />
 
                     <Text style={styles.termsText}>
-                        By continuing, you agree to our Terms of Service
+                        {t('By continuing, you agree to our Terms of Service')}
                     </Text>
                 </Animated.View>
             </SafeAreaView>

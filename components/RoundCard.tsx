@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Round } from '@/types';
 import { colors } from '@/constants/colors';
 import { Calendar, Users } from 'lucide-react-native';
+import { formatAnyDateString } from '@/utils/helpers';
+import { useT } from '@/lib/i18n';
 
 interface RoundCardProps {
   round: Round;
@@ -11,14 +13,7 @@ interface RoundCardProps {
 }
 
 export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress, highlightPlayerId }) => {
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
+  const t = useT();
 
   const getBestScore = () => {
     if (round.players.length === 0) return null;
@@ -46,7 +41,8 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress, highlightP
   const highlightedScore = getHighlightedPlayerScore();
   const bestScore = getBestScore();
   const displayScore = highlightedScore || bestScore;
-  const scoreLabel = highlightedScore ? "Score:" : "Best Score:";
+  const scoreLabel = highlightedScore ? t("Score:") : t("Best Score:");
+  const playersLabel = round.players.length === 1 ? t("player") : t("players");
 
   return (
     <TouchableOpacity
@@ -58,7 +54,7 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress, highlightP
         <Text style={styles.courseName} numberOfLines={1}>{round.courseName}</Text>
         <View style={styles.dateContainer}>
           <Calendar size={14} color={colors.textSecondary} />
-          <Text style={styles.date}>{formatDate(round.date)}</Text>
+          <Text style={styles.date}>{formatAnyDateString(round.date)}</Text>
         </View>
       </View>
 
@@ -66,7 +62,7 @@ export const RoundCard: React.FC<RoundCardProps> = ({ round, onPress, highlightP
         <View style={styles.playersContainer}>
           <Users size={16} color={colors.textSecondary} />
           <Text style={styles.playersText}>
-            {round.players.length} {round.players.length === 1 ? 'player' : 'players'}
+            {round.players.length} {playersLabel}
           </Text>
         </View>
 

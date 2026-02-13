@@ -17,9 +17,11 @@ import { Course } from '@/types';
 import { Search, Plus } from 'lucide-react-native';
 import { useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
+import { useT } from '@/lib/i18n';
 
 export default function NewCourseScreen() {
   const router = useRouter();
+  const t = useT();
   const { addCourse } = useGolfStore();
   const [showSearchModal, setShowSearchModal] = useState(false);
   const upsertCourse = useMutation(api.courses.upsert);
@@ -55,7 +57,7 @@ export default function NewCourseScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen options={{ title: "Add Course" }} />
+      <Stack.Screen options={{ title: t("Add Course") }} />
       
       <ScrollView 
         style={styles.scrollView}
@@ -63,9 +65,9 @@ export default function NewCourseScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerContainer}>
-          <Text style={styles.title}>Add a Golf Course</Text>
+          <Text style={styles.title}>{t("Add a Golf Course")}</Text>
           <Text style={styles.subtitle}>
-            Search our database of golf courses or add one manually
+            {t("Search our database of golf courses or add one manually")}
           </Text>
         </View>
         
@@ -77,9 +79,9 @@ export default function NewCourseScreen() {
             <View style={styles.optionIcon}>
               <Search size={32} color={colors.primary} />
             </View>
-            <Text style={styles.optionTitle}>Search Golf Courses</Text>
+            <Text style={styles.optionTitle}>{t("Search Golf Courses")}</Text>
             <Text style={styles.optionDescription}>
-              Find courses from our comprehensive database with accurate hole information and ratings
+              {t("Find courses from our comprehensive database with accurate hole information and ratings")}
             </Text>
           </TouchableOpacity>
           
@@ -90,26 +92,26 @@ export default function NewCourseScreen() {
             <View style={styles.optionIcon}>
               <Plus size={32} color={colors.primary} />
             </View>
-            <Text style={styles.optionTitle}>Add Manually</Text>
+            <Text style={styles.optionTitle}>{t("Add Manually")}</Text>
             <Text style={styles.optionDescription}>
-              Create a custom course entry with your own hole information
+              {t("Create a custom course entry with your own hole information")}
             </Text>
           </TouchableOpacity>
         </View>
         
         <View style={styles.infoContainer}>
-          <Text style={styles.infoTitle}>Why search our database?</Text>
+          <Text style={styles.infoTitle}>{t("Why search our database?")}</Text>
           <Text style={styles.infoText}>
-            • Accurate hole-by-hole information
+            {t("• Accurate hole-by-hole information")}
           </Text>
           <Text style={styles.infoText}>
-            • Official course ratings and slope
+            {t("• Official course ratings and slope")}
           </Text>
           <Text style={styles.infoText}>
-            • Multiple tee box options
+            {t("• Multiple tee box options")}
           </Text>
           <Text style={styles.infoText}>
-            • Verified course details
+            {t("• Verified course details")}
           </Text>
         </View>
       </ScrollView>

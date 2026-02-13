@@ -12,10 +12,9 @@ const SCORECARD_PROMPT = `
 Extract scorecard data from these images and return JSON only (no prose).
 
 Rules:
-- Use the exact response schema (courseName/courseNameConfidence/date/dateConfidence/players with scores/holes).
+- Use the exact response schema (players with scores only).
 - For scores: Only use null if absolutely no marks visible; otherwise best reasonable guess.
-- Course names: include only if confidence > 0.7, else null.
-- Dates: YYYY-MM-DD format or null.
+- Do not extract course name, date, or hole pars.
 - Extract raw data only—no calculations; process images sequentially.
 - Confidence scores 0.0-1.0 and honest; <0.65 flagged for review.
 `;
@@ -24,10 +23,6 @@ Rules:
 const SCORECARD_SCHEMA = {
   type: "object",
   properties: {
-    courseName: { type: "string", nullable: true },
-    courseNameConfidence: { type: "number" },
-    date: { type: "string", nullable: true },
-    dateConfidence: { type: "number" },
     players: {
       type: "array",
       items: {
@@ -51,34 +46,17 @@ const SCORECARD_SCHEMA = {
         required: ["name", "scores"],
       },
     },
-    holes: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          hole: { type: "integer" },
-          par: { type: "integer" },
-          parConfidence: { type: "number" },
-        },
-        required: ["hole", "par"],
-      },
-    },
   },
-  required: ["players", "holes"],
+  required: ["players"],
 };
 
 const calculateOverallConfidence = (data: any): number => {
   const confidences: number[] = [];
-  if (data.courseNameConfidence !== undefined) confidences.push(data.courseNameConfidence);
-  if (data.dateConfidence !== undefined) confidences.push(data.dateConfidence);
   data.players?.forEach((p: any) => {
     if (p.nameConfidence !== undefined) confidences.push(p.nameConfidence);
     p.scores?.forEach((s: any) => {
       if (s.confidence !== undefined) confidences.push(s.confidence);
     });
-  });
-  data.holes?.forEach((h: any) => {
-    if (h.parConfidence !== undefined) confidences.push(h.parConfidence);
   });
   return confidences.length
     ? confidences.reduce((sum, c) => sum + c, 0) / confidences.length
@@ -293,11 +271,11 @@ export const processScan = action({
         throw new Error("Failed to parse JSON from Gemini response");
       }
 
-      // Force date to today; we don't rely on OCR for dates
-      const todayIso = new Date().toISOString().split("T")[0];
-      parsed.date = todayIso;
-      parsed.dateConfidence = 1.0;
-
+      delete parsed.courseName;
+      delete parsed.courseNameConfidence;
+      delete parsed.date;
+      delete parsed.dateConfidence;
+      delete parsed.holes;
       parsed.overallConfidence = calculateOverallConfidence(parsed);
 
       await ctx.runMutation(api.scorecard.updateScanJob, {
@@ -456,10 +434,11 @@ export const processScanGuest = action({
       throw new Error("Failed to parse JSON from Gemini response");
     }
 
-    // Force date to today
-    const todayIso = new Date().toISOString().split("T")[0];
-    parsed.date = todayIso;
-    parsed.dateConfidence = 1.0;
+    delete parsed.courseName;
+    delete parsed.courseNameConfidence;
+    delete parsed.date;
+    delete parsed.dateConfidence;
+    delete parsed.holes;
     parsed.overallConfidence = calculateOverallConfidence(parsed);
 
     return { result: parsed };

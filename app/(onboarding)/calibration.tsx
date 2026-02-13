@@ -17,6 +17,7 @@ import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { HandwritingStyle } from '@/types/onboarding';
 import { Check } from 'lucide-react-native';
+import { useT } from '@/lib/i18n';
 
 // Import handwriting sample images
 const HANDWRITING_IMAGES = {
@@ -96,28 +97,28 @@ const StyleCard: React.FC<StyleCardProps> = ({
     );
 };
 
-const HANDWRITING_STYLES: {
+const HANDWRITING_STYLE_KEYS: {
     value: HandwritingStyle;
-    title: string;
-    subtitle: string;
+    titleKey: string;
+    subtitleKey: string;
     sampleImage: ImageSourcePropType;
 }[] = [
         {
             value: 'neat',
-            title: 'Neat',
-            subtitle: 'Clear, well-formed numbers',
+            titleKey: 'Neat',
+            subtitleKey: 'Clear, well-formed numbers',
             sampleImage: HANDWRITING_IMAGES.neat,
         },
         {
             value: 'average',
-            title: 'Average',
-            subtitle: 'Typical everyday handwriting',
+            titleKey: 'Average',
+            subtitleKey: 'Typical everyday handwriting',
             sampleImage: HANDWRITING_IMAGES.average,
         },
         {
             value: 'rushed',
-            title: 'Rushed',
-            subtitle: 'Quick scribbles, harder to read',
+            titleKey: 'Rushed',
+            subtitleKey: 'Quick scribbles, harder to read',
             sampleImage: HANDWRITING_IMAGES.rushed,
         },
     ];
@@ -126,6 +127,7 @@ export default function CalibrationScreen() {
     const router = useRouter();
     const { handwritingStyle, setHandwritingStyle, setCurrentStep } = useOnboardingStore();
     const [selected, setSelected] = useState<HandwritingStyle | undefined>(handwritingStyle);
+    const t = useT();
 
     const handleSelect = (style: HandwritingStyle) => {
         setSelected(style);
@@ -149,18 +151,18 @@ export default function CalibrationScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.header}>
-                    <Text style={styles.title}>One Photo. Everything Captured.</Text>
+                    <Text style={styles.title}>{t('One Photo. Everything Captured.')}</Text>
                     <Text style={styles.subtitle}>
-                        Just snap your scorecard at the end of the round. Select your handwriting style for 99% accuracy.
+                        {t('Just snap your scorecard at the end of the round. Select your handwriting style for 99% accuracy.')}
                     </Text>
                 </View>
 
                 <View style={styles.cardsContainer}>
-                    {HANDWRITING_STYLES.map((style) => (
+                    {HANDWRITING_STYLE_KEYS.map((style) => (
                         <StyleCard
                             key={style.value}
-                            title={style.title}
-                            subtitle={style.subtitle}
+                            title={t(style.titleKey)}
+                            subtitle={t(style.subtitleKey)}
                             sampleImage={style.sampleImage}
                             selected={selected === style.value}
                             onPress={() => handleSelect(style.value)}
@@ -171,7 +173,7 @@ export default function CalibrationScreen() {
 
             <View style={styles.bottomSection}>
                 <OnboardingButton
-                    title="Continue"
+                    title={t('Continue')}
                     onPress={handleContinue}
                     disabled={!selected}
                     variant="primary"

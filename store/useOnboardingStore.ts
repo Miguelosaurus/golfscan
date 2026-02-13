@@ -3,11 +3,39 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
     AgeGroup,
+    AppLanguage,
     DistanceUnit,
     HandwritingStyle,
     OnboardingStep,
     PROGRESS_STEPS
 } from "@/types/onboarding";
+
+const getDeviceLanguageCode = (): string | null => {
+    // expo-localization is a native module. If the app binary doesn't include it
+    // yet (e.g. dev client not rebuilt), importing it at module scope crashes.
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const Localization = require("expo-localization");
+        const locale = Localization.getLocales?.()?.[0];
+        return (locale?.languageCode || "").toLowerCase() || null;
+    } catch {
+        // Fallback to Intl if available
+        try {
+            const resolved = Intl.DateTimeFormat().resolvedOptions?.().locale;
+            if (typeof resolved === "string" && resolved.length) {
+                return resolved.split(/[-_]/)[0]?.toLowerCase() || null;
+            }
+        } catch {
+            // no-op
+        }
+        return null;
+    }
+};
+
+const getDefaultLanguage = (): AppLanguage => {
+    const code = getDeviceLanguageCode() ?? "";
+    return code === "es" ? "es" : "en";
+};
 
 interface OnboardingState {
     // Flow state
@@ -23,6 +51,7 @@ interface OnboardingState {
     existingHandicap?: number;
     handwritingStyle?: HandwritingStyle;
     distanceUnit: DistanceUnit;
+    language: AppLanguage;
 
     // Hydration tracking
     _hasHydrated: boolean;
@@ -35,6 +64,7 @@ interface OnboardingState {
     setExistingHandicap: (handicap: number) => void;
     setHandwritingStyle: (style: HandwritingStyle) => void;
     setDistanceUnit: (unit: DistanceUnit) => void;
+    setLanguage: (language: AppLanguage) => void;
     completeOnboarding: () => void;
     resetOnboarding: () => void;
 
@@ -55,6 +85,7 @@ export const useOnboardingStore = create<OnboardingState>()(
             existingHandicap: undefined,
             handwritingStyle: undefined,
             distanceUnit: 'yards',
+            language: getDefaultLanguage(),
             _hasHydrated: false,
 
             // Actions
@@ -75,6 +106,8 @@ export const useOnboardingStore = create<OnboardingState>()(
 
             setDistanceUnit: (unit) => set({ distanceUnit: unit }),
 
+            setLanguage: (language) => set({ language }),
+
             completeOnboarding: () => set({
                 hasCompletedOnboarding: true,
                 currentStep: 'login'
@@ -89,6 +122,7 @@ export const useOnboardingStore = create<OnboardingState>()(
                 existingHandicap: undefined,
                 handwritingStyle: undefined,
                 distanceUnit: 'yards',
+                language: getDefaultLanguage(),
             }),
 
             // Helpers
@@ -111,6 +145,7 @@ export const useOnboardingStore = create<OnboardingState>()(
                 existingHandicap: state.existingHandicap,
                 handwritingStyle: state.handwritingStyle,
                 distanceUnit: state.distanceUnit,
+                language: state.language,
             }),
             onRehydrateStorage: () => (state) => {
                 if (state) {

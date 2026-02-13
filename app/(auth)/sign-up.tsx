@@ -3,11 +3,13 @@ import { Text, TextInput, TouchableOpacity, View, StyleSheet, Alert } from "reac
 import { useSignUp } from "@clerk/clerk-expo";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { colors } from "@/constants/colors";
+import { useT } from "@/lib/i18n";
 
 export default function SignUpScreen() {
   const { isLoaded, signUp, setActive } = useSignUp();
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
+  const t = useT();
 
   const [emailAddress, setEmailAddress] = React.useState(params.email ?? "");
   const [password, setPassword] = React.useState("");
@@ -28,8 +30,8 @@ export default function SignUpScreen() {
         clerkErrors.join("\n") ||
         err?.longMessage ||
         err?.message ||
-        "Sign up failed. Please try again.";
-      Alert.alert("Sign up error", message);
+        t("Sign up failed. Please try again.");
+      Alert.alert(t("Sign up error"), message);
     }
   };
 
@@ -52,15 +54,15 @@ export default function SignUpScreen() {
     return (
       <View style={styles.screen}>
         <View style={styles.card}>
-          <Text style={styles.title}>Verify your email</Text>
+          <Text style={styles.title}>{t("Verify your email")}</Text>
           <TextInput
             value={code}
-            placeholder="Verification code"
+            placeholder={t("Verification code")}
             onChangeText={setCode}
             style={styles.input}
           />
           <TouchableOpacity onPress={onVerifyPress} style={[styles.button, styles.primaryButton]}>
-            <Text style={styles.primaryButtonText}>Verify</Text>
+            <Text style={styles.primaryButtonText}>{t("Verify")}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -70,29 +72,29 @@ export default function SignUpScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.card}>
-        <Text style={styles.title}>Create your account</Text>
+        <Text style={styles.title}>{t("Create your account")}</Text>
         <TextInput
           autoCapitalize="none"
           value={emailAddress}
-          placeholder="Email"
+          placeholder={t("Email")}
           keyboardType="email-address"
           onChangeText={setEmailAddress}
           style={styles.input}
         />
         <TextInput
           value={password}
-          placeholder="Password"
+          placeholder={t("Password")}
           secureTextEntry
           onChangeText={setPassword}
           style={styles.input}
         />
         <TouchableOpacity onPress={onSignUpPress} style={[styles.button, styles.primaryButton]}>
-          <Text style={styles.primaryButtonText}>Continue</Text>
+          <Text style={styles.primaryButtonText}>{t("Continue")}</Text>
         </TouchableOpacity>
       <View style={styles.linkRow}>
-        <Text style={styles.linkText}>Already have an account?</Text>
+        <Text style={styles.linkText}>{t("Already have an account?")}</Text>
         <Link href="/">
-          <Text style={[styles.linkText, styles.linkHighlight]}>Sign in</Text>
+          <Text style={[styles.linkText, styles.linkHighlight]}>{t("Sign in")}</Text>
         </Link>
       </View>
       </View>

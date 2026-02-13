@@ -1,5 +1,5 @@
 import { Course, Hole, PlayerRound, Round } from '@/types';
-import { getEighteenHoleEquivalentScore } from '@/utils/helpers';
+import { getEighteenHoleEquivalentScore, parseAnyDateStringToLocalDate } from '@/utils/helpers';
 
 export interface PerformanceByPar {
   par3: number | null;
@@ -237,16 +237,16 @@ export const buildScoreTrendData = ({
 
       return {
         round,
-        date: new Date(round.date),
+        date: parseAnyDateStringToLocalDate(round.date),
         score,
       };
     })
-    .filter(item => !isNaN(item.date.getTime()))
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
+    .filter(item => !!item.date && !isNaN((item.date as Date).getTime()))
+    .sort((a, b) => (a.date as Date).getTime() - (b.date as Date).getTime());
 
   const recentRounds = playerRounds.slice(-maxRounds);
   const labels = recentRounds.map(item =>
-    item.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    (item.date as Date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   );
   const scores = recentRounds.map(item => item.score);
 

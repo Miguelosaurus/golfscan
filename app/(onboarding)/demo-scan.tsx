@@ -18,6 +18,7 @@ import { useGolfStore } from '@/store/useGolfStore';
 import { generateUniqueId, getLocalDateString } from '@/utils/helpers';
 import { ScorecardScanResult } from '@/types';
 import { Camera, Check, Sparkles, RotateCcw, ArrowRight } from 'lucide-react-native';
+import { useT } from '@/lib/i18n';
 
 // Demo scorecard data - actual scores from the provided scorecard image
 // Players: ALEX (Gross), BEN (Net), CHRIS (Net)
@@ -38,8 +39,11 @@ export default function DemoScanScreen() {
     const router = useRouter();
     const { setActiveScanJob } = useGolfStore();
     const [permission, requestPermission] = useCameraPermissions();
+    const t = useT();
 
     const [stage, setStage] = useState<DemoStage>('camera');
+    const hasStartedProcessingRef = useRef(false);
+    const hasNavigatedToReviewRef = useRef(false);
 
     // Animation refs
     const scanAnim = useRef(new Animated.Value(0)).current;
@@ -78,18 +82,16 @@ export default function DemoScanScreen() {
     // Processing animation
     useEffect(() => {
         if (stage === 'processing') {
+            let isActive = true;
             Animated.timing(processingAnim, {
                 toValue: 1,
                 duration: 3000,
                 easing: Easing.out(Easing.cubic),
                 useNativeDriver: false,
             }).start(() => {
+                if (!isActive) return;
                 // Create demo scan result and navigate to review
                 const demoResult: ScorecardScanResult = {
-                    courseName: 'Demo Golf Club',
-                    courseNameConfidence: 0.95,
-                    date: getLocalDateString(),
-                    dateConfidence: 0.95,
                     overallConfidence: 0.92,
                     players: DEMO_PLAYERS.map(player => ({
                         name: player.name,
@@ -110,12 +112,19 @@ export default function DemoScanScreen() {
                     progress: 100,
                     message: 'Demo scan complete',
                     requiresReview: true,
+                    onboardingDemo: true,
                     result: demoResult,
                 } as any);
 
                 // Navigate to scan-review with onboarding mode
-                router.push('/scan-review?onboardingMode=true&onboardingDemo=true');
+                if (!hasNavigatedToReviewRef.current) {
+                    hasNavigatedToReviewRef.current = true;
+                    router.replace('/scan-review?onboardingMode=true&onboardingDemo=true');
+                }
             });
+            return () => {
+                isActive = false;
+            };
         }
     }, [stage]);
 
@@ -139,10 +148,15 @@ export default function DemoScanScreen() {
     };
 
     const handleRetake = () => {
+        hasStartedProcessingRef.current = false;
+        processingAnim.setValue(0);
         setStage('camera');
     };
 
     const handleAnalyze = () => {
+        if (stage !== 'confirm') return;
+        if (hasStartedProcessingRef.current) return;
+        hasStartedProcessingRef.current = true;
         setStage('processing');
     };
 
@@ -204,9 +218,9 @@ export default function DemoScanScreen() {
                 <SafeAreaView style={styles.header} edges={['top']}>
                     <OnboardingProgress currentStep="scan-demo" />
                     <View style={styles.headerContent}>
-                        <Text style={styles.headerTitle}>Demo: Position scorecard</Text>
+                        <Text style={styles.headerTitle}>{t('Demo: Position scorecard')}</Text>
                         <Text style={styles.headerSubtitle}>
-                            This is a sample scorecard - tap capture when ready
+                            {t('This is a sample scorecard - tap capture when ready')}
                         </Text>
                     </View>
                 </SafeAreaView>
@@ -220,7 +234,7 @@ export default function DemoScanScreen() {
                     >
                         <View style={styles.captureInner} />
                     </TouchableOpacity>
-                    <Text style={styles.captureHint}>Tap to capture</Text>
+                    <Text style={styles.captureHint}>{t('Tap to capture')}</Text>
                 </SafeAreaView>
             </View>
         );
@@ -245,9 +259,9 @@ export default function DemoScanScreen() {
                     </View>
 
                     <View style={styles.confirmContent}>
-                        <Text style={styles.confirmTitle}>Scorecard captured!</Text>
+                        <Text style={styles.confirmTitle}>{t('Scorecard captured!')}</Text>
                         <Text style={styles.confirmSubtitle}>
-                            Ready to analyze with our AI
+                            {t('Ready to analyze with our AI')}
                         </Text>
                     </View>
 
@@ -258,7 +272,7 @@ export default function DemoScanScreen() {
                             activeOpacity={0.8}
                         >
                             <Sparkles size={20} color="#FFFFFF" />
-                            <Text style={styles.analyzeButtonText}>Analyze Scorecard</Text>
+                            <Text style={styles.analyzeButtonText}>{t('Analyze Scorecard')}</Text>
                             <ArrowRight size={20} color="#FFFFFF" />
                         </TouchableOpacity>
 
@@ -268,7 +282,7 @@ export default function DemoScanScreen() {
                             activeOpacity={0.8}
                         >
                             <RotateCcw size={18} color={colors.textSecondary} />
-                            <Text style={styles.retakeButtonText}>Retake</Text>
+                            <Text style={styles.retakeButtonText}>{t('Retake')}</Text>
                         </TouchableOpacity>
                     </View>
                 </SafeAreaView>
@@ -287,9 +301,9 @@ export default function DemoScanScreen() {
                         <Sparkles size={48} color={colors.primary} />
                     </View>
 
-                    <Text style={styles.processingTitle}>Reading your scorecard...</Text>
+                    <Text style={styles.processingTitle}>{t('Reading your scorecard...')}</Text>
                     <Text style={styles.processingSubtitle}>
-                        Our AI is extracting player names and scores
+                        {t('Our AI is extracting player names and scores')}
                     </Text>
 
                     <View style={styles.progressContainer}>
@@ -304,19 +318,18 @@ export default function DemoScanScreen() {
                     </View>
 
                     <View style={styles.processingSteps}>
-                        <Text style={styles.stepText}>✓ Image captured</Text>
-                        <Text style={styles.stepText}>✓ Detecting scorecard layout</Text>
+                        <Text style={styles.stepText}>✓ {t('Image captured')}</Text>
+                        <Text style={styles.stepText}>✓ {t('Detecting scorecard layout')}</Text>
                         <Text style={[styles.stepText, styles.stepActive]}>
-                            → Reading handwritten scores...
+                            → {t('Reading handwritten scores...')}
                         </Text>
                     </View>
 
                     {/* Explanation box */}
                     <View style={styles.explanationBox}>
-                        <Text style={styles.explanationTitle}>💡 How it works</Text>
+                        <Text style={styles.explanationTitle}>{t('💡 How it works')}</Text>
                         <Text style={styles.explanationText}>
-                            ScanCaddie uses AI to read handwritten scorecards, identify players,
-                            and automatically calculate your stats - all in seconds!
+                            {t('ScanCaddie uses AI to read handwritten scorecards, identify players, and automatically calculate your stats - all in seconds!')}
                         </Text>
                     </View>
                 </View>

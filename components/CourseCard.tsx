@@ -5,6 +5,7 @@ import { colors } from '@/constants/colors';
 import { MapPin } from 'lucide-react-native';
 import { useCourseImage } from '@/hooks/useCourseImage';
 import { DEFAULT_COURSE_IMAGE } from '@/constants/images';
+import { useT } from '@/lib/i18n';
 
 interface CourseCardProps {
   course: Course;
@@ -14,6 +15,7 @@ interface CourseCardProps {
 }
 
 export const CourseCard: React.FC<CourseCardProps> = ({ course, convexImageUrl, onPress }) => {
+  const t = useT();
   const totalPar = course.holes.reduce((sum, hole) => sum + hole.par, 0);
   const [hasError, setHasError] = useState(false);
 
@@ -58,12 +60,12 @@ export const CourseCard: React.FC<CourseCardProps> = ({ course, convexImageUrl, 
 
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Holes</Text>
+            <Text style={styles.statLabel}>{t("Holes")}</Text>
             <Text style={styles.statValue}>{course.holes.length}</Text>
           </View>
 
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Par</Text>
+            <Text style={styles.statLabel}>{t("Par")}</Text>
             <Text style={styles.statValue}>{totalPar}</Text>
           </View>
         </View>

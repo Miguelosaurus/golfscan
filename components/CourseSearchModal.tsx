@@ -23,6 +23,7 @@ import * as Location from 'expo-location';
 import { getDistanceInKm } from '@/utils/helpers';
 import { useAction, useMutation, useQuery } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
+import { useT } from '@/lib/i18n';
 
 interface CourseSelectionMeta {
   apiCourse?: ApiCourseData;
@@ -48,6 +49,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
 }) => {
   const { getFrequentCourses, getCourseById, addCourse, updateCourse, courses, rounds } = useGolfStore();
   const router = useRouter();
+  const t = useT();
 
 
   // Use Convex lightweight course refs (same as history tab but no players/scores)
@@ -98,7 +100,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         map.set(key, {
           id,
           name: ref.courseName,
-          location: storeCourse?.location ?? ref.courseLocation ?? 'Unknown location',
+          location: storeCourse?.location ?? ref.courseLocation ?? t('Unknown location'),
           holes: storeCourse?.holes ?? [],
           imageUrl: storeCourse?.imageUrl ?? (ref.courseImageUrl as string | undefined),
           slope: storeCourse?.slope,
@@ -127,6 +129,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     console.log('[CourseSearchModal] Starting nearby search, isGuest:', isGuest);
 
     (async () => {
+      setNearbyCourses([]);
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return;
@@ -135,37 +138,64 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
         const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
         setUserLocation(coords);
 
-        // Reverse-geocode to get the user's city so we can query nearby courses
+        // "Nearby" should be based on distance, not just "same city" text matching.
+        // The upstream API only supports text search, so we broaden the query and
+        // then select the closest courses by lat/lng from the returned candidates.
         const geo = await Location.reverseGeocodeAsync(coords);
-        let queries: string[] = [];
-        if (geo && geo.length) {
-          const g = geo[0];
-          if (g.city) queries.push(g.city);
-          if (g.region) queries.push(g.region);
-          if (g.district) queries.push(g.district);
-        }
-        // Always add a generic fallback to broaden results
-        queries.push('golf');
+        const g = geo?.[0];
+        const localQuery = [g?.city, g?.region].filter(Boolean).join(' ').trim();
+
+        // Keep paid calls bounded: at most 2 searches (localQuery + generic fallback).
+        const queries = [localQuery, 'golf'].filter(Boolean) as string[];
+        const seenIds = new Set<string>();
+        const candidates: any[] = [];
+
+        const addResults = (results: any[]) => {
+          for (const course of results) {
+            const id = String(course?.id ?? '');
+            if (!id || seenIds.has(id)) continue;
+            seenIds.add(id);
+
+            const lat = course?.location?.latitude;
+            const lon = course?.location?.longitude;
+            const hasCoords =
+              typeof lat === 'number' &&
+              typeof lon === 'number' &&
+              Number.isFinite(lat) &&
+              Number.isFinite(lon) &&
+              !(lat === 0 && lon === 0);
+
+            candidates.push({
+              ...course,
+              _distanceKm: hasCoords
+                ? getDistanceInKm(coords.latitude, coords.longitude, lat, lon)
+                : null,
+            });
+          }
+        };
 
         for (const q of queries) {
           try {
-            // Use guest search for unauthenticated onboarding
             const results = isGuest
               ? await searchGuestAction({ query: q })
               : await searchAction({ query: q });
-            if (results && results.length) {
-              // Sort by distance if we have coordinates
-              const sorted = results.sort((a: any, b: any) => {
-                const d1 = getDistanceInKm(coords.latitude, coords.longitude, a.location.latitude, a.location.longitude);
-                const d2 = getDistanceInKm(coords.latitude, coords.longitude, b.location.latitude, b.location.longitude);
-                return d1 - d2;
-              });
-              setNearbyCourses(sorted as any[]);
-              break;
+            if (Array.isArray(results) && results.length > 0) {
+              addResults(results);
             }
           } catch (e) {
             console.log('Nearby course search error', e);
           }
+        }
+
+        const withDistance = candidates.filter((c) => typeof c._distanceKm === 'number');
+        if (withDistance.length > 0) {
+          const closestTwo = [...withDistance]
+            .sort((a, b) => (a._distanceKm as number) - (b._distanceKm as number))
+            .slice(0, 2);
+          setNearbyCourses(closestTwo as any[]);
+        } else {
+          // Fallback: if we can't compute distance, still show at most 2 candidates.
+          setNearbyCourses(candidates.slice(0, 2) as any[]);
         }
       } catch (e) {
         console.log('Location error', e);
@@ -264,7 +294,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
       setSearchResults(sorted);
     } catch (error) {
       console.error('Search error:', error);
-      Alert.alert('Error', 'Failed to search courses. Please check your internet connection and try again.');
+      Alert.alert(t('Error'), t('Failed to search courses. Please check your internet connection and try again.'));
     } finally {
       setLoading(false);
     }
@@ -380,7 +410,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
       onClose();
     } catch (error) {
       console.error('Failed to convert course:', error);
-      Alert.alert('Course Error', 'We could not prepare this course right now. Please try again.');
+      Alert.alert(t('Course Error'), t('We could not prepare this course right now. Please try again.'));
     } finally {
       setSelectingCourse(false);
     }
@@ -491,7 +521,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
       onClose();
     } catch (error) {
       console.error('Failed to convert course with tee selection:', error);
-      Alert.alert('Course Error', 'We could not prepare this course right now. Please try again.');
+      Alert.alert(t('Course Error'), t('We could not prepare this course right now. Please try again.'));
     } finally {
       setSelectingCourse(false);
     }
@@ -619,19 +649,19 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
     );
   };
 
-  const renderNearbySection = () => (
-    nearbyCourses.length > 0 && (
-      <View style={styles.frequentSection}>
-        <Text style={styles.sectionTitle}>Nearby Courses</Text>
-        <FlatList
-          data={nearbyCourses}
-          renderItem={renderCourseItem}
-          keyExtractor={(item) => item.id.toString()}
-          showsVerticalScrollIndicator={false}
-        />
-      </View>
-    )
-  );
+	  const renderNearbySection = () => (
+	    nearbyCourses.length > 0 && (
+	      <View style={styles.frequentSection}>
+	        <Text style={styles.sectionTitle}>{t("Nearby Courses")}</Text>
+	        <FlatList
+	          data={nearbyCourses}
+	          renderItem={renderCourseItem}
+	          keyExtractor={(item) => item.id.toString()}
+	          showsVerticalScrollIndicator={false}
+	        />
+	      </View>
+	    )
+	  );
 
   const renderTeeOption = (teeName: string, index: number) => (
     <TouchableOpacity
@@ -651,10 +681,10 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
       onRequestClose={handleClose}
     >
       <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {showTeeSelection ? 'Select Tee Box' : 'Search Golf Courses'}
-          </Text>
+	        <View style={styles.header}>
+	          <Text style={styles.title}>
+	            {showTeeSelection ? t('Select Tee Box') : t('Search Golf Courses')}
+	          </Text>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
             <X size={24} color={colors.text} />
           </TouchableOpacity>
@@ -670,18 +700,18 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                   onPress={() => setActiveTab('search')}
                 >
                   <Search size={18} color={colors.text} />
-                  <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
-                    Search
-                  </Text>
+	                  <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
+	                    {t('Search')}
+	                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.tab, activeTab === 'my-courses' && styles.activeTab]}
                   onPress={() => setActiveTab('my-courses')}
                 >
                   <Flag size={18} color={colors.text} />
-                  <Text style={[styles.tabText, activeTab === 'my-courses' && styles.activeTabText]}>
-                    My Courses
-                  </Text>
+	                  <Text style={[styles.tabText, activeTab === 'my-courses' && styles.activeTabText]}>
+	                    {t('My Courses')}
+	                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -690,14 +720,14 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
             {activeTab === 'search' && (
               <View style={styles.searchContainer}>
                 <Search size={20} color={colors.textSecondary} style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search for golf courses..."
-                  placeholderTextColor={colors.textSecondary}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  autoFocus={activeTab === 'search'}
-                />
+	                <TextInput
+	                  style={styles.searchInput}
+	                  placeholder={t('Search for golf courses...')}
+	                  placeholderTextColor={colors.textSecondary}
+	                  value={searchQuery}
+	                  onChangeText={setSearchQuery}
+	                  autoFocus={activeTab === 'search'}
+	                />
               </View>
             )}
 
@@ -706,10 +736,10 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
               <>
                 {loading && (
                   <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={colors.primary} />
-                    <Text style={styles.loadingText}>Searching courses...</Text>
-                  </View>
-                )}
+	                    <ActivityIndicator size="large" color={colors.primary} />
+	                    <Text style={styles.loadingText}>{t('Searching courses...')}</Text>
+	                  </View>
+	                )}
 
                 {/* Show nearby courses when not searching */}
                 {searchQuery.length === 0 && renderNearbySection()}
@@ -725,8 +755,8 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                     ListEmptyComponent={
                       !loading ? (
                         <View style={styles.emptyContainer}>
-                          <Text style={styles.emptyText}>Can't find your course?</Text>
-                          <Text style={styles.emptySubtext}>Add it manually below.</Text>
+	                          <Text style={styles.emptyText}>{t("Can't find your course?")}</Text>
+	                          <Text style={styles.emptySubtext}>{t('Add it manually below.')}</Text>
 
                           <TouchableOpacity
                             style={styles.manualEntryButton}
@@ -736,11 +766,11 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                               else router.push('/manual-course-entry');
                             }}
                           >
-                            <PlusCircle size={20} color={colors.primary} style={{ marginRight: 6 }} />
-                            <Text style={styles.manualEntryText}>Add Course Manually</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : null
+	                            <PlusCircle size={20} color={colors.primary} style={{ marginRight: 6 }} />
+	                            <Text style={styles.manualEntryText}>{t('Add Course Manually')}</Text>
+	                          </TouchableOpacity>
+	                        </View>
+	                      ) : null
                     }
                   />
                 )}
@@ -757,12 +787,12 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                 style={styles.resultsList}
                 showsVerticalScrollIndicator={false}
                 ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
-                    <Text style={styles.emptyText}>No courses saved yet</Text>
-                    <Text style={styles.emptySubtext}>Save courses by playing rounds to see them here</Text>
-                  </View>
-                }
-              />
+	                  <View style={styles.emptyContainer}>
+	                    <Text style={styles.emptyText}>{t('No courses saved yet')}</Text>
+	                    <Text style={styles.emptySubtext}>{t('Save courses by playing rounds to see them here')}</Text>
+	                  </View>
+	                }
+	              />
             )}
           </>
         ) : (
@@ -772,7 +802,7 @@ export const CourseSearchModal: React.FC<CourseSearchModalProps & { onAddManualC
                 ? selectedCourse.name
                 : (selectedCourse ? getCourseDisplayName(selectedCourse) : '')}
             </Text>
-            <Text style={styles.teeSelectionSubtitle}>Choose your tee box:</Text>
+	            <Text style={styles.teeSelectionSubtitle}>{t('Choose your tee box:')}</Text>
 
             <View style={styles.teeOptionsContainer}>
               {selectedCourse && (selectedCourse._isLocalCourse

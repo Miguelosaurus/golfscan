@@ -14,11 +14,13 @@ import { colors } from '@/constants/colors';
 import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
 import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
+import { useT } from '@/lib/i18n';
 
 export default function NameScreen() {
     const router = useRouter();
     const { displayName, setDisplayName, setCurrentStep } = useOnboardingStore();
     const [name, setName] = useState(displayName ?? '');
+    const t = useT();
 
     const trimmed = useMemo(() => name.trim(), [name]);
     const canContinue = trimmed.length > 0;
@@ -45,11 +47,11 @@ export default function NameScreen() {
                     keyboardShouldPersistTaps="handled"
                 >
                     <View style={styles.header}>
-                        <Text style={styles.title}>What should we call you?</Text>
+                        <Text style={styles.title}>{t('What should we call you?')}</Text>
                     </View>
 
                     <View style={styles.card}>
-                        <Text style={styles.inputLabel}>Your name</Text>
+                        <Text style={styles.inputLabel}>{t('Your name')}</Text>
                         <TextInput
                             style={styles.input}
                             value={name}
@@ -64,7 +66,7 @@ export default function NameScreen() {
 
                 <View style={styles.bottomSection}>
                     <OnboardingButton
-                        title="Continue"
+                        title={t('Continue')}
                         onPress={handleContinue}
                         disabled={!canContinue}
                         variant="primary"

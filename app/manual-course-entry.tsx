@@ -12,17 +12,22 @@ import { useRouter, Stack, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
+import { useOnboardingStore } from '@/store/useOnboardingStore';
+import { useT } from '@/lib/i18n';
 import { Button } from '@/components/Button';
 import { Course, Hole } from '@/types';
 import { generateUniqueId } from '@/utils/helpers';
+import { fromUnitDistanceValueToYards, toUnitDistanceValueFromYards } from '@/utils/units';
 import { Plus, Minus } from 'lucide-react-native';
 import { useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 
 export default function ManualCourseEntryScreen() {
   const router = useRouter();
+  const t = useT();
   const params = useLocalSearchParams();
   const { addCourse } = useGolfStore();
+  const distanceUnit = useOnboardingStore((s) => s.distanceUnit);
   const upsertCourse = useMutation(api.courses.upsert);
   
   const [name, setName] = useState('');
@@ -51,12 +56,26 @@ export default function ManualCourseEntryScreen() {
   };
   
   const handleDistanceChange = (index: number, value: string) => {
-    const distance = parseInt(value, 10);
-    if (isNaN(distance)) return;
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      setHoles(prev => {
+        const updated = [...prev];
+        updated[index] = { ...updated[index], distance: 0 };
+        return updated;
+      });
+      return;
+    }
+
+    const raw = parseInt(trimmed, 10);
+    if (isNaN(raw)) return;
+    const yards =
+      distanceUnit === 'yards'
+        ? raw
+        : Math.round(fromUnitDistanceValueToYards(raw, 'meters'));
     
     setHoles(prev => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], distance };
+      updated[index] = { ...updated[index], distance: yards };
       return updated;
     });
   };
@@ -83,19 +102,19 @@ export default function ManualCourseEntryScreen() {
   
   const validateForm = () => {
     if (!name.trim()) {
-      Alert.alert("Error", "Please enter a course name");
+      Alert.alert(t("Error"), t("Please enter a course name"));
       return false;
     }
     if (!location.trim()) {
-      Alert.alert("Error", "Please enter a location");
+      Alert.alert(t("Error"), t("Please enter a location"));
       return false;
     }
     if (courseRatingInput.trim().length && isNaN(Number(courseRatingInput.trim()))) {
-      Alert.alert("Error", "Course rating must be a number");
+      Alert.alert(t("Error"), t("Course rating must be a number"));
       return false;
     }
     if (slopeRatingInput.trim().length && (isNaN(Number(slopeRatingInput.trim())) || !Number.isFinite(Number(slopeRatingInput.trim())))) {
-      Alert.alert("Error", "Slope rating must be a number");
+      Alert.alert(t("Error"), t("Slope rating must be a number"));
       return false;
     }
     return true;
@@ -147,7 +166,7 @@ export default function ManualCourseEntryScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Stack.Screen options={{ title: "Manual Course Entry" }} />
+      <Stack.Screen options={{ title: t("Manual Course Entry") }} />
       
       <ScrollView 
         style={styles.scrollView}
@@ -155,54 +174,56 @@ export default function ManualCourseEntryScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.formSection}>
-          <Text style={styles.sectionTitle}>Course Information</Text>
+          <Text style={styles.sectionTitle}>{t("Course Information")}</Text>
           
-          <Text style={styles.inputLabel}>Course Name</Text>
+          <Text style={styles.inputLabel}>{t("Course Name")}</Text>
           <TextInput
             style={styles.input}
             value={name}
             onChangeText={setName}
-            placeholder="Enter course name"
+            placeholder={t("Enter course name")}
             placeholderTextColor={colors.textSecondary}
           />
           
-          <Text style={styles.inputLabel}>Location</Text>
+          <Text style={styles.inputLabel}>{t("Location")}</Text>
           <TextInput
             style={styles.input}
             value={location}
             onChangeText={setLocation}
-            placeholder="City, State"
+            placeholder={t("City, State")}
             placeholderTextColor={colors.textSecondary}
           />
 
-          <Text style={styles.inputLabel}>Course Rating (optional)</Text>
+          <Text style={styles.inputLabel}>{t("Course Rating (optional)")}</Text>
           <TextInput
             style={styles.input}
             value={courseRatingInput}
             onChangeText={setCourseRatingInput}
-            placeholder="e.g. 72.1"
+            placeholder={t("e.g. 72.1")}
             placeholderTextColor={colors.textSecondary}
             keyboardType="decimal-pad"
           />
 
-          <Text style={styles.inputLabel}>Slope Rating (optional)</Text>
+          <Text style={styles.inputLabel}>{t("Slope Rating (optional)")}</Text>
           <TextInput
             style={styles.input}
             value={slopeRatingInput}
             onChangeText={setSlopeRatingInput}
-            placeholder="e.g. 125"
+            placeholder={t("e.g. 125")}
             placeholderTextColor={colors.textSecondary}
             keyboardType="number-pad"
           />
         </View>
         
         <View style={styles.formSection}>
-          <Text style={styles.sectionTitle}>Hole Details</Text>
+          <Text style={styles.sectionTitle}>{t("Hole Details")}</Text>
           
           <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, styles.holeNumberHeader]}>Hole</Text>
-            <Text style={[styles.tableHeaderText, styles.parHeader]}>Par</Text>
-            <Text style={[styles.tableHeaderText, styles.distanceHeader]}>Distance (yards)</Text>
+            <Text style={[styles.tableHeaderText, styles.holeNumberHeader]}>{t("Hole")}</Text>
+            <Text style={[styles.tableHeaderText, styles.parHeader]}>{t("Par")}</Text>
+            <Text style={[styles.tableHeaderText, styles.distanceHeader]}>
+              {t("Distance")} ({distanceUnit === 'yards' ? t('yards') : t('meters')})
+            </Text>
           </View>
           
           {holes.map((hole, index) => (
@@ -235,20 +256,30 @@ export default function ManualCourseEntryScreen() {
                 </TouchableOpacity>
               </View>
               
+              {(() => {
+                const inUnit = toUnitDistanceValueFromYards(hole.distance, distanceUnit);
+                const distanceDisplay =
+                  hole.distance > 0 && typeof inUnit === 'number' && Number.isFinite(inUnit)
+                    ? String(Math.round(inUnit))
+                    : '';
+
+                return (
               <TextInput
                 style={styles.distanceInput}
-                value={hole.distance > 0 ? hole.distance.toString() : ''}
+                value={distanceDisplay}
                 onChangeText={(value) => handleDistanceChange(index, value)}
                 placeholder="0"
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="number-pad"
               />
+                );
+              })()}
             </View>
           ))}
         </View>
         
         <Button
-          title="Save Course"
+          title={t("Save Course")}
           onPress={handleSaveCourse}
           style={styles.saveButton}
         />

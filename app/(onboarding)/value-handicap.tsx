@@ -13,11 +13,13 @@ import { useRouter } from 'expo-router';
 import { colors } from '@/constants/colors';
 import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
 import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
+import { useT } from '@/lib/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ValueHandicapScreen() {
     const router = useRouter();
+    const t = useT();
 
     // Animation refs
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -89,7 +91,7 @@ export default function ValueHandicapScreen() {
                 >
                     <Text style={styles.title}>Scandicap™</Text>
                     <Text style={styles.subtitle}>
-                        Your official handicap index, calculated automatically after every round using the World Handicap System.
+                        {t('Your official handicap index, calculated automatically after every round using the World Handicap System.')}
                     </Text>
                 </Animated.View>
 
@@ -116,7 +118,7 @@ export default function ValueHandicapScreen() {
 
             <View style={styles.buttonContainer}>
                 <OnboardingButton
-                    title="Continue"
+                    title={t('Continue')}
                     onPress={handleContinue}
                 />
             </View>

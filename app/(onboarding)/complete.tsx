@@ -24,10 +24,12 @@ import { api } from '@/convex/_generated/api';
 import { Check } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SeedRoundsStory } from '@/components/onboarding/SeedRoundsStory';
+import { useT } from '@/lib/i18n';
 
 export default function CompleteScreen() {
     const router = useRouter();
     const { completeOnboarding, existingHandicap, hasExistingHandicap, displayName } = useOnboardingStore();
+    const t = useT();
     const appleOAuth = useOAuth({ strategy: 'oauth_apple' });
     const googleOAuth = useOAuth({ strategy: 'oauth_google' });
     const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
@@ -150,7 +152,7 @@ export default function CompleteScreen() {
             await new Promise(resolve => setTimeout(resolve, 250));
         } catch (seedError: any) {
             console.error('[Onboarding] Seeding failed:', seedError);
-            setSeedErrorMessage(seedError?.message ?? 'Could not finish setup.');
+            setSeedErrorMessage(seedError?.message ?? t('Could not finish setup.'));
             setSeedPhase('error');
             await new Promise(resolve => setTimeout(resolve, 600));
         } finally {
@@ -181,12 +183,12 @@ export default function CompleteScreen() {
                 await handleSeedAndComplete();
             } else {
                 console.warn(`${provider} OAuth flow did not complete - no session created`);
-                Alert.alert('Sign In Failed', 'No session was created. Please try again.');
+                Alert.alert(t('Sign In Failed'), t('No session was created. Please try again.'));
             }
         } catch (err: any) {
             console.error(`${provider} sign-in failed:`, err);
-            const message = err?.errors?.[0]?.message || err?.message || 'Please try again.';
-            Alert.alert('Sign In Failed', message);
+            const message = err?.errors?.[0]?.message || err?.message || t('Please try again.');
+            Alert.alert(t('Sign In Failed'), message);
         } finally {
             setIsLoading(false);
         }
@@ -194,12 +196,12 @@ export default function CompleteScreen() {
 
     const handleEmailContinue = async () => {
         if (!email.trim()) {
-            Alert.alert('Email Required', 'Please enter your email address.');
+            Alert.alert(t('Email Required'), t('Please enter your email address.'));
             return;
         }
 
         if (!signInLoaded || !signUpLoaded) {
-            Alert.alert('Loading', 'Please wait a moment and try again.');
+            Alert.alert(t('Loading'), t('Please wait a moment and try again.'));
             return;
         }
 
@@ -235,11 +237,11 @@ export default function CompleteScreen() {
                     setPendingVerification(true);
                 } catch (signUpErr) {
                     console.error('Sign up error', signUpErr);
-                    Alert.alert('Error', 'Could not send verification code. Please try again.');
+                    Alert.alert(t('Error'), t('Could not send verification code. Please try again.'));
                 }
             } else {
                 console.error('Sign in error', err);
-                Alert.alert('Error', 'Could not send verification code. Please try again.');
+                Alert.alert(t('Error'), t('Could not send verification code. Please try again.'));
             }
         } finally {
             setIsLoading(false);
@@ -248,7 +250,7 @@ export default function CompleteScreen() {
 
     const handleVerifyCode = async () => {
         if (!code.trim()) {
-            Alert.alert('Code Required', 'Please enter the verification code from your email.');
+            Alert.alert(t('Code Required'), t('Please enter the verification code from your email.'));
             return;
         }
 
@@ -276,11 +278,11 @@ export default function CompleteScreen() {
                 await setSignUpActive({ session: result.createdSessionId });
                 await handleSeedAndComplete();
             } else {
-                Alert.alert('Verification Failed', 'Please try again.');
+                Alert.alert(t('Verification Failed'), t('Please try again.'));
             }
         } catch (err) {
             console.error('Verification error', err);
-            Alert.alert('Invalid Code', 'Please check the code and try again.');
+            Alert.alert(t('Invalid Code'), t('Please check the code and try again.'));
         } finally {
             setIsLoading(false);
         }
@@ -319,15 +321,15 @@ export default function CompleteScreen() {
                                     </View>
                                 </View>
 
-                                <Text style={styles.title}>Check your email</Text>
+                                <Text style={styles.title}>{t('Check your email')}</Text>
                                 <Text style={styles.subtitle}>
-                                    We sent a verification code to {email}
+                                    {t('We sent a verification code to {{email}}', { email })}
                                 </Text>
 
                                 <View style={styles.authContainer}>
                                     <TextInput
                                         style={styles.emailInput}
-                                        placeholder="Enter code"
+                                        placeholder={t('Enter code')}
                                         placeholderTextColor={colors.textSecondary}
                                         value={code}
                                         onChangeText={setCode}
@@ -345,7 +347,7 @@ export default function CompleteScreen() {
                                         {isLoading ? (
                                             <ActivityIndicator color="#FFFFFF" />
                                         ) : (
-                                            <Text style={styles.continueButtonText}>Verify</Text>
+                                            <Text style={styles.continueButtonText}>{t('Verify')}</Text>
                                         )}
                                     </TouchableOpacity>
 
@@ -356,7 +358,7 @@ export default function CompleteScreen() {
                                             setCode('');
                                         }}
                                     >
-                                        <Text style={styles.backButtonText}>Back</Text>
+                                        <Text style={styles.backButtonText}>{t('Back')}</Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>
@@ -400,9 +402,9 @@ export default function CompleteScreen() {
                             </Animated.View>
 
                             <Animated.View style={[styles.textContent, { opacity: contentOpacity }]}>
-                                <Text style={styles.title}>You're all set!</Text>
+                                <Text style={styles.title}>{t("You're all set!")}</Text>
                                 <Text style={styles.subtitle}>
-                                    Sign in to save rounds, sync your Scandicap, access your history anywhere, and to pull in your handicap.
+                                    {t('Sign in to save rounds, sync your Scandicap, access your history anywhere, and to pull in your handicap.')}
                                 </Text>
 
                                 {/* Sign in options */}
@@ -413,7 +415,7 @@ export default function CompleteScreen() {
                                         disabled={isLoading}
                                         activeOpacity={0.8}
                                     >
-                                        <Text style={styles.oauthText}>Continue with Apple</Text>
+                                        <Text style={styles.oauthText}>{t('Continue with Apple')}</Text>
                                     </TouchableOpacity>
 
                                     <TouchableOpacity
@@ -422,18 +424,18 @@ export default function CompleteScreen() {
                                         disabled={isLoading}
                                         activeOpacity={0.8}
                                     >
-                                        <Text style={styles.oauthText}>Continue with Google</Text>
+                                        <Text style={styles.oauthText}>{t('Continue with Google')}</Text>
                                     </TouchableOpacity>
 
                                     {/* Or divider */}
                                     <View style={styles.dividerRow}>
                                         <View style={styles.dividerLine} />
-                                        <Text style={styles.dividerText}>or</Text>
+                                        <Text style={styles.dividerText}>{t('or')}</Text>
                                         <View style={styles.dividerLine} />
                                     </View>
 
                                     {/* Email input */}
-                                    <Text style={styles.emailLabel}>Email</Text>
+                                    <Text style={styles.emailLabel}>{t('Email')}</Text>
                                     <TextInput
                                         style={styles.emailInput}
                                         placeholder="you@example.com"
@@ -454,7 +456,7 @@ export default function CompleteScreen() {
                                         {isLoading ? (
                                             <ActivityIndicator color="#FFFFFF" />
                                         ) : (
-                                            <Text style={styles.continueButtonText}>Continue</Text>
+                                            <Text style={styles.continueButtonText}>{t('Continue')}</Text>
                                         )}
                                     </TouchableOpacity>
                                 </View>
@@ -467,10 +469,10 @@ export default function CompleteScreen() {
                                 style={styles.skipButton}
                                 onPress={handleSkipSignIn}
                             >
-                                <Text style={styles.skipText}>Skip for now</Text>
+                                <Text style={styles.skipText}>{t('Skip for now')}</Text>
                             </TouchableOpacity>
                             <Text style={styles.skipHint}>
-                                You can sign in later from Settings
+                                {t('You can sign in later from Settings')}
                             </Text>
                         </Animated.View>
                     </ScrollView>
@@ -481,21 +483,21 @@ export default function CompleteScreen() {
                 <Animated.View style={[styles.seedOverlay, { opacity: seedOverlayOpacity }]}>
                     <View style={styles.seedCard}>
                         <Text style={styles.seedTitle}>
-                            {seedPhase === 'sync' && 'Setting up your account'}
-                            {seedPhase === 'seed' && 'Creating your seed rounds'}
-                            {seedPhase === 'calc' && 'Calculating your Scandicap™'}
-                            {seedPhase === 'done' && 'Ready to go'}
-                            {seedPhase === 'error' && 'Almost there'}
+                            {seedPhase === 'sync' && t('Setting up your account')}
+                            {seedPhase === 'seed' && t('Creating your seed rounds')}
+                            {seedPhase === 'calc' && t('Calculating your Scandicap™')}
+                            {seedPhase === 'done' && t('Ready to go')}
+                            {seedPhase === 'error' && t('Almost there')}
                         </Text>
 
                         <Text style={styles.seedSubtitle}>
-                            {seedPhase === 'sync' && 'Syncing your profile…'}
-                            {seedPhase === 'seed' && 'Seeding 20 ghost rounds from your handicap…'}
-                            {seedPhase === 'calc' && 'Building your starting handicap history…'}
-                            {seedPhase === 'done' && 'Opening the app…'}
+                            {seedPhase === 'sync' && t('Syncing your profile…')}
+                            {seedPhase === 'seed' && t('Seeding 20 ghost rounds from your handicap…')}
+                            {seedPhase === 'calc' && t('Building your starting handicap history…')}
+                            {seedPhase === 'done' && t('Opening the app…')}
                             {seedPhase === 'error' &&
                                 (seedErrorMessage ??
-                                    'We’ll finish setup in the background. You can continue now.')}
+                                    t('We’ll finish setup in the background. You can continue now.'))}
                         </Text>
 
                         {seedPhase === 'seed' && (

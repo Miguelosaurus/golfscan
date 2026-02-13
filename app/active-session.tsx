@@ -14,6 +14,7 @@ import { useQuery, useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { formatBetLineFromSession, type HoleSelection, type PayoutMode } from '@/utils/betDisplay';
+import { useT } from '@/lib/i18n';
 import {
     Camera,
     Users,
@@ -103,6 +104,7 @@ interface SessionData {
 export default function ActiveSessionScreen() {
     const router = useRouter();
     const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
+    const t = useT();
 
     // Fetch session data
     const session = useQuery(
@@ -199,39 +201,39 @@ export default function ActiveSessionScreen() {
 
         const startHoleNum = parseInt(pressStartHole, 10);
         if (isNaN(startHoleNum)) {
-            alert('Please enter a valid hole number');
+            alert(t('Please enter a valid hole number'));
             return;
         }
 
         // Validate segment is valid for round's holeSelection
         if (session.holeSelection === 'front_9' && pressSegment !== 'front') {
-            alert('This is a front 9 round - only front segment presses are allowed');
+            alert(t('This is a front 9 round - only front segment presses are allowed'));
             return;
         }
         if (session.holeSelection === 'back_9' && pressSegment !== 'back') {
-            alert('This is a back 9 round - only back segment presses are allowed');
+            alert(t('This is a back 9 round - only back segment presses are allowed'));
             return;
         }
 
         // Validate hole is in correct range for segment
         if (pressSegment === 'front' && (startHoleNum < 1 || startHoleNum > 9)) {
-            alert('Front segment presses must start on holes 1-9');
+            alert(t('Front segment presses must start on holes 1-9'));
             return;
         }
         if (pressSegment === 'back' && (startHoleNum < 10 || startHoleNum > 18)) {
-            alert('Back segment presses must start on holes 10-18');
+            alert(t('Back segment presses must start on holes 10-18'));
             return;
         }
 
         // For individual mode, require pairing selection
         if (session.gameMode === 'individual' && !selectedPairingId) {
-            alert('Please select which matchup to press');
+            alert(t('Please select which matchup to press'));
             return;
         }
 
         // Validate current user is identified
         if (!currentPlayerId) {
-            alert('Unable to identify current user. Please try again.');
+            alert(t('Unable to identify current user. Please try again.'));
             return;
         }
 
@@ -250,7 +252,7 @@ export default function ActiveSessionScreen() {
             setPressStartHole('');
             setSelectedPairingId(null);
         } catch (error: any) {
-            alert(error.message || 'Failed to add press');
+            alert(error.message || t('Failed to add press'));
         } finally {
             setPressLoading(false);
         }
@@ -286,9 +288,9 @@ export default function ActiveSessionScreen() {
     if (!session) {
         return (
             <SafeAreaView style={styles.container}>
-                <Stack.Screen options={{ title: 'Active Session', headerBackTitle: 'Back' }} />
+                <Stack.Screen options={{ title: t('Active Session'), headerBackTitle: t('Back') }} />
                 <View style={styles.loadingContainer}>
-                    <Text style={styles.loadingText}>Loading session...</Text>
+                    <Text style={styles.loadingText}>{t('Loading session...')}</Text>
                 </View>
             </SafeAreaView>
         );
@@ -300,18 +302,18 @@ export default function ActiveSessionScreen() {
 
     const formatGameMode = (mode: string) => {
         switch (mode) {
-            case 'head_to_head': return '1 vs 1';
-            case 'teams': return '2 vs 2';
-            case 'individual': return 'Everyone vs Everyone';
+            case 'head_to_head': return t('1 vs 1');
+            case 'teams': return t('2 vs 2');
+            case 'individual': return t('Everyone vs Everyone');
             default: return mode;
         }
     };
 
     const formatHoleSelection = (sel: string) => {
         switch (sel) {
-            case '18': return '18 Holes';
-            case 'front_9': return 'Front 9';
-            case 'back_9': return 'Back 9';
+            case '18': return t('18 Holes');
+            case 'front_9': return t('Front 9');
+            case 'back_9': return t('Back 9');
             default: return sel;
         }
     };
@@ -389,7 +391,7 @@ export default function ActiveSessionScreen() {
 
     return (
         <SafeAreaView style={styles.container}>
-            <Stack.Screen options={{ title: 'Active Session', headerBackTitle: 'Back' }} />
+            <Stack.Screen options={{ title: t("Active Session"), headerBackTitle: t("Back") }} />
 
             <ScrollView
                 style={styles.content}
@@ -409,7 +411,7 @@ export default function ActiveSessionScreen() {
                 {/* STROKES FIRST (most important) */}
                 <View style={styles.sectionHeader}>
                     <Target size={18} color={THEME.textMain} />
-                    <Text style={styles.sectionTitle}>Stroke Allocation</Text>
+                    <Text style={styles.sectionTitle}>{t('Stroke Allocation')}</Text>
                 </View>
 
                 {displayStrokes.map((player) => (
@@ -428,15 +430,15 @@ export default function ActiveSessionScreen() {
                                     <Text style={styles.strokeCountText}>+{player.strokesReceived}</Text>
                                 </View>
                             ) : (
-                                <Text style={styles.scratchLabel}>Scratch</Text>
+                                <Text style={styles.scratchLabel}>{t('Scratch')}</Text>
                             )}
                         </View>
                         {/* High handicap: gets stroke on all holes + double on some */}
                         {player.getsStrokeOnAllHoles && (
                             <View style={styles.strokeHolesSection}>
                                 <Text style={styles.strokeHolesLabel}>
-                                    1 stroke on all holes
-                                    {player.doubleStrokeHoles.length > 0 && `, plus 2nd stroke on:`}
+                                    {t('1 stroke on all holes')}
+                                    {player.doubleStrokeHoles.length > 0 && `, ${t('plus 2nd stroke on:')}`}
                                 </Text>
                                 {player.doubleStrokeHoles.length > 0 && (
                                     <View style={styles.strokeHolesRow}>
@@ -453,7 +455,7 @@ export default function ActiveSessionScreen() {
                         {/* Normal handicap: show specific holes */}
                         {!player.getsStrokeOnAllHoles && player.singleStrokeHoles.length > 0 && (
                             <View style={styles.strokeHolesSection}>
-                                <Text style={styles.strokeHolesLabel}>Strokes on holes:</Text>
+                                <Text style={styles.strokeHolesLabel}>{t('Strokes on holes:')}</Text>
                                 <View style={styles.strokeHolesRow}>
                                     {player.singleStrokeHoles.map((hole: number) => (
                                         <View key={hole} style={styles.strokeHolePill}>
@@ -471,35 +473,35 @@ export default function ActiveSessionScreen() {
                     <>
                         <View style={styles.sectionHeader}>
                             <ArrowLeftRight size={18} color={THEME.textMain} />
-                            <Text style={styles.sectionTitle}>Matchup</Text>
+                            <Text style={styles.sectionTitle}>{t('Matchup')}</Text>
                         </View>
 
                         <View style={styles.matchupCard}>
                             <View style={styles.sideContainer}>
-                                <Text style={styles.sideLabel}>Side A</Text>
+                                <Text style={styles.sideLabel}>{t('Side A')}</Text>
                                 {session.sides[0].playerIds.map((playerId) => {
                                     const player = session.playerDetails.find(
                                         (p) => p.playerId === playerId
                                     );
                                     return (
                                         <Text key={playerId} style={styles.sideName}>
-                                            {player?.name ?? 'Unknown'}
+                                            {player?.name ?? t('Unknown')}
                                         </Text>
                                     );
                                 })}
                             </View>
 
-                            <Text style={styles.vsText}>VS</Text>
+                            <Text style={styles.vsText}>{t('vs').toUpperCase()}</Text>
 
                             <View style={styles.sideContainer}>
-                                <Text style={styles.sideLabel}>Side B</Text>
+                                <Text style={styles.sideLabel}>{t('Side B')}</Text>
                                 {session.sides[1].playerIds.map((playerId) => {
                                     const player = session.playerDetails.find(
                                         (p) => p.playerId === playerId
                                     );
                                     return (
                                         <Text key={playerId} style={styles.sideName}>
-                                            {player?.name ?? 'Unknown'}
+                                            {player?.name ?? t('Unknown')}
                                         </Text>
                                     );
                                 })}
@@ -513,7 +515,7 @@ export default function ActiveSessionScreen() {
                     <>
                         <View style={styles.sectionHeader}>
                             <DollarSign size={18} color={THEME.textMain} />
-                            <Text style={styles.sectionTitle}>Bet</Text>
+                            <Text style={styles.sectionTitle}>{t('Bet')}</Text>
                         </View>
 
                         <View style={styles.betCard}>
@@ -521,11 +523,11 @@ export default function ActiveSessionScreen() {
                                 {betLine}
                             </Text>
                             {session.betSettings.carryover && (
-                                <Text style={styles.betDetail}>Carryover enabled</Text>
+                                <Text style={styles.betDetail}>{t('Carryover enabled')}</Text>
                             )}
                             {session.betSettings.pressEnabled && (
                                 <Text style={styles.betDetail}>
-                                    Presses enabled (threshold: {session.betSettings.pressThreshold ?? 2} down)
+                                    {t('Presses enabled (threshold: {{count}} down)', { count: session.betSettings.pressThreshold ?? 2 })}
                                 </Text>
                             )}
                             {/* Press Button for Nassau games */}
@@ -535,7 +537,7 @@ export default function ActiveSessionScreen() {
                                     onPress={() => setPressModalVisible(true)}
                                 >
                                     <TrendingDown size={16} color="white" />
-                                    <Text style={styles.pressButtonText}>Add Press</Text>
+                                    <Text style={styles.pressButtonText}>{t('Add Press')}</Text>
                                 </TouchableOpacity>
                             )}
                             {/* Existing Presses List */}
@@ -632,12 +634,12 @@ export default function ActiveSessionScreen() {
                 {/* Course & Holes */}
                 <View style={styles.sectionHeader}>
                     <MapPin size={18} color={THEME.textMain} />
-                    <Text style={styles.sectionTitle}>Course</Text>
+                    <Text style={styles.sectionTitle}>{t('Course')}</Text>
                 </View>
 
                 <View style={styles.infoCard}>
                     <Text style={styles.courseName}>
-                        {session.course?.name ?? 'Unknown Course'}
+                        {session.course?.name ?? t('Unknown Course')}
                     </Text>
                     <View style={styles.holesRow}>
                         <Flag size={14} color={THEME.textSub} />
@@ -650,7 +652,7 @@ export default function ActiveSessionScreen() {
                 {/* Players */}
                 <View style={styles.sectionHeader}>
                     <Users size={18} color={THEME.textMain} />
-                    <Text style={styles.sectionTitle}>Players</Text>
+                    <Text style={styles.sectionTitle}>{t('Players')}</Text>
                 </View>
 
                 <View style={styles.playersCard}>
@@ -682,7 +684,7 @@ export default function ActiveSessionScreen() {
                     onPress={handleScanScorecard}
                 >
                     <Camera size={20} color="white" />
-                    <Text style={styles.scanButtonText}>Scan Scorecard</Text>
+                    <Text style={styles.scanButtonText}>{t('Scan Scorecard')}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -696,7 +698,7 @@ export default function ActiveSessionScreen() {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Add Press</Text>
+                            <Text style={styles.modalTitle}>{t('Add Press')}</Text>
                             <TouchableOpacity
                                 style={styles.modalCloseButton}
                                 onPress={() => setPressModalVisible(false)}
@@ -707,14 +709,14 @@ export default function ActiveSessionScreen() {
 
                         {/* Segment Selection */}
                         <View style={styles.modalField}>
-                            <Text style={styles.modalLabel}>Segment</Text>
+                            <Text style={styles.modalLabel}>{t('Segment')}</Text>
                             <View style={styles.segmentRow}>
                                 <TouchableOpacity
                                     style={[styles.segmentButton, pressSegment === 'front' && styles.segmentButtonActive]}
                                     onPress={() => setPressSegment('front')}
                                 >
                                     <Text style={[styles.segmentButtonText, pressSegment === 'front' && styles.segmentButtonTextActive]}>
-                                        Front 9
+                                        {t('Front 9')}
                                     </Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
@@ -722,7 +724,7 @@ export default function ActiveSessionScreen() {
                                     onPress={() => setPressSegment('back')}
                                 >
                                     <Text style={[styles.segmentButtonText, pressSegment === 'back' && styles.segmentButtonTextActive]}>
-                                        Back 9
+                                        {t('Back 9')}
                                     </Text>
                                 </TouchableOpacity>
                             </View>
@@ -731,7 +733,7 @@ export default function ActiveSessionScreen() {
                         {/* Start Hole */}
                         <View style={styles.modalField}>
                             <Text style={styles.modalLabel}>
-                                Start Hole ({pressSegment === 'front' ? '1-9' : '10-18'})
+                                {t('Start Hole')} ({pressSegment === 'front' ? '1-9' : '10-18'})
                             </Text>
                             <TextInput
                                 style={styles.holeInput}
@@ -746,7 +748,7 @@ export default function ActiveSessionScreen() {
                         {/* Pairing Selection for Individual Mode */}
                         {session?.gameMode === 'individual' && pairings.length > 0 && (
                             <View style={styles.modalField}>
-                                <Text style={styles.modalLabel}>Choose Matchup</Text>
+                                <Text style={styles.modalLabel}>{t('Choose Matchup')}</Text>
                                 {pairings.map((p) => (
                                     <TouchableOpacity
                                         key={p.pairingId}
@@ -768,7 +770,7 @@ export default function ActiveSessionScreen() {
                             disabled={pressLoading}
                         >
                             <Text style={styles.confirmPressButtonText}>
-                                {pressLoading ? 'Adding...' : 'Confirm Press'}
+                                {pressLoading ? t('Adding...') : t('Confirm Press')}
                             </Text>
                         </TouchableOpacity>
                     </View>

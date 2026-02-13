@@ -3,6 +3,7 @@ import { Tabs, useRouter } from "expo-router";
 import { View, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { Home, History, Camera } from "lucide-react-native";
 import { colors } from "@/constants/colors";
+import { useT } from "@/lib/i18n";
 
 function ScanButton() {
   const router = useRouter();
@@ -36,6 +37,7 @@ function ScanButton() {
 
 
 export default function TabLayout() {
+  const t = useT();
   return (
     <Tabs
       screenOptions={{
@@ -70,7 +72,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: t("Home"),
           tabBarIcon: ({ color, focused }) => (
             <Home size={28} color={color} strokeWidth={focused ? 2.4 : 1.6} />
           ),
@@ -98,7 +100,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="history"
         options={{
-          title: "History",
+          title: t("History"),
           tabBarIcon: ({ color, focused }) => (
             <History size={28} color={color} strokeWidth={focused ? 2.4 : 1.6} />
           ),

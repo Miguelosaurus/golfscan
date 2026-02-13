@@ -15,19 +15,24 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useGolfStore } from '@/store/useGolfStore';
+import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { Button } from '@/components/Button';
 import { RoundCard } from '@/components/RoundCard';
 import { getEighteenHoleEquivalentScore, getRoundHoleCount } from '@/utils/helpers';
 import { calculatePerformanceByPar, calculatePerHoleAverages } from '@/utils/stats';
+import { formatDistanceFromYards } from '@/utils/units';
 import { MapPin, Camera, X, TrendingUp, TrendingDown, ChevronRight, ChevronLeft, Info, Trash2, ChevronDown } from 'lucide-react-native';
 import { useQuery } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
+import { useT } from '@/lib/i18n';
 
 export default function CourseDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const t = useT();
   const { courses, rounds, players, deleteCourse, updateCourse } = useGolfStore();
+  const distanceUnit = useOnboardingStore((s) => s.distanceUnit);
   const [showRoundsModal, setShowRoundsModal] = useState(false);
   const [showCourseMapInfo, setShowCourseMapInfo] = useState(false);
   const [selectedTeeName, setSelectedTeeName] = useState<string | "All">("All");
@@ -570,7 +575,7 @@ export default function CourseDetailsScreen() {
                     activeOpacity={0.8}
                   >
                     <View>
-                      <Text style={styles.teeDropdownLabel}>Tees</Text>
+                      <Text style={styles.teeDropdownLabel}>{t('Tees')}</Text>
                       <Text style={styles.teeDropdownValue}>
                         {getTeeDisplayLabel(selectedTeeName)}
                       </Text>
@@ -584,14 +589,14 @@ export default function CourseDetailsScreen() {
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{(courseData.holes ?? []).length}</Text>
-                <Text style={styles.statLabel}>Holes</Text>
+                <Text style={styles.statLabel}>{t('Holes')}</Text>
               </View>
 
               <View style={styles.statDivider} />
 
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{totalPar}</Text>
-                <Text style={styles.statLabel}>Par</Text>
+                <Text style={styles.statLabel}>{t('Par')}</Text>
               </View>
 
               <View style={styles.statDivider} />
@@ -606,18 +611,18 @@ export default function CourseDetailsScreen() {
             {stats && (
               <View style={styles.statsSection}>
                 <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Your Performance Stats</Text>
+                  <Text style={styles.sectionTitle}>{t('Your Performance Stats')}</Text>
                 </View>
 
                 <View style={styles.performanceGrid}>
                   <View style={styles.performanceCard}>
                     <Text style={styles.performanceValue}>{stats.totalRounds}</Text>
-                    <Text style={styles.performanceLabel}>Rounds Played</Text>
+                    <Text style={styles.performanceLabel}>{t('Rounds Played')}</Text>
                   </View>
 
                   <View style={styles.performanceCard}>
                     <Text style={styles.performanceValue}>{stats.averageScore.toFixed(1)}</Text>
-                    <Text style={styles.performanceLabel}>Avg Score</Text>
+                    <Text style={styles.performanceLabel}>{t('Avg Score')}</Text>
                     <View style={styles.performanceIndicator}>
                       {stats.averageScore < totalPar ? (
                         <TrendingDown size={16} color={colors.success} />
@@ -628,14 +633,14 @@ export default function CourseDetailsScreen() {
                         styles.performanceChange,
                         { color: stats.averageScore < totalPar ? colors.success : colors.error }
                       ]}>
-                        {stats.averageScore < totalPar ? 'Under Par' : 'Over Par'}
+                        {stats.averageScore < totalPar ? t('Under Par') : t('Over Par')}
                       </Text>
                     </View>
                   </View>
 
                   <View style={styles.performanceCard}>
                     <Text style={styles.performanceValue}>{stats.bestScore}</Text>
-                    <Text style={styles.performanceLabel}>Best Score</Text>
+                    <Text style={styles.performanceLabel}>{t('Best Score')}</Text>
                     <Text style={[
                       styles.performanceSubtext,
                       stats.bestScore - totalPar < 0 && { color: colors.success },
@@ -653,10 +658,12 @@ export default function CourseDetailsScreen() {
                       {worstParType ? formatRelativeToPar(worstParType.value) : '--'}
                     </Text>
                     <Text style={styles.performanceLabel}>
-                      {worstParType ? `Worst: ${worstParType.label}` : 'Worst Par Type'}
+                      {worstParType
+                        ? t('Worst: {{label}}', { label: worstParType.label })
+                        : t('Worst Par Type')}
                     </Text>
                     <Text style={styles.performanceSubtext}>
-                      {worstParType ? 'Avg vs Par' : 'No data'}
+                      {worstParType ? t('Avg vs Par') : t('No data')}
                     </Text>
                   </View>
                 </View>
@@ -665,13 +672,13 @@ export default function CourseDetailsScreen() {
 
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitle}>My Course Map</Text>
+                <Text style={styles.sectionTitle}>{t('My Course Map')}</Text>
                 <TouchableOpacity
-                  onPress={() => setShowCourseMapInfo(true)}
-                  style={styles.infoButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Course map info"
-                >
+	                  onPress={() => setShowCourseMapInfo(true)}
+	                  style={styles.infoButton}
+	                  accessibilityRole="button"
+	                  accessibilityLabel={t("Course map info")}
+	                >
                   <Info size={18} color={colors.text} />
                 </TouchableOpacity>
               </View>
@@ -685,8 +692,9 @@ export default function CourseDetailsScreen() {
                 const avgText = averageValue !== null ? averageValue.toFixed(1) : '--';
 
                 const meta = getHoleMetaForSelectedTee(hole.number);
-                const metaParts = [`Par ${meta.par}`, meta.yardage ? `${Math.round(meta.yardage)} yds` : null]
-                  .filter(Boolean);
+                const yardageText = formatDistanceFromYards(meta.yardage, distanceUnit);
+	                const metaParts = [`${t('Par')} ${meta.par}`, yardageText || null]
+	                  .filter(Boolean);
                 if (meta.handicap) {
                   metaParts.push(`HCP ${meta.handicap}`);
                 }
@@ -708,9 +716,7 @@ export default function CourseDetailsScreen() {
                       <View style={styles.holeNumberContainer}>
                         <Text style={styles.holeNumber}>{hole.number}</Text>
                       </View>
-                      <Text style={styles.holeMetaText}>
-                        {metaParts.join(' • ')}
-                      </Text>
+                      <Text style={styles.holeMetaText}>{metaParts.join(' • ')}</Text>
                     </View>
 
                     <View style={[styles.holeAverageBadge, badgeStyle]}>
@@ -722,11 +728,11 @@ export default function CourseDetailsScreen() {
             </View>
 
             <Button
-              title="Scan Scorecard"
-              onPress={navigateToScanScorecard}
-              style={styles.startButton}
-              icon={<Camera size={18} color={colors.background} style={{ marginRight: 8 }} />}
-            />
+	              title={t('Scan Scorecard')}
+	              onPress={navigateToScanScorecard}
+	              style={styles.startButton}
+	              icon={<Camera size={18} color={colors.background} style={{ marginRight: 8 }} />}
+	            />
 
             {/* Removed explicit View Rounds button; hint added on the stat tile */}
           </View>
@@ -750,7 +756,7 @@ export default function CourseDetailsScreen() {
               onPress={() => { }}
             >
               <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Select tees</Text>
+              <Text style={styles.sheetTitle}>{t('Select tees')}</Text>
                 <View style={styles.sheetTabs}>
                   <TouchableOpacity
                     style={[
@@ -800,8 +806,8 @@ export default function CourseDetailsScreen() {
                   }}
                 >
                   <View>
-                    <Text style={styles.teeOptionName}>All tees</Text>
-                    <Text style={styles.teeOptionGender}>Combined averages</Text>
+                    <Text style={styles.teeOptionName}>{t('All tees')}</Text>
+                    <Text style={styles.teeOptionGender}>{t('Combined averages')}</Text>
                   </View>
                   <View style={styles.radioOuter}>
                     <View
@@ -873,7 +879,9 @@ export default function CourseDetailsScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Rounds Played at {courseData.name}</Text>
+	              <Text style={styles.modalTitle}>
+	                {t('Rounds Played at {{course}}', { course: courseData.name })}
+	              </Text>
               <ScrollView showsVerticalScrollIndicator={false}>
                 {courseRounds.map((round, index) => (
                   <RoundCard
@@ -887,11 +895,11 @@ export default function CourseDetailsScreen() {
                   />
                 ))}
               </ScrollView>
-              <Button
-                title="Close"
-                onPress={() => setShowRoundsModal(false)}
-                style={styles.modalCloseButton}
-              />
+	              <Button
+	                title={t('Close')}
+	                onPress={() => setShowRoundsModal(false)}
+	                style={styles.modalCloseButton}
+	              />
             </View>
           </View>
         </Modal>
@@ -903,36 +911,38 @@ export default function CourseDetailsScreen() {
           onRequestClose={() => setShowCourseMapInfo(false)}
         >
           <View style={styles.infoModalOverlay}>
-            <View style={styles.infoModalContent}>
-              <Text style={styles.infoModalTitle}>Course Map Insight</Text>
-              <Text style={styles.infoModalText}>
-                Each AVG badge shows your all-time scoring average for that hole. Colors highlight how far the average is from par.
-              </Text>
+	            <View style={styles.infoModalContent}>
+	              <Text style={styles.infoModalTitle}>{t('Course Map Insight')}</Text>
+	              <Text style={styles.infoModalText}>
+	                {t(
+	                  'Each AVG badge shows your all-time scoring average for that hole. Colors highlight how far the average is from par.'
+	                )}
+	              </Text>
               <View style={styles.infoLegend}>
                 <View style={styles.infoLegendItem}>
                   <View style={[styles.infoLegendBadge, styles.holeAverageGood]}>
                     <Text style={styles.infoLegendBadgeText}>AVG ±0</Text>
                   </View>
-                  <Text style={styles.infoLegendLabel}>At or near par (≤ +0.1)</Text>
+                  <Text style={styles.infoLegendLabel}>{t('At or near par (≤ +0.1)')}</Text>
                 </View>
                 <View style={styles.infoLegendItem}>
                   <View style={[styles.infoLegendBadge, styles.holeAverageCaution]}>
                     <Text style={styles.infoLegendBadgeText}>AVG +1</Text>
                   </View>
-                  <Text style={styles.infoLegendLabel}>Bogey range (+0.1 to +1.5)</Text>
+                  <Text style={styles.infoLegendLabel}>{t('Bogey range (+0.1 to +1.5)')}</Text>
                 </View>
                 <View style={styles.infoLegendItem}>
                   <View style={[styles.infoLegendBadge, styles.holeAverageDanger]}>
                     <Text style={styles.infoLegendBadgeText}>AVG +2</Text>
                   </View>
-                  <Text style={styles.infoLegendLabel}>Double bogey or worse (≥ +1.5)</Text>
+                  <Text style={styles.infoLegendLabel}>{t('Double bogey or worse (≥ +1.5)')}</Text>
                 </View>
               </View>
               <TouchableOpacity
                 onPress={() => setShowCourseMapInfo(false)}
                 style={styles.infoModalCloseButton}
               >
-                <Text style={styles.infoModalCloseText}>Got it</Text>
+                <Text style={styles.infoModalCloseText}>{t('Got it')}</Text>
               </TouchableOpacity>
             </View>
           </View>

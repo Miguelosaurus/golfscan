@@ -8,6 +8,7 @@ import { OnboardingOption } from '@/components/onboarding/OnboardingOption';
 import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { AgeGroup } from '@/types/onboarding';
+import { useT } from '@/lib/i18n';
 
 const AGE_OPTIONS: { value: AgeGroup; label: string; emoji: string }[] = [
     { value: '18-24', label: '18-24', emoji: '🏌️' },
@@ -22,6 +23,7 @@ export default function AgeScreen() {
     const router = useRouter();
     const { ageGroup, setAgeGroup, setCurrentStep } = useOnboardingStore();
     const [selectedAge, setSelectedAge] = useState<AgeGroup | undefined>(ageGroup);
+    const t = useT();
 
     const handleSelect = (age: AgeGroup) => {
         setSelectedAge(age);
@@ -45,9 +47,9 @@ export default function AgeScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.header}>
-                    <Text style={styles.title}>What's your age range?</Text>
+                    <Text style={styles.title}>{t("What's your age range?")}</Text>
                     <Text style={styles.subtitle}>
-                        This helps us tailor insights to golfers like you
+                        {t('This helps us tailor insights to golfers like you')}
                     </Text>
                 </View>
 
@@ -66,7 +68,7 @@ export default function AgeScreen() {
 
             <View style={styles.bottomSection}>
                 <OnboardingButton
-                    title="Continue"
+                    title={t('Continue')}
                     onPress={handleContinue}
                     disabled={!selectedAge}
                     variant="primary"

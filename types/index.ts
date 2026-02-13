@@ -137,10 +137,6 @@ export interface Round {
 
 // Scorecard Scanning Types
 export interface ScorecardScanResult {
-  courseName: string | null;  // Null if confidence < 0.7 or no match after fuzzy lookup
-  courseNameConfidence: number;  // 0.0-1.0
-  date: string | null;  // YYYY-MM-DD
-  dateConfidence: number;
   players: Array<{
     name: string;
     nameConfidence: number;
@@ -151,6 +147,16 @@ export interface ScorecardScanResult {
     }>;
   }>;
   overallConfidence: number;  // Average of all confidences for UI decisions
+  // Legacy optional fields kept for backwards compatibility with older scan payloads.
+  courseName?: string | null;
+  courseNameConfidence?: number;
+  date?: string | null;
+  dateConfidence?: number;
+  holes?: Array<{
+    hole: number;
+    par: number;
+    parConfidence?: number;
+  }>;
 }
 
 export interface ScanResponse {

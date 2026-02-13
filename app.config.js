@@ -4,6 +4,7 @@ export default ({ config }) => {
 
     return {
         ...config,
+        plugins: [...(config.plugins ?? []), 'expo-localization'],
         name: IS_DEV ? 'SCAN-DEV' : IS_STAGING ? 'ScanCaddie (Staging)' : 'ScanCaddie',
         scheme: IS_DEV ? 'scancaddie-dev' : IS_STAGING ? 'scancaddie-staging' : 'myapp',
         ios: {

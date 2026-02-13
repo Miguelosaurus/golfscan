@@ -23,11 +23,13 @@ import { useQuery, useMutation } from '@/lib/convex';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { useGolfStore } from '@/store/useGolfStore';
-import { convertNineHoleToEighteenEquivalent } from '@/utils/helpers';
+import { convertNineHoleToEighteenEquivalent, parseAnyDateStringToLocalDate } from '@/utils/helpers';
 import { useUser } from '@clerk/clerk-expo';
+import { useT } from '@/lib/i18n';
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const t = useT();
   const [roundsSearchQuery, setRoundsSearchQuery] = useState('');
   const [playersSearchQuery, setPlayersSearchQuery] = useState('');
   const [coursesSearchQuery, setCoursesSearchQuery] = useState('');
@@ -65,7 +67,7 @@ export default function HistoryScreen() {
       user?.fullName ??
       user?.firstName ??
       user?.username ??
-      'You';
+      t('You');
 
     const existingById = players.find((p) => p.id === canonicalId);
     if (existingById) {
@@ -87,7 +89,8 @@ export default function HistoryScreen() {
 
   const withinRange = (dateStr: string): boolean => {
     if (datePreset === 'all') return true;
-    const d = new Date(dateStr);
+    const d = parseAnyDateStringToLocalDate(dateStr);
+    if (!d) return false;
     const now = new Date();
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
@@ -106,7 +109,10 @@ export default function HistoryScreen() {
         return d >= last30 && d <= now;
       case 'custom':
         if (!customStart || !customEnd) return true;
-        return d >= new Date(customStart) && d <= new Date(customEnd);
+        return (
+          d >= (parseAnyDateStringToLocalDate(customStart) ?? new Date(customStart)) &&
+          d <= (parseAnyDateStringToLocalDate(customEnd) ?? new Date(customEnd))
+        );
       default:
         return true;
     }
@@ -120,7 +126,11 @@ export default function HistoryScreen() {
       )
     )
     .filter((round: any) => withinRange(round.date))
-    .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()) as Round[];
+    .sort((a: any, b: any) => {
+      const da = parseAnyDateStringToLocalDate(a.date);
+      const db = parseAnyDateStringToLocalDate(b.date);
+      return (db?.getTime() ?? 0) - (da?.getTime() ?? 0);
+    }) as Round[];
 
   const derivedCourses: Course[] = useMemo(() => {
     const map = new Map<string, Course>();
@@ -262,7 +272,7 @@ export default function HistoryScreen() {
       : [
         {
           id: selfPlayer._id as any,
-          name: selfPlayer.name || profile?.name || 'You',
+          name: selfPlayer.name || profile?.name || t('You'),
           roundsPlayed: 0,
           totalScore: 0,
           isUser: true,
@@ -309,26 +319,26 @@ export default function HistoryScreen() {
 
   const handleDeletePlayer = (playerId: string, playerName: string, isUser: boolean) => {
     if (isUser) {
-      Alert.alert('Cannot Delete', 'You cannot delete your own player profile.');
+      Alert.alert(t('Cannot Delete'), t('You cannot delete your own player profile.'));
       return;
     }
 
     Alert.alert(
-      'Delete Player',
-      `Are you sure you want to delete "${playerName}"? This will also delete all their round scores. This action cannot be undone.`,
+      t('Delete Player'),
+      t('Are you sure you want to delete "{{name}}"? This will also delete all their round scores. This action cannot be undone.', { name: playerName }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('Cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('Delete'),
           style: 'destructive',
           onPress: async () => {
             try {
               await deletePlayerMutation({ playerId: playerId as Id<'players'> });
-              Alert.alert('Success', `"${playerName}" has been deleted.`);
+              Alert.alert(t('Success'), t('"{{name}}" has been deleted.', { name: playerName }));
               setSelectedPlayerIds([]);
               setIsSelectMode(false);
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to delete player');
+              Alert.alert(t('Error'), error.message || t('Failed to delete player'));
             }
           },
         },
@@ -338,7 +348,7 @@ export default function HistoryScreen() {
 
   const handleMergePlayers = () => {
     if (selectedPlayerIds.length !== 2) {
-      Alert.alert('Select 2 Players', 'Please select exactly 2 players to merge.');
+      Alert.alert(t('Select 2 Players'), t('Please select exactly 2 players to merge.'));
       return;
     }
 
@@ -347,21 +357,21 @@ export default function HistoryScreen() {
     const secondPlayer = playersForList.find(p => p.id === secondId);
 
     if (!firstPlayer || !secondPlayer) {
-      Alert.alert('Error', 'Could not find selected players.');
+      Alert.alert(t('Error'), t('Could not find selected players.'));
       return;
     }
 
     // Prevent merging if one is the self player and would be deleted
     Alert.alert(
-      'Merge Players',
-      `Which player should be kept? The other player's scores will be merged into them and then deleted.`,
+      t('Merge Players'),
+      t("Which player should be kept? The other player's scores will be merged into them and then deleted."),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('Cancel'), style: 'cancel' },
         {
-          text: `Keep "${firstPlayer.name}"`,
+          text: t('Keep "{{name}}"', { name: firstPlayer.name }),
           onPress: async () => {
             if (secondPlayer.isUser) {
-              Alert.alert('Cannot Delete', 'Cannot delete your own player profile during merge.');
+              Alert.alert(t('Cannot Delete'), t('Cannot delete your own player profile during merge.'));
               return;
             }
             try {
@@ -370,21 +380,25 @@ export default function HistoryScreen() {
                 sourcePlayerId: secondId as Id<'players'>,
               });
               Alert.alert(
-                'Success',
-                `Merged ${result.mergedScoresCount} scores from "${secondPlayer.name}" into "${firstPlayer.name}".`
+                t('Success'),
+                t('Merged {{count}} scores from "{{from}}" into "{{to}}".', {
+                  count: result.mergedScoresCount,
+                  from: secondPlayer.name,
+                  to: firstPlayer.name,
+                })
               );
               setSelectedPlayerIds([]);
               setIsSelectMode(false);
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to merge players');
+              Alert.alert(t('Error'), error.message || t('Failed to merge players'));
             }
           },
         },
         {
-          text: `Keep "${secondPlayer.name}"`,
+          text: t('Keep "{{name}}"', { name: secondPlayer.name }),
           onPress: async () => {
             if (firstPlayer.isUser) {
-              Alert.alert('Cannot Delete', 'Cannot delete your own player profile during merge.');
+              Alert.alert(t('Cannot Delete'), t('Cannot delete your own player profile during merge.'));
               return;
             }
             try {
@@ -393,13 +407,17 @@ export default function HistoryScreen() {
                 sourcePlayerId: firstId as Id<'players'>,
               });
               Alert.alert(
-                'Success',
-                `Merged ${result.mergedScoresCount} scores from "${firstPlayer.name}" into "${secondPlayer.name}".`
+                t('Success'),
+                t('Merged {{count}} scores from "{{from}}" into "{{to}}".', {
+                  count: result.mergedScoresCount,
+                  from: firstPlayer.name,
+                  to: secondPlayer.name,
+                })
               );
               setSelectedPlayerIds([]);
               setIsSelectMode(false);
             } catch (error: any) {
-              Alert.alert('Error', error.message || 'Failed to merge players');
+              Alert.alert(t('Error'), error.message || t('Failed to merge players'));
             }
           },
         },
@@ -453,17 +471,17 @@ export default function HistoryScreen() {
         </View>
         <View style={styles.playerInfo}>
           <Text style={styles.playerName}>
-            {name} {item.isUser && <Text style={styles.userLabel}>(You)</Text>}
+            {name} {item.isUser && <Text style={styles.userLabel}>({t('You')})</Text>}
           </Text>
           <Text style={styles.playerStats}>
-            {item.roundsPlayed} {item.roundsPlayed === 1 ? 'round' : 'rounds'} played
+            {t('{{count}} rounds played', { count: item.roundsPlayed })}
           </Text>
           {item.handicap !== undefined && (
-            <Text style={styles.playerHandicap}>Scandicap: {item.handicap}</Text>
+            <Text style={styles.playerHandicap}>{t('Scandicap')}: {item.handicap}</Text>
           )}
         </View>
         <View style={styles.playerScoreContainer}>
-          <Text style={styles.playerScoreLabel}>Avg. Score</Text>
+          <Text style={styles.playerScoreLabel}>{t('Avg. Score')}</Text>
           <Text style={styles.playerScore}>
             {avg !== undefined ? avg : '--'}
           </Text>
@@ -475,13 +493,13 @@ export default function HistoryScreen() {
   const getPlaceholder = () => {
     switch (activeTab) {
       case 'rounds':
-        return "Search rounds...";
+        return t("Search rounds...");
       case 'players':
-        return "Search players...";
+        return t("Search players...");
       case 'courses':
-        return "Search courses...";
+        return t("Search courses...");
       default:
-        return "Search...";
+        return t("Search...");
     }
   };
 
@@ -503,9 +521,9 @@ export default function HistoryScreen() {
         if (roundsData.length === 0) {
           return (
             <EmptyState
-              title="No rounds yet"
-              message="Start tracking your golf rounds by scanning your scorecard."
-              buttonTitle="Scan Scorecard"
+              title={t("No rounds yet")}
+              message={t("Start tracking your golf rounds by scanning your scorecard.")}
+              buttonTitle={t("Scan Scorecard")}
               onButtonPress={navigateToScanScorecard}
               icon={<History size={40} color={colors.primary} />}
             />
@@ -513,7 +531,7 @@ export default function HistoryScreen() {
         }
         return (
           <EmptyState
-            title="No rounds found"
+            title={t("No rounds found")}
             icon={<History size={40} color={colors.primary} />}
           />
         );
@@ -523,9 +541,9 @@ export default function HistoryScreen() {
         if (!hasAnyPlayers) {
           return (
             <EmptyState
-              title="No players yet"
-              message="Start tracking your golf rounds to see player statistics."
-              buttonTitle="Scan Scorecard"
+              title={t("No players yet")}
+              message={t("Start tracking your golf rounds to see player statistics.")}
+              buttonTitle={t("Scan Scorecard")}
               onButtonPress={navigateToScanScorecard}
               icon={<Users size={40} color={colors.primary} />}
             />
@@ -533,7 +551,7 @@ export default function HistoryScreen() {
         }
         return (
           <EmptyState
-            title="No players found"
+            title={t("No players found")}
             icon={<Users size={40} color={colors.primary} />}
           />
         );
@@ -542,9 +560,9 @@ export default function HistoryScreen() {
         if (derivedCourses.length === 0) {
           return (
             <EmptyState
-              title="No courses yet"
-              message="Add your favorite golf courses to start tracking your rounds."
-              buttonTitle="Add Course"
+              title={t("No courses yet")}
+              message={t("Add your favorite golf courses to start tracking your rounds.")}
+              buttonTitle={t("Add Course")}
               onButtonPress={navigateToAddCourse}
               icon={<Flag size={40} color={colors.primary} />}
             />
@@ -552,8 +570,8 @@ export default function HistoryScreen() {
         }
         return (
           <EmptyState
-            title="No courses found"
-            buttonTitle="Add Course"
+            title={t("No courses found")}
+            buttonTitle={t("Add Course")}
             onButtonPress={navigateToAddCourse}
             icon={<Flag size={40} color={colors.primary} />}
           />
@@ -604,7 +622,7 @@ export default function HistoryScreen() {
             onPress={() => setActiveTab('rounds')}
           >
             <History size={18} color={colors.text} />
-            <Text style={[styles.tabText, activeTab === 'rounds' && styles.activeTabText]}>Rounds</Text>
+            <Text style={[styles.tabText, activeTab === 'rounds' && styles.activeTabText]}>{t('Rounds')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -612,7 +630,7 @@ export default function HistoryScreen() {
             onPress={() => setActiveTab('players')}
           >
             <Users size={18} color={colors.text} />
-            <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>Players</Text>
+            <Text style={[styles.tabText, activeTab === 'players' && styles.activeTabText]}>{t('Players')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -620,7 +638,7 @@ export default function HistoryScreen() {
             onPress={() => setActiveTab('courses')}
           >
             <Flag size={18} color={colors.text} />
-            <Text style={[styles.tabText, activeTab === 'courses' && styles.activeTabText]}>Courses</Text>
+            <Text style={[styles.tabText, activeTab === 'courses' && styles.activeTabText]}>{t('Courses')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -650,11 +668,11 @@ export default function HistoryScreen() {
             >
               <CalendarIcon size={16} color={colors.primary} />
               <Text style={styles.manageInlineButtonText}>
-                {datePreset === 'all' ? 'Dates' :
-                  datePreset === 'week' ? 'This week' :
-                    datePreset === 'month' ? 'This month' :
-                      datePreset === 'year' ? 'This year' :
-                        datePreset === 'last30' ? 'Last 30d' : 'Custom'}
+                {datePreset === 'all' ? t('Dates') :
+                  datePreset === 'week' ? t('This week') :
+                    datePreset === 'month' ? t('This month') :
+                      datePreset === 'year' ? t('This year') :
+                        datePreset === 'last30' ? t('Last 30d') : t('Custom')}
               </Text>
             </TouchableOpacity>
           )}
@@ -665,7 +683,7 @@ export default function HistoryScreen() {
             >
               <Edit size={16} color={isSelectMode ? colors.background : colors.primary} />
               <Text style={[styles.manageInlineButtonText, isSelectMode && styles.manageInlineButtonTextActive]}>
-                {isSelectMode ? 'Cancel' : 'Manage'}
+                {isSelectMode ? t('Cancel') : t('Manage')}
               </Text>
             </TouchableOpacity>
           )}
@@ -677,7 +695,9 @@ export default function HistoryScreen() {
             >
               <Link size={16} color={selectedPlayerIds.length >= 2 ? colors.background : colors.textSecondary} />
               <Text style={[styles.manageInlineButtonText, styles.mergeButtonText, selectedPlayerIds.length < 2 && styles.disabledButtonText]}>
-                {`Merge ${selectedPlayerIds.length > 0 ? selectedPlayerIds.length : ''}`.trim()}
+                {selectedPlayerIds.length > 0
+                  ? t('Merge {{count}}', { count: selectedPlayerIds.length })
+                  : t('Merge')}
               </Text>
             </TouchableOpacity>
           )}
@@ -692,7 +712,7 @@ export default function HistoryScreen() {
               }}
             >
               <Trash2 size={16} color={colors.background} />
-              <Text style={[styles.manageInlineButtonText, styles.deleteButtonText]}>Delete</Text>
+              <Text style={[styles.manageInlineButtonText, styles.deleteButtonText]}>{t('Delete')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -709,7 +729,7 @@ export default function HistoryScreen() {
         <Modal visible={showDateFilter} transparent animationType="fade" onRequestClose={() => setShowDateFilter(false)}>
           <View style={styles.dateModalBackdrop}>
             <View style={styles.dateModal}>
-              <Text style={styles.dateModalTitle}>Filter by date</Text>
+              <Text style={styles.dateModalTitle}>{t('Filter by date')}</Text>
               <View style={styles.datePresetRow}>
                 {['all', 'week', 'month', 'year', 'last30', 'custom'].map(p => (
                   <TouchableOpacity
@@ -718,7 +738,17 @@ export default function HistoryScreen() {
                     onPress={() => setDatePreset(p as any)}
                   >
                     <Text style={[styles.presetChipText, datePreset === p && styles.presetChipTextActive]}>
-                      {p === 'all' ? 'All' : p === 'week' ? 'This Week' : p === 'month' ? 'This Month' : p === 'year' ? 'This Year' : p === 'last30' ? 'Last 30 Days' : 'Custom'}
+                      {p === 'all'
+                        ? t('All')
+                        : p === 'week'
+                          ? t('This Week')
+                          : p === 'month'
+                            ? t('This Month')
+                            : p === 'year'
+                              ? t('This Year')
+                              : p === 'last30'
+                                ? t('Last 30 Days')
+                                : t('Custom')}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -727,14 +757,14 @@ export default function HistoryScreen() {
                 <View style={styles.customRow}>
                   <TextInput
                     style={styles.dateInputBox}
-                    placeholder="Start YYYY-MM-DD"
+                    placeholder={t('Start YYYY-MM-DD')}
                     placeholderTextColor={colors.textSecondary}
                     value={customStart || ''}
                     onChangeText={setCustomStart}
                   />
                   <TextInput
                     style={styles.dateInputBox}
-                    placeholder="End YYYY-MM-DD"
+                    placeholder={t('End YYYY-MM-DD')}
                     placeholderTextColor={colors.textSecondary}
                     value={customEnd || ''}
                     onChangeText={setCustomEnd}
@@ -743,10 +773,10 @@ export default function HistoryScreen() {
               )}
               <View style={styles.dateModalActions}>
                 <TouchableOpacity style={[styles.manageInlineButton, styles.mergeInlineButton]} onPress={() => setShowDateFilter(false)}>
-                  <Text style={[styles.manageInlineButtonText, styles.mergeButtonText]}>Apply</Text>
+                  <Text style={[styles.manageInlineButtonText, styles.mergeButtonText]}>{t('Apply')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.manageInlineButton} onPress={() => { setDatePreset('all'); setCustomStart(null); setCustomEnd(null); }}>
-                  <Text style={styles.manageInlineButtonText}>Clear</Text>
+                  <Text style={styles.manageInlineButtonText}>{t('Clear')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

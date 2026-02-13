@@ -35,6 +35,7 @@ import {
 } from "lucide-react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
+import { useT } from "@/lib/i18n";
 
 // Local palette tuned to the brand illustration
 const ROUGH_GREEN_DARK = "#0A261C";
@@ -49,6 +50,7 @@ const SUBTLE_GOLD = "#D6C6A0";
 const WHITE_MIST = "#E1F2EA";
 
 export default function ScandicapDetailsScreen() {
+  const t = useT();
   const profile = useQuery(api.users.getProfile);
   const userId = profile?._id as any;
   const details =
@@ -142,41 +144,41 @@ export default function ScandicapDetailsScreen() {
   }, [history, timeRange]);
 
   const title = details?.isProvisional
-    ? "Provisional Index"
-    : "Official Scandicap";
+    ? t("Provisional Index")
+    : t("Official Scandicap");
 
   const subtitle = useMemo(() => {
     if (!details) return "";
     if (details.roundsCount === 0) {
-      return "Play your first round to establish a Scandicap index.";
+      return t("Play your first round to establish a Scandicap index.");
     }
     if (details.isProvisional) {
-      return "Estimate based on limited play history.";
+      return t("Estimate based on limited play history.");
     }
     if (details.roundsCount < 20) {
-      return "Official index—maturing toward best 8 of 20.";
+      return t("Official index—maturing toward best 8 of 20.");
     }
-    return "Fully established index using best 8 of 20.";
-  }, [details]);
+    return t("Fully established index using best 8 of 20.");
+  }, [details, t]);
 
   const howItWorksText = useMemo(() => {
     if (!details) return "";
     if (details.roundsCount === 0) {
-      return "Once you play and save a round, Scandicap will calculate an estimated handicap based on your scoring versus course difficulty.";
+      return t("Once you play and save a round, Scandicap will calculate an estimated handicap based on your scoring versus course difficulty.");
     }
     if (details.isProvisional) {
-      return "This is a provisional estimate based on your first few differentials. After 3 rounds, your Scandicap becomes official and continues to refine as you play more.";
+      return t("This is a provisional estimate based on your first few differentials. After 3 rounds, your Scandicap becomes official and continues to refine as you play more.");
     }
     if (details.roundsCount < 20) {
-      return "You now have an official Scandicap. As you add rounds, the calculation moves toward the standard “best 8 of your last 20” differentials.";
+      return t("You now have an official Scandicap. As you add rounds, the calculation moves toward the standard “best 8 of your last 20” differentials.");
     }
-    return "Your Scandicap is fully established. It uses the best 8 differentials from your last 20 rounds to give you a fair, accurate index that reflects your current game.";
-  }, [details]);
+    return t("Your Scandicap is fully established. It uses the best 8 differentials from your last 20 rounds to give you a fair, accurate index that reflects your current game.");
+  }, [details, t]);
 
   const maturityText =
     details && details.roundsCount >= 20
-      ? "Fully Mature Index"
-      : `Maturity: ${details?.roundsCount ?? 0}/20 rounds`;
+      ? t("Fully Mature Index")
+      : t("Maturity: {{count}}/20 rounds", { count: details?.roundsCount ?? 0 });
 
   const router = useRouter();
 
@@ -193,9 +195,9 @@ export default function ScandicapDetailsScreen() {
       <View style={styles.customHeader}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ChevronLeft size={24} color="#F5F5DC" strokeWidth={2.5} />
-          <Text style={styles.backButtonText}>Back</Text>
+          <Text style={styles.backButtonText}>{t("Back")}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scandicap</Text>
+        <Text style={styles.headerTitle}>{t("Scandicap")}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           {/* Seed test rounds button */}
           <TouchableOpacity
@@ -212,9 +214,15 @@ export default function ScandicapDetailsScreen() {
             onPress={async () => {
               try {
                 const result = await clearSeededRounds({});
-                Alert.alert("Success", `Cleared ${result.deletedRounds} rounds and ${result.deletedScores} scores.`);
+                Alert.alert(
+                  t("Success"),
+                  t("Cleared {{rounds}} rounds and {{scores}} scores.", {
+                    rounds: result.deletedRounds,
+                    scores: result.deletedScores,
+                  })
+                );
               } catch (e) {
-                Alert.alert("Error", "Could not clear seeded rounds.");
+                Alert.alert(t("Error"), t("Could not clear seeded rounds."));
               }
             }}
           >
@@ -225,9 +233,9 @@ export default function ScandicapDetailsScreen() {
             onPress={async () => {
               try {
                 await rebuildHistory({});
-                Alert.alert("Success", "History rebuilt.");
+                Alert.alert(t("Success"), t("History rebuilt."));
               } catch (e) {
-                Alert.alert("Error", "Could not rebuild history.");
+                Alert.alert(t("Error"), t("Could not rebuild history."));
               }
             }}
           >
@@ -239,7 +247,7 @@ export default function ScandicapDetailsScreen() {
       {loading && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color={ANTIQUE_GOLD} />
-          <Text style={styles.loadingText}>Loading Scandicap…</Text>
+          <Text style={styles.loadingText}>{t("Loading Scandicap…")}</Text>
         </View>
       )}
 
@@ -264,7 +272,7 @@ export default function ScandicapDetailsScreen() {
                   <View style={styles.heroHeaderRow}>
                     <View>
                       <Text style={styles.appName}>ScanCaddie</Text>
-                      <Text style={styles.heroLabel}>OFFICIAL INDEX</Text>
+                      <Text style={styles.heroLabel}>{t("OFFICIAL INDEX")}</Text>
                     </View>
                     {/* Interactive Status Badge */}
                     <TouchableOpacity
@@ -273,13 +281,13 @@ export default function ScandicapDetailsScreen() {
                       onPress={() => {
                         if (details?.roundsCount && details.roundsCount >= 3) {
                           Alert.alert(
-                            "Official Status: Established",
-                            "You have played 3 or more rounds. This index is officially valid for handicap purposes and fair play."
+                            t("Official Status: Established"),
+                            t("You have played 3 or more rounds. This index is officially valid for handicap purposes and fair play.")
                           );
                         } else {
                           Alert.alert(
-                            "Status: Provisional",
-                            "You have played fewer than 3 rounds. This index is an estimate. Play more rounds to unlock your official Established status."
+                            t("Status: Provisional"),
+                            t("You have played fewer than 3 rounds. This index is an estimate. Play more rounds to unlock your official Established status.")
                           );
                         }
                       }}
@@ -293,7 +301,7 @@ export default function ScandicapDetailsScreen() {
                             resizeMode="cover"
                           >
                             <Text style={[styles.statusPillText, styles.statusPillTextEstablished]}>
-                              ESTABLISHED
+                              {t("ESTABLISHED")}
                             </Text>
                           </ImageBackground>
                           <View style={[styles.badgeInfoIcon, { backgroundColor: ANTIQUE_GOLD, borderColor: "#B8B28A" }]}>
@@ -309,7 +317,7 @@ export default function ScandicapDetailsScreen() {
                             style={[styles.statusPill, styles.statusPillProvisionalBorder]}
                           >
                             <Text style={[styles.statusPillText, styles.statusPillTextProvisional]}>
-                              PROVISIONAL
+                              {t("PROVISIONAL")}
                             </Text>
                           </LinearGradient>
                           <LinearGradient
@@ -335,13 +343,13 @@ export default function ScandicapDetailsScreen() {
                       <View style={styles.heroMetaRow}>
                         <Clock size={15} color={DEEP_TEXT} strokeWidth={2.5} opacity={1} />
                         <Text style={styles.heroMetaText}>
-                          {details?.roundsCount ?? 0} rounds in window
+                          {t("{{count}} rounds in window", { count: details?.roundsCount ?? 0 })}
                         </Text>
                       </View>
                       <Text style={styles.heroSubtitle}>
                         {details?.roundsCount === 0
-                          ? "Play your first round to establish a Scandicap index."
-                          : "Play consistent golf to improve your index."}
+                          ? t("Play your first round to establish a Scandicap index.")
+                          : t("Play consistent golf to improve your index.")}
                       </Text>
                     </View>
                   </View>
@@ -377,7 +385,7 @@ export default function ScandicapDetailsScreen() {
             <View style={styles.trendContainer}>
               <View style={styles.sectionHeaderRow}>
                 <TrendingUp size={18} color={ANTIQUE_GOLD} strokeWidth={2.5} />
-                <Text style={styles.trendTitle}>Index Trend</Text>
+                <Text style={styles.trendTitle}>{t("Index Trend")}</Text>
               </View>
 
               {/* Filter Chips - Show always */}
@@ -463,7 +471,7 @@ export default function ScandicapDetailsScreen() {
                       if (!entry) return;
                       // Show "Seeded Index" for synthesized/ghost entries, otherwise show the date
                       const label = entry.isSynthesized
-                        ? "Seeded Index"
+                        ? t("Seeded Index")
                         : new Date(entry.date).toLocaleDateString(
                           "en-US",
                           { month: "short", day: "numeric", year: "numeric" }
@@ -475,13 +483,13 @@ export default function ScandicapDetailsScreen() {
               ) : (
                 <View style={{ minHeight: 220, justifyContent: "center", alignItems: "center" }}>
                   <Text style={[styles.chartPlaceholderLight, { textAlign: 'center', opacity: 0.7, fontStyle: "italic" }]}>
-                    Play a few rounds to see how your Scandicap evolves over time.
+                    {t("Play a few rounds to see how your Scandicap evolves over time.")}
                   </Text>
                 </View>
               )}
               {lowWaterMark != null && hasHistory && (
                 <Text style={[styles.lowWaterText, { marginTop: 16, marginBottom: 10, color: "#EFEDDF" }]}>
-                  Low water mark this period: {lowWaterMark.toFixed(1)}
+                  {t("Low water mark this period:")} {lowWaterMark.toFixed(1)}
                 </Text>
               )}
             </View>
@@ -508,7 +516,7 @@ export default function ScandicapDetailsScreen() {
                   onPress={() => setHowExpanded((prev) => !prev)}
                 >
                   <Info size={18} color={DEEP_TEXT} strokeWidth={2.5} />
-                  <Text style={styles.sheetSectionTitle}>How Scandicap Works</Text>
+                  <Text style={styles.sheetSectionTitle}>{t("How Scandicap Works")}</Text>
                   <View style={styles.howChevron}>
                     {howExpanded ? (
                       <ChevronUp size={18} color={DEEP_TEXT} strokeWidth={2.5} />
@@ -527,12 +535,12 @@ export default function ScandicapDetailsScreen() {
               <View style={[styles.sheetSection, { marginTop: 20 }]}>
                 <View style={styles.sectionHeaderRow}>
                   <History size={18} color={DEEP_TEXT} strokeWidth={2.5} />
-                  <Text style={styles.sheetSectionTitle}>Calculation History</Text>
+                  <Text style={styles.sheetSectionTitle}>{t("Calculation History")}</Text>
                 </View>
 
                 {!details?.calculationRounds?.length && (
                   <Text style={styles.sheetSubText}>
-                    Once you have rounds with Scandicap differentials, they'll show up here with which ones were used in your index.
+                    {t("Once you have rounds with Scandicap differentials, they'll show up here with which ones were used in your index.")}
                   </Text>
                 )}
 
@@ -693,8 +701,8 @@ export default function ScandicapDetailsScreen() {
               onPress={() => {}}
               style={styles.seedModalCard}
             >
-              <Text style={styles.seedModalTitle}>Seed rounds</Text>
-              <Text style={styles.seedModalSubtitle}>What handicap should these seed rounds represent?</Text>
+              <Text style={styles.seedModalTitle}>{t("Seed rounds")}</Text>
+              <Text style={styles.seedModalSubtitle}>{t("What handicap should these seed rounds represent?")}</Text>
 
               <TextInput
                 value={seedHandicapText}
@@ -713,7 +721,7 @@ export default function ScandicapDetailsScreen() {
                   onPress={() => setShowSeedModal(false)}
                   disabled={seedLoading}
                 >
-                  <Text style={styles.seedModalButtonSecondaryText}>Cancel</Text>
+                  <Text style={styles.seedModalButtonSecondaryText}>{t("Cancel")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.seedModalButton, styles.seedModalButtonPrimary, seedLoading && { opacity: 0.7 }]}
@@ -721,22 +729,22 @@ export default function ScandicapDetailsScreen() {
                   onPress={async () => {
                     const parsed = Number.parseFloat(seedHandicapText.replace(",", "."));
                     if (!Number.isFinite(parsed)) {
-                      Alert.alert("Invalid handicap", "Enter a valid number (e.g., 15.0).");
+                      Alert.alert(t("Invalid handicap"), t("Enter a valid number (e.g., 15.0)."));
                       return;
                     }
                     setSeedLoading(true);
                     try {
                       await seedHandicap({ initialHandicap: parsed });
                       setShowSeedModal(false);
-                      Alert.alert("Success", `20 ghost rounds seeded at ${parsed.toFixed(1)} handicap.`);
+                      Alert.alert(t("Success"), t("20 ghost rounds seeded at {{hcp}} handicap.", { hcp: parsed.toFixed(1) }));
                     } catch (e) {
-                      Alert.alert("Error", "Could not seed rounds.");
+                      Alert.alert(t("Error"), t("Could not seed rounds."));
                     } finally {
                       setSeedLoading(false);
                     }
                   }}
                 >
-                  <Text style={styles.seedModalButtonPrimaryText}>Seed</Text>
+                  <Text style={styles.seedModalButtonPrimaryText}>{t("Seed")}</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>

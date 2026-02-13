@@ -19,13 +19,15 @@ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors } from "@/constants/colors";
 import { Button } from "@/components/Button";
-import { getScoreDifferential, getScoreLabel, calculateNetScore } from "@/utils/helpers";
-import { Calendar, MapPin, Award, Target, Zap, ArrowLeftRight, PiggyBank, TrendingDown, Edit3, Trash2, ChevronLeft, Camera, Eye, BarChart3, Info } from "lucide-react-native";
+import { getScoreDifferential, getScoreLabel, calculateNetScore, parseAnyDateStringToLocalDate } from "@/utils/helpers";
+import { Calendar, MapPin, Award, Target, Zap, ArrowLeftRight, PiggyBank, TrendingDown, Edit3, Trash2, ChevronLeft, ChevronRight, ChevronDown, Camera, Eye, BarChart3, Info } from "lucide-react-native";
 import { useMutation, useQuery } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useGolfStore } from "@/store/useGolfStore";
-import { SettlementSummary } from "@/components/SettlementSummary";
+import { useOnboardingStore } from "@/store/useOnboardingStore";
+import { useT } from "@/lib/i18n";
+import { buildNassauDisplayModel, NassauDetailTab } from "@/utils/nassauDisplay";
 
 type PlayerScore = {
     playerId: string;
@@ -41,8 +43,11 @@ export default function RoundDetailsScreen() {
     const { id, onboardingMode } = useLocalSearchParams<{ id: string; onboardingMode?: string }>();
     const router = useRouter();
     const isOnboardingMode = onboardingMode === 'true';
+    const t = useT();
+    const language = useOnboardingStore((s) => s.language);
+    const localeForDates = language === "es" ? "es-ES" : "en-US";
 
-	    const { rounds: localRounds, courses: localCourses, players: localPlayers, deleteRound: deleteLocalRound } = useGolfStore();
+    const { rounds: localRounds, courses: localCourses, players: localPlayers, deleteRound: deleteLocalRound } = useGolfStore();
     // Resolve the round from local store and, when available, from Convex by its remoteId.
     const localRound = useMemo(
         () =>
@@ -80,6 +85,13 @@ export default function RoundDetailsScreen() {
     const [activeTab, setActiveTab] = useState<'summary' | 'scorecard' | 'stats'>('summary');
     const [scoreViewMode, setScoreViewMode] = useState<'actual' | 'adjusted'>('actual');
     const [selectedStatsPlayerIndex, setSelectedStatsPlayerIndex] = useState(0);
+    const [scoringInfoVisible, setScoringInfoVisible] = useState(false);
+    const [playerDetailVisible, setPlayerDetailVisible] = useState(false);
+    const [selectedPlayerDetailId, setSelectedPlayerDetailId] = useState<string | null>(null);
+    const [settlementDetailVisible, setSettlementDetailVisible] = useState(false);
+    const [settlementDetailTab, setSettlementDetailTab] = useState<NassauDetailTab>("payments");
+    const [expandedPaymentIndex, setExpandedPaymentIndex] = useState<number | null>(null);
+    const [expandedPairKey, setExpandedPairKey] = useState<string | null>(null);
 
     const courseFromStore = useMemo(
         () => (round ? localCourses.find((c) => c.id === round.courseId) : undefined),
@@ -162,6 +174,11 @@ export default function RoundDetailsScreen() {
         return (round?.players?.find((p: any) => p.isUser)?.playerId as string | undefined) ?? null;
     }, [linkedSession, round, profile]);
 
+    const participantNameById = useMemo(
+        () => new Map<string, string>((linkedSession?.participants ?? []).map((p: any) => [String(p.playerId), String(p.name ?? "Player")])),
+        [linkedSession?.participants]
+    );
+
     // Log for debugging balance issues
     useEffect(() => {
         if (linkedSession?.settlement?.calculated) {
@@ -169,137 +186,43 @@ export default function RoundDetailsScreen() {
         }
     }, [mySettlementName, linkedSession, profile]);
 
+    const gameOutcome = linkedSession?.gameOutcome as any;
+    const nassauDisplayModel = useMemo(
+        () => buildNassauDisplayModel({ linkedSession, gameOutcome }),
+        [linkedSession, gameOutcome]
+    );
+
     const settlementBreakdownText = useMemo(() => {
         const settlement = linkedSession?.settlement;
-        if (!settlement || !settlement.calculated) return null;
-
-        const gameType = linkedSession?.gameType;
-        const participants = linkedSession?.participants ?? [];
-        const nameByPlayerId = new Map<string, string>(
-            participants.map((p: any) => [p.playerId, p.name])
-        );
-
-        const formatDollars = (cents: number | undefined) => {
-            if (typeof cents !== "number") return "$0";
-            return `$${(cents / 100).toFixed(0)}`;
-        };
-
-        if (settlement.settlementVersion !== "v2") return null;
-        const matchResults: any[] = settlement.matchResults ?? [];
-        const raw: any[] = settlement.rawTransactions ?? [];
-
-        if (gameType === "nassau") {
-            const pairingIds = Array.from(new Set(matchResults.map((r: any) => r.pairingId).filter(Boolean)));
-            if (pairingIds.length > 1) {
-                return `BREAKDOWN Round-robin: ${pairingIds.length} matchups settled. See settlement line items below.`;
+        if (!settlement?.calculated) return null;
+        if (nassauDisplayModel) {
+            const parts = [
+                nassauDisplayModel.isRoundRobin
+                    ? `Round robin: ${nassauDisplayModel.pairingCount} matchups`
+                    : "Head-to-head Nassau",
+                `Settled in ${Math.max(0, settlement?.nettedPayments?.length ?? 0)} payment${(settlement?.nettedPayments?.length ?? 0) === 1 ? "" : "s"}`,
+            ];
+            if (nassauDisplayModel.wagerSummary) {
+                parts.push(nassauDisplayModel.wagerSummary);
             }
-
-            const onePairing = matchResults.length > 0 ? matchResults[0].pairingId : null;
-            const mainResults = matchResults.filter(
-                (r: any) =>
-                    (!onePairing || r.pairingId === onePairing) &&
-                    (r.context === "Front 9" || r.context === "Back 9" || r.context === "Overall")
-            );
-
-            const presses = matchResults.filter(
-                (r: any) => (!onePairing || r.pairingId === onePairing) && typeof r.context === "string" && r.context.startsWith("Press")
-            );
-
-            const amounts = linkedSession?.betSettings?.nassauAmounts;
-            const front = amounts?.frontCents ?? linkedSession?.betSettings?.betPerUnitCents;
-            const back = amounts?.backCents ?? linkedSession?.betSettings?.betPerUnitCents;
-            const overall = amounts?.overallCents ?? (linkedSession?.betSettings?.betPerUnitCents ? linkedSession.betSettings.betPerUnitCents * 2 : undefined);
-            const pressConfig: any = (linkedSession as any)?.pressConfig ?? (linkedSession?.betSettings as any)?.pressConfig ?? null;
-            const segmentBetBySegmentName: Record<string, number | undefined> = {
-                front,
-                back,
-                overall,
-            };
-
-            const amountByContext: Record<string, number | undefined> = {
-                "Front 9": front,
-                "Back 9": back,
-                "Overall": overall,
-            };
-
-            const winnerNameFor = (r: any) => {
-                const sideA: string[] = r.sideA ?? [];
-                const sideB: string[] = r.sideB ?? [];
-                const formatSide = (ids: string[]) => {
-                    if (ids.length === 1) return nameByPlayerId.get(ids[0]) ?? "Player";
-                    return ids.map((id) => nameByPlayerId.get(id) ?? "Player").join(", ");
-                };
-                if (r.winner === "A") return formatSide(sideA);
-                if (r.winner === "B") return formatSide(sideB);
-                return null;
-            };
-
-            const segmentLines = ["Front 9", "Back 9", "Overall"]
-                .map((label) => {
-                    const r = mainResults.find((x: any) => x.context === label);
-                    if (!r) return null;
-                    const bet = formatDollars(amountByContext[label]);
-                    if (r.winner === "tie") return `${label} pushed (${bet}).`;
-                    return `${winnerNameFor(r)} won ${label} (${bet}).`;
-                })
-                .filter(Boolean) as string[];
-
-            const getPressBetCents = (pressResult: any) => {
-                const startHoleStr = typeof pressResult?.context === "string"
-                    ? pressResult.context.match(/hole\s+(\d+)\+/)?.[1]
-                    : undefined;
-                const startHole = startHoleStr ? Number(startHoleStr) : null;
-                if (!startHole || !onePairing || typeof pressResult?.segment !== "string") return undefined;
-                const candidatePressIds = [
-                    `${onePairing}:${pressResult.segment}:manual:${startHole}`,
-                    `${onePairing}:${pressResult.segment}:press:${startHole}`,
-                ];
-                const cents = raw
-                    .filter((t: any) => t.gameType === "nassau" && typeof t.pressId === "string" && candidatePressIds.includes(t.pressId))
-                    .reduce((sum: number, t: any) => sum + (t.amountCents || 0), 0);
-                if (cents > 0) return cents;
-
-                const manualPressValue = (linkedSession as any)?.presses?.find((p: any) =>
-                    p &&
-                    p.startHole === startHole &&
-                    p.segment === pressResult.segment &&
-                    ((typeof p.pairingId === "string" && p.pairingId === onePairing) || typeof p.pairingId !== "string")
-                )?.valueCents;
-                if (typeof manualPressValue === "number" && manualPressValue > 0) return manualPressValue;
-
-                const fallbackPressValue = pressConfig?.pressValueCents ?? segmentBetBySegmentName[pressResult.segment];
-                return typeof fallbackPressValue === "number" && fallbackPressValue > 0 ? fallbackPressValue : undefined;
-            };
-
-            const pressLine =
-                presses.length === 0
-                    ? null
-                    : (() => {
-                        const summaries = presses.slice(0, 3).map((p: any) => {
-                            const startHole = p.context.match(/hole\s+(\d+)\+/)?.[1] ?? "?";
-                            const bet = formatDollars(getPressBetCents(p));
-                            if (p.winner === "tie") return `hole ${startHole}+ pushed (${bet})`;
-                            return `${winnerNameFor(p)} won hole ${startHole}+ (${bet})`;
-                        });
-                        const extra = presses.length > 3 ? ` +${presses.length - 3} more` : "";
-                        return `Presses: ${summaries.join(", ")}${extra}.`;
-                    })();
-
-            const sideBetTxs = raw.filter((t: any) => t.gameType === "side_bets" && typeof t.reason === "string");
-            const bySideBetReason = new Map<string, number>();
-            for (const t of sideBetTxs) {
-                bySideBetReason.set(t.reason, (bySideBetReason.get(t.reason) || 0) + (t.amountCents || 0));
-            }
-            const sideBetParts = Array.from(bySideBetReason.entries())
-                .filter(([_, cents]) => cents > 0)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([reason, cents]) => `${reason} (${formatDollars(cents)})`);
-            const sideBetsLine = sideBetParts.length ? `Side bets: ${sideBetParts.join(", ")}.` : null;
-
-            return ["BREAKDOWN", ...segmentLines, pressLine, sideBetsLine].filter(Boolean).join(" ");
+            return parts.join(" • ");
         }
+        const raw = Array.isArray(settlement?.rawTransactions) ? settlement.rawTransactions : [];
+        return raw.length > 0 ? "See settlement line items below." : null;
+    }, [linkedSession, nassauDisplayModel]);
 
-        return raw.length > 0 ? "BREAKDOWN See settlement line items below." : null;
+    const selectedPlayerDetail = useMemo(() => {
+        if (!nassauDisplayModel || !selectedPlayerDetailId) return null;
+        return nassauDisplayModel.playerDetails.find((p) => p.playerId === selectedPlayerDetailId) ?? null;
+    }, [nassauDisplayModel, selectedPlayerDetailId]);
+
+    const settlementData = useMemo(() => {
+        const settlement = linkedSession?.settlement;
+        if (!settlement?.calculated) return { payments: [] as any[], isV2: false, totalToSettleCents: 0 };
+        const isV2 = settlement.settlementVersion === "v2" || settlement.nettedPayments;
+        const payments = isV2 ? (settlement.nettedPayments || []) : (settlement.transactions || []);
+        const totalToSettleCents = payments.reduce((sum: number, tx: any) => sum + (tx.amountCents || 0), 0);
+        return { payments, isV2, totalToSettleCents };
     }, [linkedSession]);
 
     // Compute par adjusted for 9 vs 18 holes based on round holeCount.
@@ -322,7 +245,7 @@ export default function RoundDetailsScreen() {
             return rd.scorecardPhotos as string[];
         }
         return [] as string[];
-    }, [localRound, round]);
+    }, [localRound, round, t]);
 
     const sourceScanUploadedText = useMemo(() => {
         const lr: any = localRound as any;
@@ -339,7 +262,9 @@ export default function RoundDetailsScreen() {
         if (!candidate) return null;
         const d = new Date(candidate);
         if (Number.isNaN(d.getTime())) return null;
-        return `Uploaded at ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+        return t("Uploaded at {{time}}", {
+            time: d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+        });
     }, [localRound, round]);
     const syncStatus = localRound?.syncStatus ?? "synced";
 
@@ -359,8 +284,9 @@ export default function RoundDetailsScreen() {
     }, [localRound]);
 
     const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString("en-US", {
+        const d = parseAnyDateStringToLocalDate(dateString);
+        if (!d) return dateString;
+        return d.toLocaleDateString(localeForDates, {
             weekday: "long",
             month: "long",
             day: "numeric",
@@ -514,11 +440,17 @@ export default function RoundDetailsScreen() {
         return sorted;
     }, [playerStats]);
 
-    const gameOutcome = linkedSession?.gameOutcome as any;
     const verdict = useMemo(() => {
         if (!gameOutcome || gameOutcome.computeStatus !== "complete") return null;
+        if (linkedSession?.gameType === "nassau" && nassauDisplayModel?.standingsWinnerText) {
+            return {
+                winnerLabel: "",
+                text: nassauDisplayModel.standingsWinnerText,
+                subtext: "Net scoring (strokes applied).",
+            };
+        }
         return gameOutcome.verdict ?? null;
-    }, [gameOutcome]);
+    }, [gameOutcome, linkedSession?.gameType, nassauDisplayModel]);
 
     const SkeletonBlock: React.FC<{ width?: number | string; height: number; style?: any }> = ({
         width = "100%",
@@ -565,15 +497,43 @@ export default function RoundDetailsScreen() {
 
 
     const formatParTotal = (value: number) => {
-        if (value === 0) return "Even";
+        if (value === 0) return t("Even");
         return value > 0 ? `+${value}` : `${value}`;
     };
 
+    const formatMoney = (amountCents: number) => `$${(amountCents / 100).toFixed(2)}`;
+    const formatSignedMoney = (amountCents: number) => {
+        const abs = Math.abs(amountCents);
+        const base = formatMoney(abs);
+        if (amountCents > 0) return `+${base}`;
+        if (amountCents < 0) return `-${base}`;
+        return base;
+    };
+
+    const formatContributionLabel = (contribution: any) => {
+        const category = contribution?.category ?? {};
+        const pairingId = typeof category.pairingId === "string" ? category.pairingId : "";
+        const [left, right] = pairingId.includes("_vs_") ? pairingId.split("_vs_") : [null, null];
+        const leftName = left ? participantNameById.get(left) ?? "Player" : null;
+        const rightName = right ? participantNameById.get(right) ?? "Player" : null;
+        const pairLabel = leftName && rightName ? `${leftName} vs ${rightName}` : null;
+        const segmentLabel =
+            category.segment === "front" ? "Front 9" :
+                category.segment === "back" ? "Back 9" :
+                    category.segment === "overall" ? "Overall" : null;
+        const label = typeof category.label === "string" ? category.label : "Nassau";
+        const context = [segmentLabel, pairLabel].filter(Boolean).join(" • ");
+        return context ? `${label} (${context})` : label;
+    };
+
+    const formatSegmentName = (segment: string) =>
+        segment === "front" ? "Front 9" : segment === "back" ? "Back 9" : segment === "overall" ? "Overall" : segment;
+
     const handleDeleteRound = () => {
-        Alert.alert("Delete Round", "Are you sure you want to delete this round?", [
-            { text: "Cancel", style: "cancel" },
+        Alert.alert(t("Delete Round"), t("Are you sure you want to delete this round?"), [
+            { text: t("Cancel"), style: "cancel" },
             {
-                text: "Delete",
+                text: t("Delete"),
                 style: "destructive",
                 onPress: async () => {
                     if (!localRound && !round) return;
@@ -593,7 +553,7 @@ export default function RoundDetailsScreen() {
                         }
                         router.back();
                     } catch {
-                        Alert.alert("Error", "Could not delete round. Please try again.");
+                        Alert.alert(t("Error"), t("Could not delete round. Please try again."));
                     }
                 },
             },
@@ -624,8 +584,8 @@ export default function RoundDetailsScreen() {
                     </View>
                 ) : (
                     <View style={styles.loadingContainer}>
-                        <Text style={styles.errorText}>Round not found</Text>
-                        <Button title="Go Back" onPress={() => router.back()} style={styles.errorButton} />
+                        <Text style={styles.errorText}>{t("Round not found")}</Text>
+                        <Button title={t("Go Back")} onPress={() => router.back()} style={styles.errorButton} />
                     </View>
                 )}
             </View>
@@ -658,34 +618,34 @@ export default function RoundDetailsScreen() {
         const courseIdForEdit = (localByExternal?.id ?? courseFromStore?.id ?? round.courseId) as string;
         const courseNameForEdit = localByExternal?.name ?? courseFromStore?.name ?? round.courseName;
 
-	        const prefilled = JSON.stringify({
-	            courseId: courseIdForEdit,
-	            courseName: courseNameForEdit,
-	            players: (round.players as any[]).map((p) => ({
-	                id: p.playerId,
-	                name: p.playerName,
+        const prefilled = JSON.stringify({
+            courseId: courseIdForEdit,
+            courseName: courseNameForEdit,
+            players: (round.players as any[]).map((p) => ({
+                id: p.playerId,
+                name: p.playerName,
                 scores: p.scores.map((s: any) => ({
                     holeNumber: s.holeNumber,
                     strokes: s.strokes,
                 })),
-	                teeColor: localTeeForPlayer[p.playerId]?.teeColor ?? p.teeColor,
-	                teeGender: localTeeForPlayer[p.playerId]?.teeGender ?? p.teeGender,
-	                // "Scandicap" on the edit screen should show handicap index (users/players.handicap),
-	                // not this round's course handicap ("handicapUsed") which is used for net scoring.
-	                handicap: (() => {
-	                    const storedIndex = (p as any).handicapIndex;
-	                    if (typeof storedIndex === "number") return storedIndex;
-	                    const isSelf = !!((p as any).isUser ?? (p as any).isSelf);
-	                    const storePlayer = localPlayers.find((sp) => sp.id === p.playerId);
-	                    const profileHandicap = (profile as any)?.handicap;
-	                    const candidate = isSelf ? (profileHandicap ?? storePlayer?.handicap) : storePlayer?.handicap;
-	                    return typeof candidate === "number" ? candidate : undefined;
-	                })(),
-	                // Preserve "You" selection when editing (either from local isUser or Convex isSelf)
-	                isUser: !!((p as any).isUser ?? (p as any).isSelf),
-	            })),
-	            date: round.date,
-	            notes: (round as any).notes ?? "",
+                teeColor: localTeeForPlayer[p.playerId]?.teeColor ?? p.teeColor,
+                teeGender: localTeeForPlayer[p.playerId]?.teeGender ?? p.teeGender,
+                // "Scandicap" on the edit screen should show handicap index (users/players.handicap),
+                // not this round's course handicap ("handicapUsed") which is used for net scoring.
+                handicap: (() => {
+                    const storedIndex = (p as any).handicapIndex;
+                    if (typeof storedIndex === "number") return storedIndex;
+                    const isSelf = !!((p as any).isUser ?? (p as any).isSelf);
+                    const storePlayer = localPlayers.find((sp) => sp.id === p.playerId);
+                    const profileHandicap = (profile as any)?.handicap;
+                    const candidate = isSelf ? (profileHandicap ?? storePlayer?.handicap) : storePlayer?.handicap;
+                    return typeof candidate === "number" ? candidate : undefined;
+                })(),
+                // Preserve "You" selection when editing (either from local isUser or Convex isSelf)
+                isUser: !!((p as any).isUser ?? (p as any).isSelf),
+            })),
+            date: round.date,
+            notes: (round as any).notes ?? "",
             scorecardPhotos: (round as any).scorecardPhotos ?? [],
         });
         // Use the local round's ID if available, otherwise fall back to route ID
@@ -708,7 +668,7 @@ export default function RoundDetailsScreen() {
             <SafeAreaView style={styles.container} edges={["bottom"]}>
                 <Stack.Screen
                     options={{
-                        title: "Round Details",
+                        title: t("Round Details"),
                         headerStyle: { backgroundColor: colors.background },
                         headerTitleStyle: { color: colors.text },
                         headerTintColor: colors.text,
@@ -760,7 +720,7 @@ export default function RoundDetailsScreen() {
                                         syncStatus === "failed" ? styles.syncBadgeFailed : styles.syncBadgePending,
                                     ]}
                                 >
-                                    {syncStatus === "pending" ? "Pending sync" : "Sync failed"}
+                                    {syncStatus === "pending" ? t("Pending sync") : t("Sync failed")}
                                 </Text>
                             </View>
                         )}
@@ -772,19 +732,25 @@ export default function RoundDetailsScreen() {
                             style={[styles.tabButton, activeTab === 'summary' && styles.tabButtonActive]}
                             onPress={() => setActiveTab('summary')}
                         >
-                            <Text style={[styles.tabButtonText, activeTab === 'summary' && styles.tabButtonTextActive]}>Summary</Text>
+                            <Text style={[styles.tabButtonText, activeTab === 'summary' && styles.tabButtonTextActive]}>
+                                {t("Summary")}
+                            </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.tabButton, activeTab === 'scorecard' && styles.tabButtonActive]}
                             onPress={() => setActiveTab('scorecard')}
                         >
-                            <Text style={[styles.tabButtonText, activeTab === 'scorecard' && styles.tabButtonTextActive]}>Scorecard</Text>
+                            <Text style={[styles.tabButtonText, activeTab === 'scorecard' && styles.tabButtonTextActive]}>
+                                {t("Scorecard")}
+                            </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.tabButton, activeTab === 'stats' && styles.tabButtonActive]}
                             onPress={() => setActiveTab('stats')}
                         >
-                            <Text style={[styles.tabButtonText, activeTab === 'stats' && styles.tabButtonTextActive]}>Stats</Text>
+                            <Text style={[styles.tabButtonText, activeTab === 'stats' && styles.tabButtonTextActive]}>
+                                {t("Stats")}
+                            </Text>
                         </TouchableOpacity>
                     </View>
 
@@ -794,14 +760,14 @@ export default function RoundDetailsScreen() {
                             {/* Final Standings Section */}
                             <View style={styles.standingsBlock}>
                                 <View style={styles.sectionHeaderRow}>
-                                    <Text style={styles.standingsSectionTitle}>Final Standings</Text>
+                                    <Text style={styles.standingsSectionTitle}>{t("Final Standings")}</Text>
                                     {linkedSession?.gameType && (
                                         <View style={styles.gameTypeBadge}>
                                             <Text style={styles.gameTypeBadgeText}>
-                                                {linkedSession.gameType === 'stroke_play' ? 'Stroke Play' :
-                                                    linkedSession.gameType === 'match_play' ? 'Match Play' :
-                                                        linkedSession.gameType === 'nassau' ? 'Nassau' :
-                                                            linkedSession.gameType === 'skins' ? 'Skins' :
+                                                {linkedSession.gameType === 'stroke_play' ? t('Stroke Play') :
+                                                    linkedSession.gameType === 'match_play' ? t('Match Play') :
+                                                        linkedSession.gameType === 'nassau' ? t('Nassau') :
+                                                            linkedSession.gameType === 'skins' ? t('Skins') :
                                                                 linkedSession.gameType?.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                                             </Text>
                                         </View>
@@ -809,27 +775,46 @@ export default function RoundDetailsScreen() {
                                 </View>
 
                                 {verdict && (
-                                    <Text style={styles.verdictText}>
-                                        <Text style={styles.verdictWinner}>{verdict.winnerLabel} </Text>
-                                        <Text style={styles.verdictBody}>{verdict.text}</Text>
-                                        {verdict.subtext ? <Text style={styles.verdictSubtext}> {verdict.subtext}</Text> : null}
-                                    </Text>
+                                    <View style={styles.verdictRow}>
+                                        <View style={styles.verdictTextWrap}>
+                                            <Text style={styles.verdictText}>
+                                                {verdict.winnerLabel ? <Text style={styles.verdictWinner}>{verdict.winnerLabel} </Text> : null}
+                                                <Text style={styles.verdictBody}>{verdict.text}</Text>
+                                                {verdict.subtext ? <Text style={styles.verdictSubtext}> {verdict.subtext}</Text> : null}
+                                            </Text>
+                                        </View>
+                                        {linkedSession?.gameType === "nassau" && (
+                                            <TouchableOpacity
+                                                style={styles.inlineInfoButton}
+                                                onPress={() => setScoringInfoVisible(true)}
+                                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                            >
+                                                <Info size={14} color="#005953" />
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
                                 )}
 
                                 <View style={styles.standingsCard}>
                                     {/* Leaderboard Table Header */}
                                     <View style={styles.leaderboardHeader}>
-                                        <Text style={[styles.leaderboardHeaderCell, { flex: 6, textAlign: 'left' }]}>PLAYER</Text>
+                                        <Text style={[styles.leaderboardHeaderCell, { flex: 6, textAlign: 'left' }]}>{t("PLAYER")}</Text>
                                         <Text style={[styles.leaderboardHeaderCell, { flex: 3 }]}>
-                                            {gameOutcome?.computeStatus === "complete" && gameOutcome?.standings?.columns?.metricA?.label
-                                                ? String(gameOutcome.standings.columns.metricA.label).toUpperCase()
-                                                : "GROSS"}
+                                            {linkedSession?.gameType === "nassau" && nassauDisplayModel
+                                                ? nassauDisplayModel.standingsColumns.metricA
+                                                : gameOutcome?.computeStatus === "complete" && gameOutcome?.standings?.columns?.metricA?.label
+                                                    ? String(gameOutcome.standings.columns.metricA.label).toUpperCase()
+                                                    : t("GROSS")}
                                         </Text>
                                         <Text style={[styles.leaderboardHeaderCell, { flex: 3 }]}>
-                                            {gameOutcome?.computeStatus === "complete" && gameOutcome?.standings?.columns?.metricB?.label
-                                                ? String(gameOutcome.standings.columns.metricB.label).toUpperCase()
-                                                : "NET"}
+                                            {linkedSession?.gameType === "nassau" && nassauDisplayModel
+                                                ? nassauDisplayModel.standingsColumns.metricB
+                                                : gameOutcome?.computeStatus === "complete" && gameOutcome?.standings?.columns?.metricB?.label
+                                                    ? String(gameOutcome.standings.columns.metricB.label).toUpperCase()
+                                                    : t("NET")}
                                         </Text>
+                                        {/* Spacer matching chevron width in data rows */}
+                                        {nassauDisplayModel && <View style={{ width: 20 }} />}
                                     </View>
 
                                     {/* Leaderboard Rows */}
@@ -838,7 +823,7 @@ export default function RoundDetailsScreen() {
                                             return (
                                                 <View style={{ paddingVertical: 12, paddingHorizontal: 12 }}>
                                                     <Text style={styles.verdictSubtext}>
-                                                        {gameOutcome.statusMessage ?? "Standings available after the round is complete."}
+                                                        {gameOutcome.statusMessage ?? t("Standings available after the round is complete.")}
                                                     </Text>
                                                 </View>
                                             );
@@ -849,9 +834,18 @@ export default function RoundDetailsScreen() {
                                                 const isWinner = !!row.isWinner;
                                                 const rankLabel = row.placement ?? "--";
 
+                                                const rowCanOpenDetail = !!(nassauDisplayModel && row.sideId);
+                                                const openRowDetail = () => {
+                                                    if (!rowCanOpenDetail) return;
+                                                    setSelectedPlayerDetailId(String(row.sideId));
+                                                    setPlayerDetailVisible(true);
+                                                };
+
                                                 return (
-                                                    <View
+                                                    <TouchableOpacity
                                                         key={row.sideId || row.label || index}
+                                                        activeOpacity={rowCanOpenDetail ? 0.85 : 1}
+                                                        onPress={openRowDetail}
                                                         style={[
                                                             styles.leaderboardRow,
                                                             isWinner && styles.leaderboardRowWinner,
@@ -874,7 +868,7 @@ export default function RoundDetailsScreen() {
                                                                 <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.playerNameText, isWinner && styles.playerNameTextWinner]}>
                                                                     {row.label}
                                                                     {mySessionPlayerId && row.sideId === mySessionPlayerId ? (
-                                                                        <Text style={styles.youLabel}> (You)</Text>
+                                                                        <Text style={styles.youLabel}> ({t("You")})</Text>
                                                                     ) : null}
                                                                 </Text>
                                                                 {row.winnerBadge ? <Text style={styles.winnerLabel}>{row.winnerBadge}</Text> : null}
@@ -890,7 +884,12 @@ export default function RoundDetailsScreen() {
                                                                 {row.metricB?.display ?? '--'}
                                                             </Text>
                                                         </View>
-                                                    </View>
+                                                        <View style={{ width: 20, alignItems: 'center', justifyContent: 'center' }}>
+                                                            {rowCanOpenDetail && (
+                                                                <ChevronRight size={14} color="rgba(0, 89, 83, 0.3)" />
+                                                            )}
+                                                        </View>
+                                                    </TouchableOpacity>
                                                 );
                                             });
                                         }
@@ -944,10 +943,10 @@ export default function RoundDetailsScreen() {
                                                             <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.playerNameText, isWinner && styles.playerNameTextWinner]}>
                                                                 {stats.playerName}
                                                                 {mySessionPlayerId && stats.playerId === mySessionPlayerId ? (
-                                                                    <Text style={styles.youLabel}> (You)</Text>
+                                                                    <Text style={styles.youLabel}> ({t("You")})</Text>
                                                                 ) : null}
                                                             </Text>
-                                                            {isWinner && <Text style={styles.winnerLabel}>WINNER</Text>}
+                                                            {isWinner && <Text style={styles.winnerLabel}>{t("WINNER")}</Text>}
                                                         </View>
                                                     </View>
 
@@ -989,60 +988,62 @@ export default function RoundDetailsScreen() {
                             */}
 
 
-                            {/* Settlement Display - handles both V1 (transactions) and V2 (nettedPayments) */}
-                            {linkedSession?.settlement?.calculated && (
-                                (() => {
-                                    // Determine which format we have
-                                    const isV2 = linkedSession.settlement.settlementVersion === 'v2' || linkedSession.settlement.nettedPayments;
-                                    const payments = isV2
-                                        ? (linkedSession.settlement.nettedPayments || [])
-                                        : (linkedSession.settlement.transactions || []);
+                            {linkedSession?.settlement?.calculated && settlementData.payments.length > 0 && (
+                                <View style={styles.settlementsBlock}>
+                                    <View style={styles.sectionHeaderRow}>
+                                        <Text style={styles.standingsSectionTitle}>{t("Settlement")}</Text>
+                                        {settlementData.totalToSettleCents > 0 ? (
+                                            <Text style={styles.totalPotText}>
+                                                {`Total to settle: ${formatMoney(settlementData.totalToSettleCents)}`}
+                                            </Text>
+                                        ) : null}
+                                    </View>
 
-                                    if (payments.length === 0) return null;
-
-                                    return (
-                                        <View style={styles.settlementsBlock}>
-                                            <View style={styles.sectionHeaderRow}>
-                                                <Text style={styles.standingsSectionTitle}>Settlements</Text>
-                                                {(() => {
-                                                    const total = payments.reduce(
-                                                        (sum: number, tx: any) => sum + (tx.amountCents || 0), 0
-                                                    );
-                                                    return total > 0 ? (
-                                                        <Text style={styles.totalPotText}>
-                                                            Total Pot: ${(total / 100).toFixed(2)}
-                                                        </Text>
-                                                    ) : null;
-                                                })()}
+                                    <View style={styles.settlementsCard}>
+                                        {settlementBreakdownText && (
+                                            <View style={styles.settlementBreakdown}>
+                                                <Text style={styles.settlementBreakdownText}>{settlementBreakdownText}</Text>
                                             </View>
+                                        )}
+                                        {nassauDisplayModel ? (
+                                            <TouchableOpacity
+                                                style={styles.settlementDetailButton}
+                                                onPress={() => {
+                                                    setSettlementDetailTab("payments");
+                                                    setSettlementDetailVisible(true);
+                                                }}
+                                            >
+                                                <Text style={styles.settlementDetailButtonText}>
+                                                    {`View details • ${nassauDisplayModel.pairwiseSettlements.length} pairings • ${nassauDisplayModel.totalLineItems} line items`}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ) : null}
+                                        {settlementData.payments.map((tx: any, idx: number) => {
+                                            const fromName = participantNameById.get(String(tx.fromPlayerId)) || t("Unknown");
+                                            const toName = participantNameById.get(String(tx.toPlayerId)) || t("Unknown");
+                                            const amountCents = typeof tx.amountCents === "number" ? tx.amountCents : 0;
+                                            const isPositiveForMe = mySessionPlayerId
+                                                ? String(tx.toPlayerId) === String(mySessionPlayerId)
+                                                : toName === mySettlementName;
+                                            const contributionCount = Array.isArray(tx.allocatedContributions) ? tx.allocatedContributions.length : 0;
+                                            const reason =
+                                                contributionCount > 0
+                                                    ? `${contributionCount} line item${contributionCount === 1 ? "" : "s"}`
+                                                    : (tx.breakdown || tx.reason || t("Game settlement"));
+                                            const isExpanded = expandedPaymentIndex === idx;
 
-                                            <View style={styles.settlementsCard}>
-                                                {settlementBreakdownText && (
-                                                    <View style={styles.settlementBreakdown}>
-                                                        <Text style={styles.settlementBreakdownText}>
-                                                            <Text style={styles.settlementBreakdownLabel}>BREAKDOWN </Text>
-                                                            {settlementBreakdownText.replace(/^BREAKDOWN\s*/, "")}
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                                {payments.map((tx: any, idx: number) => {
-                                                    const fromName = linkedSession.participants?.find((p: any) => p.playerId === tx.fromPlayerId)?.name || 'Unknown';
-                                                    const toName = linkedSession.participants?.find((p: any) => p.playerId === tx.toPlayerId)?.name || 'Unknown';
-                                                    const amount = (tx.amountCents / 100).toFixed(2);
-                                                    const isPositiveForMe = toName === mySettlementName;
-
-                                                // V2 has 'breakdown' string, V1 has 'reason'
-                                                const reason = tx.breakdown || tx.reason;
-
-                                                return (
-                                                    <View
-                                                        key={idx}
-                                                        style={[
-                                                            styles.settlementCard,
-                                                            isPositiveForMe && styles.settlementCardPositive,
-                                                            idx === payments.length - 1 && { borderBottomWidth: 0 },
-                                                        ]}
-                                                    >
+                                            return (
+                                                <TouchableOpacity
+                                                    key={idx}
+                                                    activeOpacity={0.9}
+                                                    onPress={() => setExpandedPaymentIndex((prev) => (prev === idx ? null : idx))}
+                                                    style={[
+                                                        styles.settlementCard,
+                                                        isPositiveForMe && styles.settlementCardPositive,
+                                                        idx === settlementData.payments.length - 1 && { borderBottomWidth: 0 },
+                                                    ]}
+                                                >
+                                                    <View style={styles.settlementCardTopRow}>
                                                         <View style={styles.settlementCardLeft}>
                                                             <View style={[styles.settlementIcon, isPositiveForMe ? styles.settlementIconPositive : styles.settlementIconNegative]}>
                                                                 {isPositiveForMe ? (
@@ -1051,29 +1052,45 @@ export default function RoundDetailsScreen() {
                                                                     <ArrowLeftRight size={16} color="#005953" />
                                                                 )}
                                                             </View>
-                                                            <View>
-                                                                <Text style={styles.settlementNames}>
+                                                            <View style={styles.settlementNamesWrap}>
+                                                                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.settlementNames}>
                                                                     <Text style={{ fontWeight: '700' }}>{fromName}</Text>
-                                                                    <Text style={{ color: 'rgba(0, 89, 83, 0.6)', fontWeight: '400' }}> owes </Text>
+                                                                    <Text style={{ color: 'rgba(0, 89, 83, 0.6)', fontWeight: '400' }}> {t("owes")} </Text>
                                                                     <Text style={{ fontWeight: '700' }}>{toName}</Text>
                                                                 </Text>
-                                                                {reason && (
-                                                                    <Text style={styles.settlementReason}>
-                                                                        {typeof reason === 'string' ? (reason.split(' - ')[0] || reason) : 'Game settlement'}
-                                                                    </Text>
-                                                                )}
+                                                                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.settlementReason}>
+                                                                    {reason}
+                                                                </Text>
                                                             </View>
                                                         </View>
-                                                        <Text style={[styles.settlementAmount, isPositiveForMe && styles.settlementAmountPositive]}>
-                                                            {isPositiveForMe ? '+' : ''}${amount}
-                                                        </Text>
+                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                            <Text style={[styles.settlementAmount, isPositiveForMe && styles.settlementAmountPositive]}>
+                                                                {isPositiveForMe ? '+' : ''}{formatMoney(amountCents)}
+                                                            </Text>
+                                                            {contributionCount > 0 && (
+                                                                <ChevronDown size={14} color="rgba(0, 89, 83, 0.3)" style={isExpanded ? { transform: [{ rotate: '180deg' }] } : undefined} />
+                                                            )}
+                                                        </View>
                                                     </View>
-                                                );
-                                            })}
-                                            </View>
-                                        </View>
-                                    );
-                                })()
+                                                    {isExpanded && Array.isArray(tx.allocatedContributions) && tx.allocatedContributions.length > 0 ? (
+                                                        <View style={styles.settlementContributionList}>
+                                                            {tx.allocatedContributions.map((contrib: any, contribIndex: number) => (
+                                                                <View key={`${idx}:${contribIndex}`} style={styles.settlementContributionRow}>
+                                                                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.settlementContributionLabel}>
+                                                                        {formatContributionLabel(contrib)}
+                                                                    </Text>
+                                                                    <Text style={styles.settlementContributionAmount}>
+                                                                        {formatMoney(contrib?.allocatedCents ?? 0)}
+                                                                    </Text>
+                                                                </View>
+                                                            ))}
+                                                        </View>
+                                                    ) : null}
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                </View>
                             )}
 
                             {/* 
@@ -1101,7 +1118,7 @@ export default function RoundDetailsScreen() {
                             {/* Quick Notes */}
                             {localRound?.notes && (
                                 <View style={styles.quickNotesSection}>
-                                    <Text style={styles.standingsSectionTitle}>Quick Notes</Text>
+                                    <Text style={styles.standingsSectionTitle}>{t("Quick Notes")}</Text>
                                     <View style={styles.notesCard}>
                                         <Text style={styles.notesCardText}>{localRound.notes}</Text>
                                     </View>
@@ -1111,7 +1128,7 @@ export default function RoundDetailsScreen() {
                             {/* Source Scan / Photos - Redesigned to match reference */}
                             {localPhotos.length > 0 && (
                                 <View style={styles.sourceScanSection}>
-                                    <Text style={[styles.standingsSectionTitle, { marginBottom: 12 }]}>Source Scan</Text>
+                                    <Text style={[styles.standingsSectionTitle, { marginBottom: 12 }]}>{t("Source Scan")}</Text>
                                     <View style={styles.sourceScanCard}>
                                         <View style={styles.sourceScanCardInner}>
                                             <TouchableOpacity
@@ -1125,9 +1142,9 @@ export default function RoundDetailsScreen() {
                                                 <Image source={{ uri: localPhotos[0] }} style={styles.sourceScanThumbnailImage} />
                                             </TouchableOpacity>
                                             <View style={styles.sourceScanContent}>
-                                                <Text style={styles.sourceScanTitle}>Original Scorecard</Text>
+                                                <Text style={styles.sourceScanTitle}>{t("Original Scorecard")}</Text>
                                                 <Text style={styles.sourceScanSubtitle}>
-                                                    {sourceScanUploadedText ?? 'Uploaded'}
+                                                    {sourceScanUploadedText ?? t('Uploaded')}
                                                 </Text>
                                             </View>
                                             <TouchableOpacity
@@ -1139,7 +1156,7 @@ export default function RoundDetailsScreen() {
                                                 }}
                                             >
                                                 <Eye size={16} color="#005953" strokeWidth={2.5} />
-                                                <Text style={styles.sourceScanViewButtonText}>View</Text>
+                                                <Text style={styles.sourceScanViewButtonText}>{t("View")}</Text>
                                             </TouchableOpacity>
                                         </View>
                                     </View>
@@ -1152,7 +1169,7 @@ export default function RoundDetailsScreen() {
                                 onPress={() => setActiveTab('stats')}
                             >
                                 <BarChart3 size={18} color="#FFFFFF" />
-                                <Text style={styles.viewStatsButtonText}>View Detailed Stats</Text>
+                                <Text style={styles.viewStatsButtonText}>{t("View Detailed Stats")}</Text>
                             </TouchableOpacity>
                         </View>
                     )}
@@ -1161,14 +1178,14 @@ export default function RoundDetailsScreen() {
                     {activeTab === 'scorecard' && (
                         <View style={styles.tabContent}>
                             <View style={styles.scorecardHeader}>
-                                <Text style={styles.sectionTitle}>Scorecard</Text>
+                                <Text style={styles.sectionTitle}>{t("Scorecard")}</Text>
                                 <View style={styles.scorecardHeaderRight}>
                                     <TouchableOpacity
                                         style={styles.adjustedInfoButton}
                                         onPress={() => {
                                             Alert.alert(
-                                                "Actual vs Adjusted",
-                                                "Adjusted is for handicap posting (WHS Net Double Bogey caps). It can be lower than your gross.\n\nNet score in the Stats tab is different: Gross − Course Handicap.",
+                                                t("Actual vs Adjusted"),
+                                                t("Adjusted is for handicap posting (WHS Net Double Bogey caps). It can be lower than your gross.\n\nNet score in the Stats tab is different: Gross − Course Handicap."),
                                             );
                                         }}
                                     >
@@ -1179,13 +1196,13 @@ export default function RoundDetailsScreen() {
                                             style={[styles.scoreViewOption, scoreViewMode === 'actual' && styles.scoreViewOptionActive]}
                                             onPress={() => setScoreViewMode('actual')}
                                         >
-                                            <Text style={[styles.scoreViewText, scoreViewMode === 'actual' && styles.scoreViewTextActive]}>Actual</Text>
+                                            <Text style={[styles.scoreViewText, scoreViewMode === 'actual' && styles.scoreViewTextActive]}>{t("Actual")}</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.scoreViewOption, scoreViewMode === 'adjusted' && styles.scoreViewOptionActive]}
                                             onPress={() => setScoreViewMode('adjusted')}
                                         >
-                                            <Text style={[styles.scoreViewText, scoreViewMode === 'adjusted' && styles.scoreViewTextActive]}>Adjusted</Text>
+                                            <Text style={[styles.scoreViewText, scoreViewMode === 'adjusted' && styles.scoreViewTextActive]}>{t("Adjusted")}</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -1196,14 +1213,14 @@ export default function RoundDetailsScreen() {
                                 {/* Header Row */}
                                 <View style={styles.scorecardRow}>
                                     <View style={[styles.scorecardCell, styles.scorecardHoleHeaderCell, { width: 50 }]}>
-                                        <Text style={styles.scorecardHoleHeaderText}>HOLE</Text>
+                                        <Text style={styles.scorecardHoleHeaderText}>{t("HOLE")}</Text>
                                     </View>
                                     <View style={[styles.scorecardCell, styles.scorecardParHeaderCell, { width: 45 }]}>
-                                        <Text style={styles.scorecardParHeaderText}>PAR</Text>
+                                        <Text style={styles.scorecardParHeaderText}>{t("PAR")}</Text>
                                     </View>
                                     {round.players.map((p: any, idx: number) => (
                                         <Text key={p.playerId || idx} style={[styles.scorecardCell, styles.scorecardHeaderCell, styles.scorecardPlayerCell]}>
-                                            {p.playerName?.split(' ')[0] || 'Player'}
+                                            {p.playerName?.split(' ')[0] || t("Player")}
                                         </Text>
                                     ))}
                                 </View>
@@ -1265,7 +1282,7 @@ export default function RoundDetailsScreen() {
                                 {/* Total Row */}
                                 <View style={[styles.scorecardRow, styles.scorecardTotalRow]}>
                                     <View style={[styles.scorecardCell, styles.scorecardHoleCell, styles.scorecardTotalHoleCell, { width: 50 }]}>
-                                        <Text style={styles.scorecardTotalHoleText}>Total</Text>
+                                        <Text style={styles.scorecardTotalHoleText}>{t("Total")}</Text>
                                     </View>
                                     <View style={[styles.scorecardCell, styles.scorecardParCell, { width: 45 }]}>
                                         <Text style={styles.scorecardParCellText}>
@@ -1359,7 +1376,7 @@ export default function RoundDetailsScreen() {
                                 {/* Player Selector (only show if multiple players) */}
                                 {playerStats.length > 1 && (
                                     <View style={styles.statsPlayerSelector}>
-                                        <Text style={styles.statsPlayerLabel}>Viewing stats for:</Text>
+                                        <Text style={styles.statsPlayerLabel}>{t("Viewing stats for:")}</Text>
                                         <View style={styles.statsPlayerDropdown}>
                                             {playerStats.map((p, idx) => (
                                                 <TouchableOpacity
@@ -1368,7 +1385,7 @@ export default function RoundDetailsScreen() {
                                                     onPress={() => setSelectedStatsPlayerIndex(idx)}
                                                 >
                                                     <Text style={[styles.statsPlayerOptionText, selectedStatsPlayerIndex === idx && styles.statsPlayerOptionTextActive]}>
-                                                        {p.playerName?.split(' ')[0] || 'Player'}
+                                                        {p.playerName?.split(' ')[0] || t("Player")}
                                                     </Text>
                                                 </TouchableOpacity>
                                             ))}
@@ -1379,18 +1396,22 @@ export default function RoundDetailsScreen() {
                                 {/* Score Boxes Row - Two separate cards */}
                                 <View style={styles.statsScoreBoxesRow}>
                                     <View style={[styles.statsGrossBox, { backgroundColor: '#FFFFFF', borderColor: '#E6E4DF', borderWidth: 1, shadowColor: '#005953', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 20 }]}>
-                                        <Text style={[styles.statsGrossLabel, { color: 'rgba(0, 89, 83, 0.6)' }]}>GROSS SCORE</Text>
+                                        <Text style={[styles.statsGrossLabel, { color: 'rgba(0, 89, 83, 0.6)' }]}>{t("GROSS SCORE")}</Text>
                                         <View style={styles.statsGrossScoreRow}>
                                             <View style={{ position: 'relative' }}>
                                                 <Text style={styles.statsGrossScore}>{stats.totalScore}</Text>
                                             </View>
                                         </View>
                                         <Text style={styles.statsGrossParText}>
-                                            {vsPar === 0 ? 'Even' : vsPar > 0 ? `${vsPar} over par` : `${Math.abs(vsPar)} under par`}
+                                            {vsPar === 0
+                                                ? t("Even")
+                                                : vsPar > 0
+                                                    ? t("{{count}} over par", { count: vsPar })
+                                                    : t("{{count}} under par", { count: Math.abs(vsPar) })}
                                         </Text>
                                     </View>
                                     <View style={[styles.statsHcpBox, { backgroundColor: '#005953', shadowColor: '#005953', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 20 }]}>
-                                        <Text style={[styles.statsHcpLabel, { color: 'rgba(255, 255, 255, 0.8)' }]}>NET SCORE</Text>
+                                        <Text style={[styles.statsHcpLabel, { color: 'rgba(255, 255, 255, 0.8)' }]}>{t("NET SCORE")}</Text>
                                         <Text style={[styles.statsHcpValue, { color: '#F5F6F1' }]}>
                                             {stats.netScore ?? '--'}
                                         </Text>
@@ -1400,17 +1421,17 @@ export default function RoundDetailsScreen() {
                                 {/* Scoring Distribution - Redesigned with wider bars */}
                                 <View style={[styles.statsCard, { shadowColor: '#005953', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 20 }]}>
                                     <View style={styles.statsDistHeader}>
-                                        <Text style={styles.statsCardTitle}>Scoring Distribution</Text>
+                                        <Text style={styles.statsCardTitle}>{t("Scoring Distribution")}</Text>
                                         <View style={styles.statsDistBadge}>
-                                            <Text style={styles.statsDistBadgeText}>{roundHoleCount} Holes</Text>
+                                            <Text style={styles.statsDistBadgeText}>{t("{{count}} Holes", { count: roundHoleCount })}</Text>
                                         </View>
                                     </View>
                                     <View style={styles.statsDistributionWide}>
                                         {[
-                                            { label: 'Birdie', count: birdieCount, color: '#005953' },    // Brand Green
-                                            { label: 'Par', count: stats.pars, color: 'rgba(0, 89, 83, 0.4)' },      // Brand Green / 40
-                                            { label: 'Bogey', count: stats.bogeys, color: 'rgba(244, 108, 58, 0.4)' },    // Brand Orange / 40
-                                            { label: 'Other', count: otherCount, color: '#F46C3A' },      // Brand Orange
+                                            { label: t("Birdie"), count: birdieCount, color: '#005953' },    // Brand Green
+                                            { label: t("Par"), count: stats.pars, color: 'rgba(0, 89, 83, 0.4)' },      // Brand Green / 40
+                                            { label: t("Bogey"), count: stats.bogeys, color: 'rgba(244, 108, 58, 0.4)' },    // Brand Orange / 40
+                                            { label: t("Other"), count: otherCount, color: '#F46C3A' },      // Brand Orange
                                         ].map((item) => (
                                             <View key={item.label} style={styles.statsDistItemWide}>
                                                 <View style={styles.statsDistBarContainerWide}>
@@ -1434,14 +1455,17 @@ export default function RoundDetailsScreen() {
                                     <View style={styles.statsDistFooter}>
                                         <View style={styles.statsDistSeparator} />
                                         <Text style={styles.statsDistFooterText}>
-                                            Most common score: <Text style={styles.statsDistFooterBold}>{mostCommon.label} ({mostCommon.count})</Text>
+                                            {t("Most common score:")}{" "}
+                                            <Text style={styles.statsDistFooterBold}>
+                                                {mostCommon.label} ({mostCommon.count})
+                                            </Text>
                                         </Text>
                                     </View>
                                 </View>
 
                                 {/* Performance by Par - Title outside, 3 separate cards */}
                                 <View style={styles.statsPerformanceSection}>
-                                    <Text style={styles.statsPerformanceTitle}>Performance by Par</Text>
+                                    <Text style={styles.statsPerformanceTitle}>{t("Performance by Par")}</Text>
                                     <View style={styles.statsParCardsRow}>
                                         {/* PAR 3 Card */}
                                         <View style={[styles.statsParCard, { overflow: 'hidden', padding: 16 }]}>
@@ -1459,12 +1483,14 @@ export default function RoundDetailsScreen() {
                                                     />
                                                 )}
                                             </View>
-                                            <Text style={styles.statsParCardLabel}>PAR 3</Text>
+                                            <Text style={styles.statsParCardLabel}>{t("PAR 3")}</Text>
                                             <Text style={styles.statsParCardAvg}>
                                                 {par3Avg}
                                             </Text>
                                             <Text style={[styles.statsParCardTotal, stats.scoreByPar.par3 > 0 ? { color: '#F46C3A' } : { color: '#005953' }]}>
-                                                {stats.scoreByPar.par3 === 0 ? 'Even' : (stats.scoreByPar.par3 > 0 ? '+' : '') + stats.scoreByPar.par3 + ' Total'}
+                                                {stats.scoreByPar.par3 === 0
+                                                    ? t("Even")
+                                                    : `${stats.scoreByPar.par3 > 0 ? "+" : ""}${stats.scoreByPar.par3} ${t("Total")}`}
                                             </Text>
                                         </View>
 
@@ -1484,12 +1510,14 @@ export default function RoundDetailsScreen() {
                                                     />
                                                 )}
                                             </View>
-                                            <Text style={styles.statsParCardLabel}>PAR 4</Text>
+                                            <Text style={styles.statsParCardLabel}>{t("PAR 4")}</Text>
                                             <Text style={styles.statsParCardAvg}>
                                                 {par4Avg}
                                             </Text>
                                             <Text style={[styles.statsParCardTotal, stats.scoreByPar.par4 > 0 ? { color: '#F46C3A' } : { color: '#005953' }]}>
-                                                {stats.scoreByPar.par4 === 0 ? 'Even' : (stats.scoreByPar.par4 > 0 ? '+' : '') + stats.scoreByPar.par4 + ' Total'}
+                                                {stats.scoreByPar.par4 === 0
+                                                    ? t("Even")
+                                                    : `${stats.scoreByPar.par4 > 0 ? "+" : ""}${stats.scoreByPar.par4} ${t("Total")}`}
                                             </Text>
                                         </View>
 
@@ -1509,12 +1537,14 @@ export default function RoundDetailsScreen() {
                                                     />
                                                 )}
                                             </View>
-                                            <Text style={styles.statsParCardLabel}>PAR 5</Text>
+                                            <Text style={styles.statsParCardLabel}>{t("PAR 5")}</Text>
                                             <Text style={styles.statsParCardAvg}>
                                                 {par5Avg}
                                             </Text>
                                             <Text style={[styles.statsParCardTotal, stats.scoreByPar.par5 > 0 ? { color: '#F46C3A' } : { color: '#005953' }]}>
-                                                {stats.scoreByPar.par5 === 0 ? 'Even' : (stats.scoreByPar.par5 > 0 ? '+' : '') + stats.scoreByPar.par5 + ' Total'}
+                                                {stats.scoreByPar.par5 === 0
+                                                    ? t("Even")
+                                                    : `${stats.scoreByPar.par5 > 0 ? "+" : ""}${stats.scoreByPar.par5} ${t("Total")}`}
                                             </Text>
                                         </View>
                                     </View>
@@ -1522,18 +1552,18 @@ export default function RoundDetailsScreen() {
 
                                 {/* Best/Worst Holes */}
                                 <View style={{ marginTop: 24, paddingHorizontal: 4 }}>
-                                    <Text style={styles.statsCardTitle}>Highlights</Text>
+                                    <Text style={styles.statsCardTitle}>{t("Highlights")}</Text>
                                     <View style={styles.statsHighlightsRow}>
                                         <View style={styles.statsHighlightItem}>
-                                            <Text style={styles.statsHighlightLabel}>Best Hole</Text>
+                                            <Text style={styles.statsHighlightLabel}>{t("Best Hole")}</Text>
                                             <Text style={styles.statsHighlightValue}>
-                                                Hole {stats.bestHole?.holeNumber}: {stats.bestHole?.relativeToPar > 0 ? '+' : ''}{stats.bestHole?.relativeToPar}
+                                                {t("Hole")} {stats.bestHole?.holeNumber}: {stats.bestHole?.relativeToPar > 0 ? '+' : ''}{stats.bestHole?.relativeToPar}
                                             </Text>
                                         </View>
                                         <View style={styles.statsHighlightItem}>
-                                            <Text style={styles.statsHighlightLabel}>Worst Hole</Text>
+                                            <Text style={styles.statsHighlightLabel}>{t("Worst Hole")}</Text>
                                             <Text style={[styles.statsHighlightValue, { color: '#D64545' }]}>
-                                                Hole {stats.worstHole?.holeNumber}: +{stats.worstHole?.relativeToPar}
+                                                {t("Hole")} {stats.worstHole?.holeNumber}: +{stats.worstHole?.relativeToPar}
                                             </Text>
                                         </View>
                                     </View>
@@ -1550,10 +1580,191 @@ export default function RoundDetailsScreen() {
                             style={styles.continueButton}
                             onPress={() => router.replace('/(onboarding)/paywall' as any)}
                         >
-                            <Text style={styles.continueButtonText}>Continue</Text>
+                            <Text style={styles.continueButtonText}>{t("Continue")}</Text>
                         </TouchableOpacity>
                     </View>
                 )}
+
+                <Modal
+                    visible={scoringInfoVisible}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setScoringInfoVisible(false)}
+                >
+                    <View style={styles.sheetBackdrop}>
+                        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setScoringInfoVisible(false)} />
+                        <View style={styles.sheetContainer}>
+                            <View style={styles.sheetHandle} />
+                            <Text style={styles.sheetTitle}>How Nassau scoring works</Text>
+                            <Text style={styles.sheetSubtitle}>Game standings are separate from money settlement.</Text>
+                            <Text style={styles.sheetBullet}>• Nassau runs as separate matches by segment.</Text>
+                            <Text style={styles.sheetBullet}>• 18 holes: Front 9, Back 9, Overall.</Text>
+                            <Text style={styles.sheetBullet}>• 9 holes: only the selected segment is scored.</Text>
+                            <Text style={styles.sheetBullet}>• Segment result uses hole-by-hole net scores (strokes applied).</Text>
+                            <Text style={styles.sheetBullet}>• Standings show segment record and segments won.</Text>
+                            <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setScoringInfoVisible(false)}>
+                                <Text style={styles.sheetCloseButtonText}>{t("Close")}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
+
+                <Modal
+                    visible={playerDetailVisible}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setPlayerDetailVisible(false)}
+                >
+                    <View style={styles.sheetBackdrop}>
+                        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setPlayerDetailVisible(false)} />
+                        <View style={[styles.sheetContainer, styles.sheetTallContainer]}>
+                            <View style={styles.sheetHandle} />
+                            <Text style={styles.sheetTitle}>{selectedPlayerDetail?.playerName ?? "Player detail"}</Text>
+                            {selectedPlayerDetail ? (
+                                <>
+                                    <Text style={styles.sheetSubtitle}>
+                                        {`Segments ${selectedPlayerDetail.segRecord} • Won ${selectedPlayerDetail.segmentsWon}`}
+                                    </Text>
+                                    <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+                                        {selectedPlayerDetail.matchups.map((matchup) => (
+                                            <View key={matchup.pairingId} style={styles.playerMatchupCard}>
+                                                <Text style={styles.playerMatchupTitle}>{`vs ${matchup.opponentName}`}</Text>
+                                                {matchup.segments.map((segment) => (
+                                                    <View key={`${matchup.pairingId}:${segment.segment}`} style={styles.playerMatchupRow}>
+                                                        <Text style={styles.playerMatchupSegment}>{segment.contextLabel}</Text>
+                                                        <Text style={styles.playerMatchupResult}>{segment.result}</Text>
+                                                        <Text style={styles.playerMatchupScore}>
+                                                            {`${segment.holesWonFor}-${segment.holesWonAgainst} (${segment.tiedHoles} tied)`}
+                                                        </Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        ))}
+                                    </ScrollView>
+                                </>
+                            ) : (
+                                <Text style={styles.sheetSubtitle}>No player detail available.</Text>
+                            )}
+                            <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setPlayerDetailVisible(false)}>
+                                <Text style={styles.sheetCloseButtonText}>{t("Close")}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
+
+                <Modal
+                    visible={settlementDetailVisible}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setSettlementDetailVisible(false)}
+                >
+                    <View style={styles.sheetBackdrop}>
+                        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setSettlementDetailVisible(false)} />
+                        <View style={[styles.sheetContainer, styles.sheetTallContainer]}>
+                            <View style={styles.sheetHandle} />
+                            <Text style={styles.sheetTitle}>Settlement details</Text>
+                            <Text style={styles.sheetSubtitle}>
+                                {nassauDisplayModel
+                                    ? `${nassauDisplayModel.pairingCount} matchups • ${nassauDisplayModel.totalLineItems} line items`
+                                    : "Detailed settlement breakdown"}
+                            </Text>
+                            {/* Segmented control */}
+                            <View style={styles.segmentedControl}>
+                                {([
+                                    ["payments", "Payments"],
+                                    ["breakdown", "Breakdown"],
+                                    ["net", "Net"],
+                                ] as [NassauDetailTab, string][]).map(([key, label]) => (
+                                    <TouchableOpacity
+                                        key={key}
+                                        style={[styles.segmentedTab, settlementDetailTab === key && styles.segmentedTabActive]}
+                                        onPress={() => setSettlementDetailTab(key)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[styles.segmentedTabText, settlementDetailTab === key && styles.segmentedTabTextActive]}>
+                                            {label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <ScrollView style={styles.sheetScrollFixed} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                                {settlementDetailTab === "payments" && (
+                                    <>
+                                        {settlementData.payments.map((tx: any, idx: number) => {
+                                            const fromName = participantNameById.get(String(tx.fromPlayerId)) || t("Unknown");
+                                            const toName = participantNameById.get(String(tx.toPlayerId)) || t("Unknown");
+                                            return (
+                                                <View key={`payments:${idx}`} style={styles.sheetListRow}>
+                                                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.sheetListLabel}>
+                                                        <Text style={{ fontWeight: '700' }}>{fromName}</Text>
+                                                        <Text style={{ color: 'rgba(0, 89, 83, 0.55)' }}>{` owes `}</Text>
+                                                        <Text style={{ fontWeight: '700' }}>{toName}</Text>
+                                                    </Text>
+                                                    <Text style={styles.sheetListAmount}>{formatMoney(tx.amountCents || 0)}</Text>
+                                                </View>
+                                            );
+                                        })}
+                                        {nassauDisplayModel ? (
+                                            <View style={styles.sheetInfoFooter}>
+                                                <Text style={styles.sheetInfoFooterText}>
+                                                    {`Gross bets: ${formatMoney(nassauDisplayModel.grossMatchedCents)} • Settled: ${formatMoney(nassauDisplayModel.totalToSettleCents)}`}
+                                                </Text>
+                                            </View>
+                                        ) : null}
+                                    </>
+                                )}
+
+                                {settlementDetailTab === "breakdown" && (nassauDisplayModel?.pairwiseSettlements ?? []).map((pair) => {
+                                    const isExpanded = expandedPairKey === pair.pairKey;
+                                    return (
+                                        <TouchableOpacity
+                                            key={pair.pairKey}
+                                            activeOpacity={0.85}
+                                            style={styles.sheetPairCard}
+                                            onPress={() => setExpandedPairKey((prev) => prev === pair.pairKey ? null : pair.pairKey)}
+                                        >
+                                            <View style={styles.sheetListRow}>
+                                                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.sheetListLabel}>
+                                                    <Text style={{ fontWeight: '700' }}>{pair.fromPlayerName}</Text>
+                                                    <Text style={{ color: 'rgba(0, 89, 83, 0.55)' }}>{` → `}</Text>
+                                                    <Text style={{ fontWeight: '700' }}>{pair.toPlayerName}</Text>
+                                                </Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                    <Text style={styles.sheetListAmount}>{formatMoney(pair.amountCents)}</Text>
+                                                    <ChevronDown size={13} color="rgba(0, 89, 83, 0.35)" style={isExpanded ? { transform: [{ rotate: '180deg' }] } : undefined} />
+                                                </View>
+                                            </View>
+                                            {isExpanded ? pair.lineItems.map((item: any, lineIdx: number) => (
+                                                <View key={`${pair.pairKey}:${lineIdx}`} style={styles.sheetSubRow}>
+                                                    <Text numberOfLines={1} ellipsizeMode="tail" style={styles.sheetSubLabel}>
+                                                        {`${formatSegmentName(String(item.segment))} • ${item.reason ?? "Nassau"}`}
+                                                    </Text>
+                                                    <Text style={styles.sheetSubAmount}>{formatMoney(item.amountCents || 0)}</Text>
+                                                </View>
+                                            )) : null}
+                                        </TouchableOpacity>
+                                    );
+                                })}
+
+                                {settlementDetailTab === "net" && (
+                                    <>
+                                        {(nassauDisplayModel?.netBalances ?? []).map((row) => (
+                                            <View key={row.playerId} style={styles.sheetListRow}>
+                                                <Text numberOfLines={1} ellipsizeMode="tail" style={styles.sheetListLabel}>{row.playerName}</Text>
+                                                <Text style={[styles.sheetListAmount, row.netCents > 0 ? styles.sheetNetPositive : styles.sheetNetNegative]}>
+                                                    {formatSignedMoney(row.netCents)}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </>
+                                )}
+                            </ScrollView>
+                            <TouchableOpacity style={styles.sheetCloseButton} onPress={() => setSettlementDetailVisible(false)}>
+                                <Text style={styles.sheetCloseButtonText}>{t("Close")}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </Modal>
 
                 <Modal
                     visible={photoModalVisible}
@@ -1634,7 +1845,7 @@ export default function RoundDetailsScreen() {
                             )}
                         </View>
                         <TouchableOpacity style={styles.photoCloseButton} onPress={() => setPhotoModalVisible(false)}>
-                            <Text style={styles.photoCloseText}>Close</Text>
+                            <Text style={styles.photoCloseText}>{t("Close")}</Text>
                         </TouchableOpacity>
                     </View>
                 </Modal>
@@ -2036,6 +2247,204 @@ const styles = StyleSheet.create({
     photoThumbImage: {
         width: "100%",
         height: "100%",
+    },
+    sheetBackdrop: {
+        flex: 1,
+        justifyContent: "flex-end",
+        backgroundColor: "rgba(7, 21, 18, 0.35)",
+    },
+    sheetContainer: {
+        backgroundColor: "#FFFFFF",
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingHorizontal: 16,
+        paddingTop: 10,
+        paddingBottom: 16,
+        minHeight: 280,
+        maxHeight: "76%",
+    },
+    sheetTallContainer: {
+        height: "60%",
+        maxHeight: "60%",
+    },
+    sheetHandle: {
+        alignSelf: "center",
+        width: 44,
+        height: 5,
+        borderRadius: 3,
+        backgroundColor: "#D6DEDB",
+        marginBottom: 10,
+    },
+    sheetTitle: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: "#005953",
+    },
+    sheetSubtitle: {
+        fontSize: 13,
+        lineHeight: 18,
+        color: "rgba(0, 89, 83, 0.7)",
+        marginTop: 4,
+        marginBottom: 10,
+    },
+    sheetBullet: {
+        fontSize: 13,
+        lineHeight: 19,
+        color: "#18453F",
+        marginBottom: 4,
+    },
+    sheetCloseButton: {
+        marginTop: 12,
+        backgroundColor: "#005953",
+        borderRadius: 10,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 10,
+    },
+    sheetCloseButtonText: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: "#FFFFFF",
+    },
+    sheetScroll: {
+        marginTop: 6,
+    },
+    sheetScrollFixed: {
+        marginTop: 4,
+        flex: 1,
+    },
+    playerMatchupCard: {
+        borderWidth: 1,
+        borderColor: "#E8EBE6",
+        borderRadius: 10,
+        padding: 10,
+        marginBottom: 10,
+        gap: 6,
+    },
+    playerMatchupTitle: {
+        fontSize: 13,
+        fontWeight: "700",
+        color: "#005953",
+    },
+    playerMatchupRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    playerMatchupSegment: {
+        width: 72,
+        fontSize: 12,
+        color: "rgba(0, 89, 83, 0.75)",
+    },
+    playerMatchupResult: {
+        width: 18,
+        fontSize: 12,
+        fontWeight: "800",
+        color: "#005953",
+        textAlign: "center",
+    },
+    playerMatchupScore: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 12,
+        color: "#18453F",
+    },
+    segmentedControl: {
+        flexDirection: "row",
+        backgroundColor: "#EEF2F1",
+        borderRadius: 10,
+        padding: 3,
+        marginTop: 8,
+        marginBottom: 4,
+    },
+    segmentedTab: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 8,
+        borderRadius: 8,
+    },
+    segmentedTabActive: {
+        backgroundColor: "#FFFFFF",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    segmentedTabText: {
+        fontSize: 13,
+        color: "rgba(0, 89, 83, 0.55)",
+        fontWeight: "600",
+    },
+    segmentedTabTextActive: {
+        color: "#005953",
+        fontWeight: "700",
+    },
+    sheetListRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: "#EEF2F1",
+    },
+    sheetListLabel: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 13,
+        color: "#18453F",
+    },
+    sheetListAmount: {
+        fontSize: 13,
+        fontWeight: "700",
+        color: "#005953",
+    },
+    sheetPairCard: {
+        borderWidth: 1,
+        borderColor: "#E8EBE6",
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        marginBottom: 8,
+        backgroundColor: "#FFFFFF",
+    },
+    sheetSubRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        paddingTop: 6,
+    },
+    sheetSubLabel: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 12,
+        color: "rgba(0, 89, 83, 0.72)",
+    },
+    sheetSubAmount: {
+        fontSize: 12,
+        color: "#005953",
+        fontWeight: "600",
+    },
+    sheetNetPositive: {
+        color: "#0A8B61",
+    },
+    sheetNetNegative: {
+        color: "#BB4C2C",
+    },
+    sheetInfoFooter: {
+        marginTop: 12,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: "#EEF2F1",
+    },
+    sheetInfoFooterText: {
+        fontSize: 12,
+        color: "rgba(0, 89, 83, 0.5)",
+        fontWeight: "600",
+        textAlign: "center",
     },
     photoModalBackdrop: {
         flex: 1,
@@ -2976,25 +3385,45 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         borderRadius: 6,
     },
+    settlementDetailButton: {
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E8EBE6',
+        backgroundColor: 'rgba(0, 89, 83, 0.03)',
+    },
+    settlementDetailButtonText: {
+        fontSize: 12,
+        color: '#005953',
+        fontWeight: '600',
+    },
     settlementCard: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        flexDirection: 'column',
+        alignItems: 'stretch',
         paddingVertical: 16,
         paddingHorizontal: 16,
         borderBottomWidth: 1,
         borderStyle: 'dashed',
         borderBottomColor: '#E8EBE6',
     },
+    settlementCardTopRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 12,
+    },
     settlementCardPositive: {
         backgroundColor: 'rgba(244, 108, 58, 0.05)', // Match reference: accent-orange/5
-        borderBottomWidth: 0, // Last item, no border
     },
     settlementCardLeft: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
         flex: 1,
+    },
+    settlementNamesWrap: {
+        flex: 1,
+        minWidth: 0,
     },
     settlementIcon: {
         width: 34,
@@ -3015,11 +3444,9 @@ const styles = StyleSheet.create({
         color: colors.text,
     },
     settlementReason: {
-        fontSize: 10,
+        fontSize: 11,
         color: 'rgba(0, 89, 83, 0.5)',
         marginTop: 2,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
     },
     settlementAmount: {
         fontSize: 16,
@@ -3030,15 +3457,39 @@ const styles = StyleSheet.create({
         color: '#F46C3A', // Match reference: accent-orange
         fontSize: 18,
     },
+    settlementContributionList: {
+        marginTop: 10,
+        paddingTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: '#E8EBE6',
+        gap: 6,
+    },
+    settlementContributionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+    },
+    settlementContributionLabel: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 11,
+        color: 'rgba(0, 89, 83, 0.66)',
+    },
+    settlementContributionAmount: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#005953',
+    },
     settlementBreakdown: {
         paddingHorizontal: 16,
-        paddingVertical: 20,
+        paddingVertical: 14,
         borderBottomWidth: 1,
         borderBottomColor: '#E8EBE6',
     },
     settlementBreakdownText: {
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: 13,
+        lineHeight: 18,
         color: 'rgba(0, 89, 83, 0.7)',
     },
     settlementBreakdownLabel: {
@@ -3046,6 +3497,27 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: '#005953',
         letterSpacing: 1,
+    },
+    verdictRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+    },
+    verdictTextWrap: {
+        flex: 1,
+        minWidth: 0,
+    },
+    inlineInfoButton: {
+        marginTop: 3,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#C9D7D4',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#FFFFFF',
+        flexShrink: 0,
     },
     verdictText: {
         marginTop: 4,

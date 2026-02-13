@@ -10,6 +10,7 @@ import {
 import { colors } from '@/constants/colors';
 import { Player } from '@/types';
 import { Check, Plus, User } from 'lucide-react-native';
+import { useT } from '@/lib/i18n';
 
 interface PlayerSelectorProps {
   players: Player[];
@@ -26,6 +27,7 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   onUnselectPlayer,
   onAddNewPlayer
 }) => {
+  const t = useT();
   const [newPlayerName, setNewPlayerName] = useState('');
   
   const isPlayerSelected = (playerId: string) => {
@@ -67,14 +69,14 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Select Players</Text>
+      <Text style={styles.title}>{t('Select Players')}</Text>
       
       <View style={styles.addPlayerContainer}>
         <TextInput
           style={styles.input}
           value={newPlayerName}
           onChangeText={setNewPlayerName}
-          placeholder="Add new player"
+          placeholder={t('Add new player')}
           placeholderTextColor={colors.textSecondary}
         />
         <TouchableOpacity 

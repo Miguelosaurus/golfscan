@@ -34,6 +34,8 @@ import { CourseSearchModal } from './CourseSearchModal';
 import { GameTypeGrid, GameType, GAME_RULES } from './GameTypeGrid';
 import { Id } from '@/convex/_generated/dataModel';
 import { formatBetLineFromSetup, formatBetPickerLabel } from '@/utils/betDisplay';
+import { calculateCourseHandicapForRound } from '@/utils/handicapCourse';
+import { useT } from '@/lib/i18n';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -47,6 +49,7 @@ interface SelectedPlayer {
     playerId: Id<'players'>;
     name: string;
     handicapIndex: number;
+    handicapInputText?: string;
     teeName?: string;
     teeGender?: 'M' | 'F';
 }
@@ -108,6 +111,7 @@ function getAvailableGameModes(gameType: GameType, playerCount: number): GameMod
 
 export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundFlowModalProps) {
     const router = useRouter();
+    const t = useT();
     const lastNavAtRef = useRef(0);
 
     // Step state - start at 'course' if initialIntent is provided
@@ -378,6 +382,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     playerId: myPlayer._id,
                     name: myPlayer.name,
                     handicapIndex: myHandicapIndex,
+                    handicapInputText: myHandicapIndex > 0 ? myHandicapIndex.toString() : "",
                     teeName: teeToUse?.name,
                     teeGender: genderToUse,
                 }]);
@@ -437,8 +442,30 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             }));
         }
 
-        // Find lowest handicap as baseline
-        const minHandicap = Math.min(...players.map(p => p.handicapIndex));
+        const selectedHoleNumbers =
+            holeSelection === 'front_9'
+                ? Array.from({ length: 9 }, (_, i) => i + 1)
+                : holeSelection === 'back_9'
+                    ? Array.from({ length: 9 }, (_, i) => i + 10)
+                    : Array.from({ length: 18 }, (_, i) => i + 1);
+
+        const courseHandicaps = new Map<string, number>();
+        players.forEach((p) => {
+            const courseHandicap = calculateCourseHandicapForRound({
+                handicapIndex: p.handicapIndex,
+                course,
+                teeName: p.teeName,
+                teeGender: p.teeGender,
+                holeNumbers: selectedHoleNumbers,
+            });
+            courseHandicaps.set(
+                p.playerId as string,
+                typeof courseHandicap === "number" ? courseHandicap : Math.round(p.handicapIndex)
+            );
+        });
+
+        // Find lowest COURSE handicap as baseline
+        const minHandicap = Math.min(...players.map(p => courseHandicaps.get(p.playerId as string) ?? 0));
 
         // Get hole handicaps from course
         let holes = course?.holes || [];
@@ -457,7 +484,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         }).sort((a, b) => a.hcp - b.hcp);
 
         return players.map(p => {
-            const strokesReceived = Math.max(0, Math.round(p.handicapIndex - minHandicap));
+            const playerCourseHandicap = courseHandicaps.get(p.playerId as string) ?? 0;
+            const strokesReceived = Math.max(0, playerCourseHandicap - minHandicap);
             const strokesByHole = new Array(18).fill(0);
 
             if (strokesReceived <= 18) {
@@ -483,7 +511,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
     const handleCreateSession = async () => {
         if (!selectedCourse || !gameType || selectedPlayers.length < 2) {
-            Alert.alert('Missing Info', 'Please complete all required fields.');
+            Alert.alert(t("Missing Info"), t("Please complete all required fields."));
             return;
         }
 
@@ -493,7 +521,17 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             const participants = selectedPlayers.map((p) => ({
                 playerId: p.playerId,
                 handicapIndex: p.handicapIndex,
-                courseHandicap: Math.round(p.handicapIndex), // Simplified - would calculate properly
+                courseHandicap: calculateCourseHandicapForRound({
+                    handicapIndex: p.handicapIndex,
+                    course: selectedCourse,
+                    teeName: p.teeName,
+                    teeGender: p.teeGender,
+                    holeNumbers: holeSelection === 'front_9'
+                        ? Array.from({ length: 9 }, (_, i) => i + 1)
+                        : holeSelection === 'back_9'
+                            ? Array.from({ length: 9 }, (_, i) => i + 10)
+                            : Array.from({ length: 18 }, (_, i) => i + 1),
+                }) ?? Math.round(p.handicapIndex),
                 teeName: p.teeName,
                 teeGender: p.teeGender,
             }));
@@ -577,11 +615,11 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 } : undefined,
             });
 
-            Alert.alert('Game Created!', 'Your game session is ready. Scan your scorecard when finished!');
+            Alert.alert(t("Game Created!"), t("Your game session is ready. Scan your scorecard when finished!"));
             resetAndClose();
         } catch (error) {
             console.error('Error creating session:', error);
-            Alert.alert('Error', 'Failed to create game session. Please try again.');
+            Alert.alert(t("Error"), t("Failed to create game session. Please try again."));
         } finally {
             setIsCreating(false);
         }
@@ -624,9 +662,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         <View style={styles.intentContainer}>
             <View style={styles.intentHeader}>
                 <View style={{ width: 60, height: 4, backgroundColor: '#E0E0E0', borderRadius: 2, alignSelf: 'center', marginBottom: 24 }} />
-                <Text style={styles.intentTitle}>New Round</Text>
+                <Text style={styles.intentTitle}>{t("New Round")}</Text>
                 <Text style={styles.intentSubtitle}>
-                    Set up a game or scan a scorecard
+                    {t("Set up a game or scan a scorecard")}
                 </Text>
             </View>
 
@@ -646,9 +684,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     />
                 </View>
                 <View style={styles.intentTextContainer}>
-                    <Text style={styles.intentCardTitle}>Start a New Game</Text>
+                    <Text style={styles.intentCardTitle}>{t("Start a New Game")}</Text>
                     <Text style={styles.intentCardDescription}>
-                        Set up strokes, bets, and games before you play
+                        {t("Set up strokes, bets, and games before you play")}
                     </Text>
                 </View>
                 <ChevronRight size={24} color={THEME.primaryGreen} />
@@ -667,9 +705,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     />
                 </View>
                 <View style={styles.intentTextContainer}>
-                    <Text style={styles.intentCardTitle}>Scan Post-Round</Text>
+                    <Text style={styles.intentCardTitle}>{t("Scan Post-Round")}</Text>
                     <Text style={styles.intentCardDescription}>
-                        Scan a scorecard from a round you've already played
+                        {t("Scan a scorecard from a round you've already played")}
                     </Text>
                 </View>
                 <ChevronRight size={24} color={THEME.primaryGreen} />
@@ -692,9 +730,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     />
                 </View>
                 <View style={styles.intentTextContainer}>
-                    <Text style={styles.intentCardTitle}>Quick Strokes</Text>
+                    <Text style={styles.intentCardTitle}>{t("Quick Strokes")}</Text>
                     <Text style={styles.intentCardDescription}>
-                        Just calculate who gives strokes to whom
+                        {t("Just calculate who gives strokes to whom")}
                     </Text>
                 </View>
                 <ChevronRight size={24} color={THEME.primaryGreen} />
@@ -711,9 +749,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     resizeMode="cover"
                 />
             </View>
-            <Text style={styles.stepTitle}>Course Details</Text>
+            <Text style={styles.stepTitle}>{t("Course Details")}</Text>
             <Text style={styles.stepSubtitle}>
-                Choose your course and holes for today.
+                {t("Choose your course and holes for today.")}
             </Text>
 
             {selectedCourse ? (
@@ -726,15 +764,15 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                             <Text style={styles.courseName}>{selectedCourse.name}</Text>
                             <Text style={styles.courseLocation}>{selectedCourse.location}</Text>
                         </View>
-                        <Text style={styles.changeText}>Change</Text>
+                        <Text style={styles.changeText}>{t("Change")}</Text>
                     </TouchableOpacity>
 
                     <View style={styles.holesGrid}>
                         {(['18', 'front_9', 'back_9'] as HoleSelection[]).map((option) => {
                             const labels: Record<HoleSelection, string> = {
-                                '18': '18 Holes',
-                                'front_9': 'Front 9',
-                                'back_9': 'Back 9',
+                                '18': t("18 Holes"),
+                                'front_9': t("Front 9"),
+                                'back_9': t("Back 9"),
                             };
                             const isSelected = holeSelection === option;
                             return (
@@ -761,7 +799,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     style={styles.selectCourseButton}
                     onPress={() => setShowCourseModal(true)}
                 >
-                    <Text style={styles.selectCourseText}>Tap to select a course</Text>
+                    <Text style={styles.selectCourseText}>{t("Tap to select a course")}</Text>
                 </TouchableOpacity>
             )}
         </View>
@@ -789,11 +827,23 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
             setSelectedPlayers(selectedPlayers.filter(p => p.playerId !== playerId));
         };
 
+        const sanitizeHandicapInput = (value: string) => {
+            const cleaned = value.replace(/[^0-9.]/g, "");
+            const parts = cleaned.split(".");
+            return parts.length <= 1 ? cleaned : `${parts.shift()}.${parts.join("")}`;
+        };
+
         const handleHandicapChange = (playerId: Id<'players'>, value: string) => {
-            const numValue = parseFloat(value) || 0;
+            const normalized = sanitizeHandicapInput(value);
+            const isCompleteNumber = normalized !== "" && !normalized.endsWith(".") && !isNaN(Number(normalized));
+            const parsed = isCompleteNumber ? Number(normalized) : undefined;
             setSelectedPlayers(selectedPlayers.map(p =>
                 p.playerId === playerId
-                    ? { ...p, handicapIndex: numValue }
+                    ? {
+                        ...p,
+                        handicapInputText: normalized,
+                        handicapIndex: parsed !== undefined ? parsed : p.handicapIndex,
+                    }
                     : p
             ));
         };
@@ -808,13 +858,13 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     />
                 </View>
                 <View style={styles.playersHeader}>
-                    <Text style={styles.stepTitle}>Players</Text>
+                    <Text style={styles.stepTitle}>{t("Players")}</Text>
                     <TouchableOpacity style={styles.addPlayerButton} onPress={handleAddPlayer}>
-                        <Text style={styles.addPlayerButtonText}>+ Add Player</Text>
+                        <Text style={styles.addPlayerButtonText}>+ {t('Add Player')}</Text>
                     </TouchableOpacity>
                 </View>
                 <Text style={styles.stepSubtitle}>
-                    Add players for your round.
+                    {t('Add players for your round.')}
                 </Text>
 
                 <View style={styles.playersList}>
@@ -829,7 +879,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     <Text style={styles.playerCardName}>{sp.name}</Text>
                                     {isSelf && (
                                         <View style={styles.youBadge}>
-                                            <Text style={styles.youBadgeText}>You</Text>
+                                            <Text style={styles.youBadgeText}>{t("You")}</Text>
                                         </View>
                                     )}
                                     <View style={{ flex: 1 }} />
@@ -846,34 +896,34 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                 {/* Handicap and Tee row */}
                                 <View style={styles.playerCardDetails}>
                                     <View style={styles.handicapRow}>
-                                        <Text style={styles.handicapLabel}>Scandicap:</Text>
+                                        <Text style={styles.handicapLabel}>{t("Scandicap:")}</Text>
                                         {isSelf ? (
                                             <View style={styles.handicapDisplay}>
                                                 <Text style={styles.handicapDisplayText}>
                                                     {(myHandicapIndex != null)
                                                         ? Math.max(0, myHandicapIndex).toFixed(1)
-                                                        : 'Not set'}
+                                                        : t("Not set")}
                                                 </Text>
                                             </View>
                                         ) : (
                                             <TextInput
                                                 style={styles.handicapInput}
-                                                value={sp.handicapIndex > 0 ? sp.handicapIndex.toString() : ''}
+                                                value={sp.handicapInputText ?? (sp.handicapIndex > 0 ? sp.handicapIndex.toString() : '')}
                                                 onChangeText={(val: string) => handleHandicapChange(sp.playerId, val)}
-                                                placeholder="Not set"
+                                                placeholder={t("Not set")}
                                                 placeholderTextColor={THEME.textSub}
-                                                keyboardType="decimal-pad"
+                                                keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'decimal-pad'}
                                             />
                                         )}
                                     </View>
                                     <View style={styles.teeRow}>
-                                        <Text style={styles.teeLabel}>Tee:</Text>
+                                        <Text style={styles.teeLabel}>{t("Tee:")}</Text>
                                         <TouchableOpacity
                                             style={styles.teeButton}
                                             onPress={() => openTeePickerForPlayer(sp.playerId, sp.teeGender)}
                                         >
                                             <Text style={styles.teeButtonText} numberOfLines={1} ellipsizeMode="tail">
-                                                {sp.teeName || 'Select'}
+                                                {sp.teeName || t("Select")}
                                             </Text>
                                         </TouchableOpacity>
                                     </View>
@@ -885,9 +935,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     {selectedPlayers.length === 0 && (
                         <View style={styles.emptyPlayersCard}>
                             <Users size={32} color={THEME.textSub} />
-                            <Text style={styles.emptyPlayersText}>No players added yet</Text>
+                            <Text style={styles.emptyPlayersText}>{t("No players added yet")}</Text>
                             <TouchableOpacity style={styles.addFirstPlayerButton} onPress={handleAddPlayer}>
-                                <Text style={styles.addFirstPlayerButtonText}>+ Add Player</Text>
+                                <Text style={styles.addFirstPlayerButtonText}>+ {t('Add Player')}</Text>
                             </TouchableOpacity>
                         </View>
                     )}
@@ -929,14 +979,14 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         resizeMode="cover"
                     />
                 </View>
-                <Text style={styles.stepTitle}>{rules.title}</Text>
-                <Text style={styles.stepSubtitle}>Here's how this game works:</Text>
+                <Text style={styles.stepTitle}>{t(rules.title)}</Text>
+                <Text style={styles.stepSubtitle}>{t("Here's how this game works:")}</Text>
 
                 <View style={styles.rulesList}>
                     {rules.rules.map((rule, index) => (
                         <View key={index} style={styles.ruleItem}>
                             <View style={styles.ruleBullet} />
-                            <Text style={styles.ruleText}>{rule}</Text>
+                            <Text style={styles.ruleText}>{t(rule)}</Text>
                         </View>
                     ))}
                 </View>
@@ -990,9 +1040,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         return (
             <View style={styles.stepContent}>
                 <View style={{ height: 24 }} />
-                <Text style={styles.stepTitle}>Competition Format</Text>
+                <Text style={styles.stepTitle}>{t("Competition Format")}</Text>
                 <Text style={styles.stepSubtitle}>
-                    How do you want to compete?
+                    {t("How do you want to compete?")}
                 </Text>
 
                 {(['individual', 'head_to_head', 'teams'] as GameMode[]).map((mode) => {
@@ -1036,10 +1086,10 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         >
                             <View style={{ flex: 1 }}>
                                 <Text style={[styles.modeTitle, !available && styles.modeTextDisabled]}>
-                                    {labels[mode].title}
+                                    {t(labels[mode].title)}
                                 </Text>
                                 <Text style={[styles.modeDesc, !available && styles.modeTextDisabled]}>
-                                    {available ? labels[mode].desc : reason}
+                                    {available ? t(labels[mode].desc) : (reason ? t(reason) : "")}
                                 </Text>
                             </View>
                             {isSelected && available && (
@@ -1054,9 +1104,9 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 {/* Team Assignment UI - only show for head_to_head or teams */}
                 {(gameMode === 'head_to_head' || gameMode === 'teams') && (
                     <View style={{ marginTop: 24 }}>
-                        <Text style={[styles.stepTitle, { fontSize: 20, marginBottom: 8 }]}>Sides & Teams</Text>
+                        <Text style={[styles.stepTitle, { fontSize: 20, marginBottom: 8 }]}>{t("Sides & Teams")}</Text>
                         <Text style={styles.stepSubtitle}>
-                            Tap to swap players.
+                            {t("Tap to swap players.")}
                         </Text>
 
                         {gameMode === 'head_to_head' && teamAssignments.sideA.length > 0 && teamAssignments.sideB.length > 0 && (
@@ -1066,18 +1116,18 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     onPress={() => handleSwapPlayers('A', 0)}
                                     activeOpacity={0.7}
                                 >
-                                    <Text style={[styles.sideLabel, { color: THEME.accentOrange }]}>Side A</Text>
+                                    <Text style={[styles.sideLabel, { color: THEME.accentOrange }]}>{t("Side A")}</Text>
                                     <Text style={styles.sideName}>
                                         {selectedPlayers.find(p => p.playerId === teamAssignments.sideA[0])?.name}
                                     </Text>
                                 </TouchableOpacity>
-                                <Text style={[styles.vsText, { color: THEME.accentOrange }]}>VS</Text>
+                                <Text style={[styles.vsText, { color: THEME.accentOrange }]}>{t("VS")}</Text>
                                 <TouchableOpacity
                                     style={styles.sideCard}
                                     onPress={() => handleSwapPlayers('B', 0)}
                                     activeOpacity={0.7}
                                 >
-                                    <Text style={[styles.sideLabel, { color: THEME.accentOrange }]}>Side B</Text>
+                                    <Text style={[styles.sideLabel, { color: THEME.accentOrange }]}>{t("Side B")}</Text>
                                     <Text style={styles.sideName}>
                                         {selectedPlayers.find(p => p.playerId === teamAssignments.sideB[0])?.name}
                                     </Text>
@@ -1092,18 +1142,18 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     onPress={() => handleSwapPlayers('A', 0)}
                                     activeOpacity={0.7}
                                 >
-                                    <Text style={[styles.teamLabel, { color: THEME.accentOrange }]}>Team 1</Text>
+                                    <Text style={[styles.teamLabel, { color: THEME.accentOrange }]}>{t("Team 1")}</Text>
                                     <Text style={styles.teamNames}>
                                         {selectedPlayers.find(p => p.playerId === teamAssignments.sideA[0])?.name} & {selectedPlayers.find(p => p.playerId === teamAssignments.sideA[1])?.name}
                                     </Text>
                                 </TouchableOpacity>
-                                <Text style={[styles.vsText, { color: THEME.accentOrange }]}>VS</Text>
+                                <Text style={[styles.vsText, { color: THEME.accentOrange }]}>{t("VS")}</Text>
                                 <TouchableOpacity
                                     style={styles.teamCard}
                                     onPress={() => handleSwapPlayers('B', 0)}
                                     activeOpacity={0.7}
                                 >
-                                    <Text style={[styles.teamLabel, { color: THEME.accentOrange }]}>Team 2</Text>
+                                    <Text style={[styles.teamLabel, { color: THEME.accentOrange }]}>{t("Team 2")}</Text>
                                     <Text style={styles.teamNames}>
                                         {selectedPlayers.find(p => p.playerId === teamAssignments.sideB[0])?.name} & {selectedPlayers.find(p => p.playerId === teamAssignments.sideB[1])?.name}
                                     </Text>
@@ -1129,16 +1179,16 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         resizeMode="cover"
                     />
                 </View>
-                <Text style={styles.stepTitle}>Betting (Optional)</Text>
+                <Text style={styles.stepTitle}>{t("Betting (Optional)")}</Text>
                 <Text style={styles.stepSubtitle}>
-                    Add some friendly competition with side bets.
+                    {t('Add some friendly competition with side bets.')}
                 </Text>
 
                 <TouchableOpacity
                     style={[styles.toggleRow, betEnabled && styles.toggleRowActive]}
                     onPress={() => setBetEnabled(!betEnabled)}
                 >
-                    <Text style={styles.toggleLabel}>Enable Betting</Text>
+                    <Text style={styles.toggleLabel}>{t("Enable Betting")}</Text>
                     <View style={[styles.toggle, betEnabled && styles.toggleActive]}>
                         <View style={[styles.toggleThumb, betEnabled && styles.toggleThumbActive]} />
                     </View>
@@ -1149,15 +1199,15 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         {/* Nassau: 3 separate bet inputs for Front/Back/Overall */}
                         {gameType === 'nassau' ? (
                             <View>
-                                <Text style={styles.betLabel}>Nassau Bet Amounts</Text>
+                                <Text style={styles.betLabel}>{t("Nassau Bet Amounts")}</Text>
                                 <Text style={[styles.toggleDesc, { marginBottom: 12 }]}>
-                                    Set separate amounts for Front, Back, and Overall
+                                    {t("Set separate amounts for Front, Back, and Overall")}
                                 </Text>
                                 <View style={{ flexDirection: 'row', gap: 8 }}>
                                     {/* Front 9 */}
                                     {(holeSelection === '18' || holeSelection === 'front_9') && (
                                         <View style={{ flex: 1 }}>
-                                            <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Front 9</Text>
+                                            <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>{t("Front 9")}</Text>
                                             <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
                                                 <Text style={styles.currencyPrefix}>$</Text>
                                                 <TextInput
@@ -1177,7 +1227,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     {/* Back 9 */}
                                     {(holeSelection === '18' || holeSelection === 'back_9') && (
                                         <View style={{ flex: 1 }}>
-                                            <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Back 9</Text>
+                                            <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>{t("Back 9")}</Text>
                                             <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
                                                 <Text style={styles.currencyPrefix}>$</Text>
                                                 <TextInput
@@ -1196,7 +1246,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     )}
                                     {/* Overall */}
                                     <View style={{ flex: 1 }}>
-                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>Overall</Text>
+                                        <Text style={[styles.toggleDesc, { marginBottom: 4, textAlign: 'center' }]}>{t("Overall")}</Text>
                                         <View style={[styles.betAmountOption, styles.nassauAmountInput]}>
                                             <Text style={styles.currencyPrefix}>$</Text>
                                             <TextInput
@@ -1257,7 +1307,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                 styles.customBetInput,
                                                 betAmountDollars > 0 && !amounts.includes(betAmountDollars) && styles.betAmountTextSelected
                                             ]}
-                                            placeholder="Custom"
+                                            placeholder={t("Custom")}
                                             keyboardType="numeric"
                                             placeholderTextColor={betAmountDollars > 0 && !amounts.includes(betAmountDollars) ? 'white' : THEME.textSub}
                                             value={amounts.includes(betAmountDollars) ? '' : (betAmountDollars > 0 ? betAmountDollars.toString() : '')}
@@ -1276,21 +1326,21 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                             {/* Bet Unit for Match Play */}
                             {gameType === 'match_play' && (
                                 <View>
-                                    <Text style={styles.sectionLabel}>Bet Type</Text>
+                                    <Text style={styles.sectionLabel}>{t("Bet Type")}</Text>
                                     <View style={styles.betUnitRow}>
                                         <TouchableOpacity
                                             style={[styles.betUnitOption, betUnit === 'match' && styles.betUnitOptionActive]}
                                             onPress={() => setBetUnit('match')}
                                         >
-                                            <Text style={[styles.betUnitText, betUnit === 'match' && styles.betUnitTextActive]}>Per Match</Text>
-                                            <Text style={styles.betUnitDesc}>Winner takes all</Text>
+                                            <Text style={[styles.betUnitText, betUnit === 'match' && styles.betUnitTextActive]}>{t("Per Match")}</Text>
+                                            <Text style={styles.betUnitDesc}>{t("Winner takes all")}</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.betUnitOption, betUnit === 'hole' && styles.betUnitOptionActive]}
                                             onPress={() => setBetUnit('hole')}
                                         >
-                                            <Text style={[styles.betUnitText, betUnit === 'hole' && styles.betUnitTextActive]}>Per Hole</Text>
-                                            <Text style={styles.betUnitDesc}>$X for each hole won</Text>
+                                            <Text style={[styles.betUnitText, betUnit === 'hole' && styles.betUnitTextActive]}>{t("Per Hole")}</Text>
+                                            <Text style={styles.betUnitDesc}>{t("$X for each hole won")}</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -1299,7 +1349,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                             {/* Bet Unit for Stroke Play */}
                             {gameType === 'stroke_play' && (
                                 <View>
-                                    <Text style={styles.sectionLabel}>Bet Type</Text>
+                                    <Text style={styles.sectionLabel}>{t("Bet Type")}</Text>
                                     <View style={styles.betUnitRow}>
                                         <TouchableOpacity
                                             style={[styles.betUnitOption, betUnit === 'winner' && styles.betUnitOptionActive]}
@@ -1308,8 +1358,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                 setPayoutMode('pot');
                                             }}
                                         >
-                                            <Text style={[styles.betUnitText, betUnit === 'winner' && styles.betUnitTextActive]}>Winner Takes All</Text>
-                                            <Text style={styles.betUnitDesc}>Fixed payout</Text>
+                                            <Text style={[styles.betUnitText, betUnit === 'winner' && styles.betUnitTextActive]}>{t("Winner Takes All")}</Text>
+                                            <Text style={styles.betUnitDesc}>{t("Fixed payout")}</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.betUnitOption, betUnit === 'stroke_margin' && styles.betUnitOptionActive]}
@@ -1318,8 +1368,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                 setPayoutMode('war');
                                             }}
                                         >
-                                            <Text style={[styles.betUnitText, betUnit === 'stroke_margin' && styles.betUnitTextActive]}>Per Stroke</Text>
-                                            <Text style={styles.betUnitDesc}>$X × stroke margin</Text>
+                                            <Text style={[styles.betUnitText, betUnit === 'stroke_margin' && styles.betUnitTextActive]}>{t("Per Stroke")}</Text>
+                                            <Text style={styles.betUnitDesc}>{t("$X × stroke margin")}</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -1331,8 +1381,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     onPress={() => setCarryover(!carryover)}
                                 >
                                     <View>
-                                        <Text style={styles.toggleLabel}>Carryover Ties</Text>
-                                        <Text style={styles.toggleDesc}>Value carries to next hole on ties</Text>
+                                        <Text style={styles.toggleLabel}>{t("Carryover Ties")}</Text>
+                                        <Text style={styles.toggleDesc}>{t("Value carries to next hole on ties")}</Text>
                                     </View>
                                     <View style={[styles.toggle, carryover && styles.toggleActive]}>
                                         <View style={[styles.toggleThumb, carryover && styles.toggleThumbActive]} />
@@ -1347,8 +1397,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     onPress={() => setPressEnabled(!pressEnabled)}
                                 >
                                     <View>
-                                        <Text style={styles.toggleLabel}>Allow Presses</Text>
-                                        <Text style={styles.toggleDesc}>Double down when losing by 2+ holes</Text>
+                                        <Text style={styles.toggleLabel}>{t("Allow Presses")}</Text>
+                                        <Text style={styles.toggleDesc}>{t("Double down when losing by 2+ holes")}</Text>
                                     </View>
                                     <View style={[styles.toggle, pressEnabled && styles.toggleActive]}>
                                         <View style={[styles.toggleThumb, pressEnabled && styles.toggleThumbActive]} />
@@ -1358,16 +1408,16 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
                             {/* Side Bets ("Junk") */}
                             <View style={{ marginTop: 8 }}>
-                                <Text style={styles.sectionLabel}>Side Bets (Junk)</Text>
-                                <Text style={[styles.toggleDesc, { marginBottom: 12 }]}>Optional bonus payouts</Text>
+                                <Text style={styles.sectionLabel}>{t("Side Bets (Junk)")}</Text>
+                                <Text style={[styles.toggleDesc, { marginBottom: 12 }]}>{t("Optional bonus payouts")}</Text>
 
                                 <TouchableOpacity
                                     style={[styles.toggleRow, sideBets.greenies && styles.toggleRowActive]}
                                     onPress={() => setSideBets(prev => ({ ...prev, greenies: !prev.greenies }))}
                                 >
                                     <View>
-                                        <Text style={styles.toggleLabel}>Greenies</Text>
-                                        <Text style={styles.toggleDesc}>Hit par-3 green & make par+</Text>
+                                        <Text style={styles.toggleLabel}>{t("Greenies")}</Text>
+                                        <Text style={styles.toggleDesc}>{t("Hit par-3 green & make par+")}</Text>
                                     </View>
                                     <View style={[styles.toggle, sideBets.greenies && styles.toggleActive]}>
                                         <View style={[styles.toggleThumb, sideBets.greenies && styles.toggleThumbActive]} />
@@ -1379,8 +1429,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     onPress={() => setSideBets(prev => ({ ...prev, sandies: !prev.sandies }))}
                                 >
                                     <View>
-                                        <Text style={styles.toggleLabel}>Sandies</Text>
-                                        <Text style={styles.toggleDesc}>Make par after bunker shot</Text>
+                                        <Text style={styles.toggleLabel}>{t("Sandies")}</Text>
+                                        <Text style={styles.toggleDesc}>{t("Make par after bunker shot")}</Text>
                                     </View>
                                     <View style={[styles.toggle, sideBets.sandies && styles.toggleActive]}>
                                         <View style={[styles.toggleThumb, sideBets.sandies && styles.toggleThumbActive]} />
@@ -1392,8 +1442,8 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     onPress={() => setSideBets(prev => ({ ...prev, birdies: !prev.birdies }))}
                                 >
                                     <View>
-                                        <Text style={styles.toggleLabel}>Birdies</Text>
-                                        <Text style={styles.toggleDesc}>Make birdie on any hole</Text>
+                                        <Text style={styles.toggleLabel}>{t("Birdies")}</Text>
+                                        <Text style={styles.toggleDesc}>{t("Make birdie on any hole")}</Text>
                                     </View>
                                     <View style={[styles.toggle, sideBets.birdies && styles.toggleActive]}>
                                         <View style={[styles.toggleThumb, sideBets.birdies && styles.toggleThumbActive]} />
@@ -1403,7 +1453,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                 {/* Side bet amount - only show if any side bet is enabled */}
                                 {(sideBets.greenies || sideBets.sandies || sideBets.birdies) && (
                                     <View style={{ marginTop: 16 }}>
-                                        <Text style={styles.betLabel}>Side Bet Amount</Text>
+                                        <Text style={styles.betLabel}>{t("Side Bet Amount")}</Text>
                                         <View style={styles.betAmountPicker}>
                                             {[1, 2, 5, 10].map((amount) => (
                                                 <TouchableOpacity
@@ -1439,7 +1489,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                     styles.customWagerInput,
                                                     sideBetAmountDollars > 0 && ![1, 2, 5, 10].includes(sideBetAmountDollars) && styles.betAmountTextSelected
                                                 ]}
-                                                placeholder="Custom"
+                                                placeholder={t("Custom")}
                                                 keyboardType="numeric"
                                                 placeholderTextColor={sideBetAmountDollars > 0 && ![1, 2, 5, 10].includes(sideBetAmountDollars) ? 'white' : THEME.textSub}
                                                 value={[1, 2, 5, 10].includes(sideBetAmountDollars) ? '' : (sideBetAmountDollars > 0 ? sideBetAmountDollars.toString() : '')}
@@ -1450,7 +1500,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                             />
                                         </View>
                                         <Text style={[styles.toggleDesc, { marginTop: 8 }]}>
-                                            Per greenie, sandy, or birdie won
+                                            {t("Per greenie, sandy, or birdie won")}
                                         </Text>
                                     </View>
                                 )}
@@ -1467,9 +1517,27 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
     const getStrokeAllocations = () => {
         if (selectedPlayers.length < 2) return [];
 
-        // Find lowest handicap player as base
-        const sortedByHandicap = [...selectedPlayers].sort((a, b) => a.handicapIndex - b.handicapIndex);
-        const lowestHandicap = sortedByHandicap[0].handicapIndex;
+        const selectedHoleNumbers =
+            holeSelection === 'front_9'
+                ? Array.from({ length: 9 }, (_, i) => i + 1)
+                : holeSelection === 'back_9'
+                    ? Array.from({ length: 9 }, (_, i) => i + 10)
+                    : Array.from({ length: 18 }, (_, i) => i + 1);
+
+        const withCourseHandicap = selectedPlayers.map((p) => ({
+            ...p,
+            courseHandicap: calculateCourseHandicapForRound({
+                handicapIndex: p.handicapIndex,
+                course: selectedCourse,
+                teeName: p.teeName,
+                teeGender: p.teeGender,
+                holeNumbers: selectedHoleNumbers,
+            }) ?? Math.round(p.handicapIndex),
+        }));
+
+        // Find lowest COURSE handicap player as base
+        const sortedByHandicap = [...withCourseHandicap].sort((a, b) => a.courseHandicap - b.courseHandicap);
+        const lowestHandicap = sortedByHandicap[0].courseHandicap;
 
         // Get hole handicaps from course (sorted by difficulty - lowest hcp = hardest)
         // Check multiple possible sources for hole data: course.holes, teeSets holes, or _convexCourse
@@ -1493,7 +1561,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
         }).sort((a, b) => a.hcp - b.hcp);
 
         return sortedByHandicap.map(p => {
-            const strokesReceived = Math.round(p.handicapIndex - lowestHandicap);
+            const strokesReceived = Math.max(0, p.courseHandicap - lowestHandicap);
 
             // Calculate 1-stroke and 2-stroke holes
             // If strokes <= 18: get 1 stroke on the hardest N holes
@@ -1528,6 +1596,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
 
     const renderStrokeAllocationsStep = () => {
         const allocations = getStrokeAllocations();
+        const allPlayersEven = allocations.length > 0 && allocations.every((player) => player.strokesReceived === 0);
 
         return (
             <ScrollView style={styles.stepContent} showsVerticalScrollIndicator={false}>
@@ -1538,9 +1607,11 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         resizeMode="cover"
                     />
                 </View>
-                <Text style={styles.stepTitle}>Stroke Allocation</Text>
+                <Text style={styles.stepTitle}>{t("Stroke Allocation")}</Text>
                 <Text style={styles.stepSubtitle}>
-                    Based on handicaps, here's who gives/gets strokes:
+                    {allPlayersEven
+                        ? t("All players have equal course handicaps, so no strokes are allocated.")
+                        : t("Based on course handicaps, here's who gives/gets strokes:")}
                 </Text>
 
                 {allocations.map((player) => (
@@ -1552,7 +1623,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                 { color: player.strokesReceived === 0 ? THEME.primaryGreen : THEME.success }
                             ]}>
                                 {player.strokesReceived === 0
-                                    ? 'Gives strokes'
+                                    ? (allPlayersEven ? t('No strokes') : t('Gives strokes'))
                                     : `Gets ${player.strokesReceived}`}
                             </Text>
                         </View>
@@ -1610,30 +1681,30 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                     resizeMode="cover"
                 />
             </View>
-            <Text style={styles.stepTitle}>Ready to Play!</Text>
+            <Text style={styles.stepTitle}>{t("Ready to Play!")}</Text>
             <Text style={styles.stepSubtitle}>
                 Review your game setup before starting.
             </Text>
 
             <View style={styles.summaryCard}>
                 <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Course</Text>
+                    <Text style={styles.summaryLabel}>{t("Course")}</Text>
                     <Text style={styles.summaryValue}>{selectedCourse?.name}</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Holes</Text>
+                    <Text style={styles.summaryLabel}>{t("Holes")}</Text>
                     <Text style={styles.summaryValue}>
                         {holeSelection === '18' ? '18 Holes' : holeSelection === 'front_9' ? 'Front 9' : 'Back 9'}
                     </Text>
                 </View>
                 <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Game Type</Text>
+                    <Text style={styles.summaryLabel}>{t("Game Type")}</Text>
                     <Text style={styles.summaryValue}>
                         {gameType ? gameType.replace('_', ' ') : 'Normal'}
                     </Text>
                 </View>
                 <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Players</Text>
+                    <Text style={styles.summaryLabel}>{t("Players")}</Text>
                     <Text style={styles.summaryValue}>
                         {selectedPlayers.map((p) =>
                             p.teeName ? `${p.name} (${p.teeName})` : p.name
@@ -1642,7 +1713,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 </View>
                 {betEnabled && (
                     <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Bet</Text>
+                        <Text style={styles.summaryLabel}>{t("Bet")}</Text>
                         <Text style={styles.summaryValue}>
                             {formatBetLineFromSetup({
                                 gameType,
@@ -1660,7 +1731,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                 )}
                 {(sideBets.greenies || sideBets.sandies || sideBets.birdies) && (
                     <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Side Bets</Text>
+                        <Text style={styles.summaryLabel}>{t("Side Bets")}</Text>
                         <Text style={styles.summaryValue}>
                             {[
                                 sideBets.greenies && 'Greenies',
@@ -1725,7 +1796,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                             )}
                         </TouchableOpacity>
                         <Text style={styles.headerTitle}>
-                            {currentStep === 'intent' ? 'New Round' : 'Game Setup'}
+                            {currentStep === 'intent' ? t("New Round") : t("Game Setup")}
                         </Text>
                         {currentStep !== 'intent' ? (
                             <TouchableOpacity
@@ -1761,7 +1832,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     {isCreating ? (
                                         <ActivityIndicator color="white" />
                                     ) : (
-                                        <Text style={styles.primaryButtonText}>Start Game</Text>
+                                        <Text style={styles.primaryButtonText}>{t("Start Game")}</Text>
                                     )}
                                 </TouchableOpacity>
                             ) : (
@@ -1774,7 +1845,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                     disabled={!canProceed()}
                                 >
                                     <Text style={styles.primaryButtonText}>
-                                        {currentStep === 'betConfig' && !betEnabled ? 'Continue without betting' : 'Continue'}
+                                        {currentStep === 'betConfig' && !betEnabled ? t('Continue without betting') : t('Continue')}
                                     </Text>
                                     <ChevronRight size={20} color="white" />
                                 </TouchableOpacity>
@@ -1789,7 +1860,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         {(closeSheet) => (
                             <>
                                 <View style={styles.sheetHeader}>
-                                    <Text style={styles.sheetTitle}>Select Tee</Text>
+                                    <Text style={styles.sheetTitle}>{t('Select Tee')}</Text>
                                     <TouchableOpacity
                                         onPress={closeSheet}
                                         style={{ padding: 4 }}
@@ -1805,7 +1876,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                             onPress={() => setTeePickerGenderTab('M')}
                                         >
                                             <Text style={[styles.sheetTabText, teePickerGenderTab === 'M' && styles.sheetTabTextActive]}>
-                                                Men's Tees
+                                                {t("Men's Tees")}
                                             </Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
@@ -1813,7 +1884,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                             onPress={() => setTeePickerGenderTab('F')}
                                         >
                                             <Text style={[styles.sheetTabText, teePickerGenderTab === 'F' && styles.sheetTabTextActive]}>
-                                                Women's Tees
+                                                {t("Women's Tees")}
                                             </Text>
                                         </TouchableOpacity>
                                     </View>
@@ -1869,7 +1940,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                         {(closeSheet) => (
                             <>
                                 <View style={styles.sheetHeader}>
-                                    <Text style={styles.sheetTitle}>Add Player</Text>
+                                    <Text style={styles.sheetTitle}>{t('Add Player')}</Text>
                                     <TouchableOpacity
                                         onPress={closeSheet}
                                         style={{ padding: 4 }}
@@ -1902,7 +1973,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                 borderWidth: 1,
                                                 borderColor: THEME.border,
                                             }}
-                                            placeholder="Create new player..."
+                                            placeholder={t('Create new player...')}
                                             placeholderTextColor={THEME.textSub}
                                             value={newPlayerName}
                                             onChangeText={setNewPlayerName}
@@ -1926,6 +1997,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                         playerId: newPlayerId as any,
                                                         name: newPlayerName.trim(),
                                                         handicapIndex: 0,
+                                                        handicapInputText: "",
                                                         teeName: firstPlayerTee,
                                                         teeGender: firstPlayerTeeGender || 'M',
                                                     }]);
@@ -1936,7 +2008,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                 }
                                             }}
                                         >
-                                            <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>Create</Text>
+                                            <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>{t('Create')}</Text>
                                         </TouchableOpacity>
                                     </View>
 
@@ -1953,6 +2025,7 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                     playerId: player._id,
                                                     name: player.name,
                                                     handicapIndex: player.handicap ?? 0,
+                                                    handicapInputText: player.handicap != null ? String(player.handicap) : "",
                                                     teeName: firstPlayerTee,
                                                     teeGender: firstPlayerTeeGender || ((player.gender === 'M' || player.gender === 'F') ? player.gender : 'M'),
                                                 }]);
@@ -1979,13 +2052,13 @@ export function PreRoundFlowModal({ visible, onClose, initialIntent }: PreRoundF
                                                 paddingHorizontal: 12, paddingVertical: 6,
                                                 backgroundColor: THEME.primaryGreen, borderRadius: 20
                                             }}>
-                                                <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>Add</Text>
+                                                <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>{t('Add')}</Text>
                                             </View>
                                         </TouchableOpacity>
                                     ))}
                                     {(!players || players.filter((p: any) => !selectedPlayers.some(sp => sp.playerId === p._id)).length === 0) && (
                                         <View style={{ padding: 20, alignItems: 'center' }}>
-                                            <Text style={{ color: THEME.textSub }}>No other players found.</Text>
+                                            <Text style={{ color: THEME.textSub }}>{t('No other players found.')}</Text>
                                         </View>
                                     )}
                                 </ScrollView>

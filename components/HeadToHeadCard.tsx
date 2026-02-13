@@ -2,6 +2,9 @@ import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { colors } from "@/constants/colors";
 import { Users, Trophy, TrendingUp, TrendingDown, Minus } from "lucide-react-native";
+import { parseAnyDateStringToLocalDate } from "@/utils/helpers";
+import { useT } from "@/lib/i18n";
+import { useOnboardingStore } from "@/store/useOnboardingStore";
 
 type RecentRound = {
     roundId: string;
@@ -32,6 +35,10 @@ type Props = {
 };
 
 export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
+    const t = useT();
+    const language = useOnboardingStore((s) => s.language);
+    const localeForDates = language === "es" ? "es-ES" : "en-US";
+
     const {
         sharedRoundsCount,
         myWins,
@@ -64,31 +71,36 @@ export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
             <View style={styles.container}>
                 <View style={styles.header}>
                     <Users size={18} color={colors.primary} />
-                    <Text style={styles.title}>Head-to-Head</Text>
+                    <Text style={styles.title}>{t("Head-to-Head")}</Text>
                 </View>
                 <View style={styles.emptyState}>
                     <Text style={styles.emptyText}>
-                        You haven't played any rounds with {theirName} yet.
+                        {t("You haven't played any rounds with {{name}} yet.", { name: theirName })}
                     </Text>
                     <Text style={styles.emptySubtext}>
-                        Play a round together to see your head-to-head stats!
+                        {t("Play a round together to see your head-to-head stats!")}
                     </Text>
                 </View>
             </View>
         );
     }
 
+    const roundsPlayedTogetherText =
+        sharedRoundsCount === 1
+            ? t("1 round played together")
+            : t("{{count}} rounds played together", { count: sharedRoundsCount });
+
     return (
         <View style={styles.container}>
             <View style={styles.header}>
                 <Users size={18} color={colors.primary} />
-                <Text style={styles.title}>Head-to-Head vs {theirName}</Text>
+                <Text style={styles.title}>{t("Head-to-Head vs {{name}}", { name: theirName })}</Text>
             </View>
 
             {/* Record Display - The big highlight */}
             <View style={styles.recordSection}>
                 <View style={styles.recordContainer}>
-                    <Text style={styles.recordLabel}>Your Record</Text>
+                    <Text style={styles.recordLabel}>{t("Your Record")}</Text>
                     <View style={styles.recordRow}>
                         {isWinning && <Trophy size={24} color={colors.success} />}
                         {isLosing && <TrendingDown size={24} color={colors.error} />}
@@ -104,8 +116,7 @@ export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
                         </Text>
                     </View>
                     <Text style={styles.recordSubtext}>
-                        {sharedRoundsCount} round{sharedRoundsCount !== 1 ? "s" : ""} played
-                        together
+                        {roundsPlayedTogetherText}
                     </Text>
                 </View>
             </View>
@@ -113,21 +124,21 @@ export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
             {/* Comparison Stats */}
             <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>Your Avg</Text>
+                    <Text style={styles.statLabel}>{t("Your Avg")}</Text>
                     <Text style={styles.statValue}>
                         {myAvgScore !== null ? myAvgScore : "--"}
                     </Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>Their Avg</Text>
+                    <Text style={styles.statLabel}>{t("Their Avg")}</Text>
                     <Text style={styles.statValue}>
                         {theirAvgScore !== null ? theirAvgScore : "--"}
                     </Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                    <Text style={styles.statLabel}>Margin</Text>
+                    <Text style={styles.statLabel}>{t("Margin")}</Text>
                     <View style={styles.marginContainer}>
                         {avgMargin !== null && avgMargin > 0 && (
                             <TrendingUp size={14} color={colors.success} />
@@ -151,7 +162,7 @@ export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
             {/* Recent Matchups */}
             {recentRounds.length > 0 && (
                 <View style={styles.recentSection}>
-                    <Text style={styles.recentTitle}>Recent Matchups</Text>
+                    <Text style={styles.recentTitle}>{t("Recent Matchups")}</Text>
                     {recentRounds.map((round) => (
                         <TouchableOpacity
                             key={round.roundId}
@@ -164,10 +175,12 @@ export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
                                     {round.courseName}
                                 </Text>
                                 <Text style={styles.matchupDate}>
-                                    {new Date(round.date).toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                    })}
+                                    {(() => {
+                                        const d = parseAnyDateStringToLocalDate(round.date);
+                                        return d
+                                            ? d.toLocaleDateString(localeForDates, { month: "short", day: "numeric" })
+                                            : round.date;
+                                    })()}
                                 </Text>
                             </View>
                             <View style={styles.matchupScores}>
@@ -179,7 +192,7 @@ export const HeadToHeadCard = ({ data, theirName, onRoundPress }: Props) => {
                                 >
                                     {round.myScore}
                                 </Text>
-                                <Text style={styles.matchupVs}>vs</Text>
+                                <Text style={styles.matchupVs}>{t("vs")}</Text>
                                 <Text
                                     style={[
                                         styles.matchupScore,

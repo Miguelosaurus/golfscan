@@ -12,6 +12,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { colors } from "@/constants/colors";
+import { useT } from "@/lib/i18n";
 
 type Props = {
   handicap: number;
@@ -77,6 +78,7 @@ function toPath(values: number[], width: number, height: number, padding = 8) {
 }
 
 export function SeedRoundsStory({ handicap, count = 20, variant = "inline" }: Props) {
+  const t = useT();
   const chartWidth = variant === "overlay" ? 280 : 310;
   const chartHeight = variant === "overlay" ? 86 : 92;
 
@@ -126,16 +128,16 @@ export function SeedRoundsStory({ handicap, count = 20, variant = "inline" }: Pr
     <View style={[styles.card, variant === "overlay" && styles.cardOverlay]}>
       <View style={styles.headerRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Seeding your starting index</Text>
+          <Text style={styles.title}>{t("Seeding your starting index")}</Text>
           <Text style={styles.subtitle}>
             {variant === "overlay"
-              ? "Creating 20 seed rounds, then locking in your Scandicap™."
-              : "We’ll generate 20 seed rounds after sign-in so your Scandicap™ starts at the right place."}
+              ? t("Creating 20 seed rounds, then locking in your Scandicap™.")
+              : t("We’ll generate 20 seed rounds after sign-in so your Scandicap™ starts at the right place.")}
           </Text>
         </View>
 
         <View style={styles.badge}>
-          <Text style={styles.badgeTop}>Index</Text>
+          <Text style={styles.badgeTop}>{t("Index")}</Text>
           <Text style={styles.badgeValue}>{formatHandicap(handicap)}</Text>
         </View>
       </View>
@@ -191,7 +193,7 @@ export function SeedRoundsStory({ handicap, count = 20, variant = "inline" }: Pr
         transition={{ type: "timing", duration: 220 }}
         style={styles.captionRow}
       >
-        <Text style={styles.captionText}>Seeding…</Text>
+        <Text style={styles.captionText}>{t("Seeding…")}</Text>
         <Text style={styles.captionCount}>
           {seedTick}/{count}
         </Text>
@@ -199,7 +201,7 @@ export function SeedRoundsStory({ handicap, count = 20, variant = "inline" }: Pr
 
       {variant !== "overlay" && (
         <Text style={styles.footer}>
-          Seeds are marked as synthesized and get replaced naturally as you add real rounds.
+          {t("Seeds are marked as synthesized and get replaced naturally as you add real rounds.")}
         </Text>
       )}
     </View>

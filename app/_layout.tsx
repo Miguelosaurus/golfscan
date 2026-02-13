@@ -16,6 +16,7 @@ import { Alert, AppState, ImageBackground, StyleSheet, Text, TextInput, View } f
 import { DEFAULT_COURSE_IMAGE } from "@/constants/images";
 import { initPostHog, identifyUser, trackScanCompleted } from "@/lib/analytics";
 import Constants from "expo-constants";
+import { useT } from "@/lib/i18n";
 
 // Initialize PostHog on app startup
 initPostHog();
@@ -78,6 +79,7 @@ function AnalyticsProvider() {
 function ActiveScanPoller() {
   const router = useRouter();
   const pathname = usePathname();
+  const t = useT();
   const lastHandledId = useRef<string | null>(null);
   const {
     activeScanJob,
@@ -105,7 +107,7 @@ function ActiveScanPoller() {
 
     const status = jobStatus.status;
     const progress = jobStatus.progress ?? 0;
-    const message = jobStatus.message ?? "Processing...";
+    const message = jobStatus.message ?? t("Processing...");
 
     updateActiveScanJob({
       status: status === "failed" ? "error" : status === "complete" ? "complete" : "processing",
@@ -117,9 +119,9 @@ function ActiveScanPoller() {
     if (status === "failed") {
       setIsScanning(false);
       Alert.alert(
-        "Scan Failed",
-        message || "Failed to scan scorecard. Please try again.",
-        [{ text: "OK", onPress: () => clearActiveScanJob() }]
+        t("Scan Failed"),
+        message || t("Failed to scan scorecard. Please try again."),
+        [{ text: t("OK"), onPress: () => clearActiveScanJob() }]
       );
       return;
     }
@@ -130,7 +132,7 @@ function ActiveScanPoller() {
       updateActiveScanJob({
         status: "complete",
         stage: "complete",
-        message: "Review your round and save when ready.",
+        message: t("Review your round and save when ready."),
         result: jobResult as any,
         requiresReview: true,
         updatedAt: new Date().toISOString(),
@@ -646,6 +648,7 @@ function CourseSyncer() {
 function RootLayoutWithConfig(props: { convexUrl: string; clerkPublishableKey: string }) {
   const { convexUrl, clerkPublishableKey } = props;
   const convex = React.useMemo(() => createConvexClient(convexUrl), [convexUrl]);
+  const t = useT();
 
   const pathname = usePathname();
   useEffect(() => {
@@ -668,7 +671,7 @@ function RootLayoutWithConfig(props: { convexUrl: string; clerkPublishableKey: s
             <StoreCleanup />
             <Stack
               screenOptions={{
-                headerBackTitle: "Back",
+                headerBackTitle: t("Back"),
                 headerStyle: { backgroundColor: "#FFFFFF" },
                 headerShadowVisible: false,
                 headerTitleStyle: { fontWeight: "600" },
@@ -679,56 +682,56 @@ function RootLayoutWithConfig(props: { convexUrl: string; clerkPublishableKey: s
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen
                 name="course/[id]"
-                options={{ title: "Course Details", animation: "slide_from_right" }}
+                options={{ title: t("Course Details"), animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="round/[id]"
-                options={({ route }) => {
-                  const onboarding = (route.params as any)?.onboardingMode === "true";
-                  return {
-                    title: "Round Details",
-                    presentation: "fullScreenModal",
-                    animation: "slide_from_bottom",
-                    gestureEnabled: !onboarding,
-                    fullScreenGestureEnabled: !onboarding,
-                  };
-                }}
-              />
+	                options={({ route }) => {
+	                  const onboarding = (route.params as any)?.onboardingMode === "true";
+	                  return {
+	                    title: t("Round Details"),
+	                    presentation: "fullScreenModal",
+	                    animation: "slide_from_bottom",
+	                    gestureEnabled: !onboarding,
+	                    fullScreenGestureEnabled: !onboarding,
+	                  };
+	                }}
+	              />
               <Stack.Screen
                 name="player/[id]"
-                options={{ title: "Player Profile", animation: "slide_from_right" }}
+                options={{ title: t("Player Profile"), animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="new-round"
-                options={{ title: "New Round", presentation: "modal" }}
+                options={{ title: t("New Round"), presentation: "modal" }}
               />
               <Stack.Screen
                 name="new-course"
-                options={{ title: "Add Course", presentation: "modal" }}
+                options={{ title: t("Add Course"), presentation: "modal" }}
               />
               <Stack.Screen
                 name="scan-scorecard"
-                options={({ route }) => {
-                  const onboarding = (route.params as any)?.onboardingMode === "true";
-                  return {
-                    title: "Scan Scorecard",
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                    animation: "slide_from_bottom",
-                    contentStyle: { backgroundColor: "#000000" },
-                    gestureEnabled: !onboarding,
-                    fullScreenGestureEnabled: !onboarding,
-                  };
-                }}
-              />
+	                options={({ route }) => {
+	                  const onboarding = (route.params as any)?.onboardingMode === "true";
+	                  return {
+	                    title: t("Scan Scorecard"),
+	                    headerShown: false,
+	                    presentation: "fullScreenModal",
+	                    animation: "slide_from_bottom",
+	                    contentStyle: { backgroundColor: "#000000" },
+	                    gestureEnabled: !onboarding,
+	                    fullScreenGestureEnabled: !onboarding,
+	                  };
+	                }}
+	              />
               <Stack.Screen
                 name="scan-review"
-                options={({ route }) => {
-                  const onboarding = (route.params as any)?.onboardingMode === "true";
-                  return {
-                    title: "Review Scorecard",
-                    headerShown: false,
-                    presentation: "formSheet",
+	                options={({ route }) => {
+	                  const onboarding = (route.params as any)?.onboardingMode === "true";
+	                  return {
+	                    title: t("Review Scorecard"),
+	                    headerShown: false,
+	                    presentation: "formSheet",
                     // Full height to fully cover the home header.
                     sheetAllowedDetents: [1],
                     sheetInitialDetentIndex: 0,
@@ -745,12 +748,12 @@ function RootLayoutWithConfig(props: { convexUrl: string; clerkPublishableKey: s
               />
               <Stack.Screen
                 name="active-session"
-                options={{ title: "Active Session", animation: "slide_from_right" }}
+                options={{ title: t("Active Session"), animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="scandicap-details"
                 options={{
-                  title: "Scandicap Details",
+                  title: t("Scandicap Details"),
                   headerTransparent: true,
                   headerTintColor: "#E1F2EA",
                   headerTitleStyle: { color: "#E1F2EA", fontWeight: "600" },
@@ -776,6 +779,7 @@ function RootLayoutWithConfig(props: { convexUrl: string; clerkPublishableKey: s
 }
 
 export default function RootLayout() {
+  const t = useT();
   const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
   const clerkPublishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -789,9 +793,9 @@ export default function RootLayout() {
 
     return (
       <View style={configErrorStyles.container}>
-        <Text style={configErrorStyles.title}>Configuration error</Text>
+        <Text style={configErrorStyles.title}>{t("Configuration error")}</Text>
         <Text style={configErrorStyles.text}>
-          This build is missing required configuration:
+          {t("This build is missing required configuration:")}
         </Text>
         <Text style={configErrorStyles.vars}>{missing.join("\n")}</Text>
       </View>

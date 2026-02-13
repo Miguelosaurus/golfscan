@@ -250,6 +250,87 @@ export const setPreferredAiModel = mutation({
   },
 });
 
+export const deleteAccount = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const clerkId = getClerkIdFromIdentity(identity);
+    if (!clerkId) throw new Error("Missing Clerk ID");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", clerkId))
+      .unique();
+    if (!user) throw new Error("User not found");
+
+    // Delete scan jobs
+    const scanJobs = await ctx.db
+      .query("scanJobs")
+      .withIndex("by_user_status", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const job of scanJobs) {
+      await ctx.db.delete(job._id);
+    }
+
+    // Delete game sessions
+    const gameSessions = await ctx.db
+      .query("gameSessions")
+      .withIndex("by_host", (q) => q.eq("hostId", user._id))
+      .collect();
+    for (const session of gameSessions) {
+      await ctx.db.delete(session._id);
+    }
+
+    // Delete rounds + their scores
+    const rounds = await ctx.db
+      .query("rounds")
+      .withIndex("by_host", (q) => q.eq("hostId", user._id))
+      .collect();
+    for (const round of rounds) {
+      const scores = await ctx.db
+        .query("scores")
+        .withIndex("by_round", (q) => q.eq("roundId", round._id))
+        .collect();
+      for (const score of scores) {
+        await ctx.db.delete(score._id);
+      }
+      await ctx.db.delete(round._id);
+    }
+
+    // Delete players owned by the user (including self) + any players linked
+    // to this userId, along with their scores.
+    const playersByOwner = await ctx.db
+      .query("players")
+      .withIndex("by_owner", (q) => q.eq("ownerId", user._id))
+      .collect();
+    const playersByUser = await ctx.db
+      .query("players")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+
+    const playersToDelete = new Map<string, (typeof playersByOwner)[number]>();
+    for (const p of [...playersByOwner, ...playersByUser]) {
+      playersToDelete.set(p._id, p);
+    }
+
+    for (const player of playersToDelete.values()) {
+      const scores = await ctx.db
+        .query("scores")
+        .withIndex("by_player", (q) => q.eq("playerId", player._id))
+        .collect();
+      for (const score of scores) {
+        await ctx.db.delete(score._id);
+      }
+      await ctx.db.delete(player._id);
+    }
+
+    await ctx.db.delete(user._id);
+    return { ok: true };
+  },
+});
+
 /**
  * Check and consume rate limit for a service.
  * Called by actions before performing rate-limited operations.

@@ -13,19 +13,15 @@ import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { Check } from 'lucide-react-native';
 import Svg, { Circle } from 'react-native-svg';
+import { useT } from '@/lib/i18n';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-
-const LOADING_MESSAGES = [
-    'Saving preferences...',
-    'Downloading OCR model...',
-    'Configuring database...',
-    'Optimizing settings...',
-];
 
 export default function ConfiguringScreen() {
     const router = useRouter();
     const { handwritingStyle, distanceUnit, setCurrentStep } = useOnboardingStore();
+    const t = useT();
+    const messageCount = 4;
 
     const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
     const [isComplete, setIsComplete] = useState(false);
@@ -82,7 +78,7 @@ export default function ConfiguringScreen() {
         // Cycle through messages
         const messageInterval = setInterval(() => {
             setCurrentMessageIndex((prev) =>
-                prev < LOADING_MESSAGES.length - 1 ? prev + 1 : prev
+                prev < messageCount - 1 ? prev + 1 : prev
             );
         }, 750);
 
@@ -99,11 +95,19 @@ export default function ConfiguringScreen() {
 
     // Dynamic messages based on user selections
     const getConfigMessage = (index: number): string => {
+        const styleName =
+            handwritingStyle === 'neat'
+                ? t('Neat')
+                : handwritingStyle === 'average'
+                    ? t('Average')
+                    : t('Rushed');
+        const unitName = distanceUnit === 'yards' ? t('Yards') : t('Meters');
+
         const messages = [
-            'Saving preferences...',
-            `Downloading ${handwritingStyle === 'neat' ? 'Neat' : handwritingStyle === 'average' ? 'Average' : 'Rushed'} OCR model...`,
-            'Configuring database...',
-            `Optimizing for ${distanceUnit === 'yards' ? 'Yards' : 'Meters'}...`,
+            t('Saving preferences...'),
+            t('Downloading {{style}} OCR model...', { style: styleName }),
+            t('Configuring database...'),
+            t('Optimizing for {{unit}}...', { unit: unitName }),
         ];
         return messages[index] || messages[0];
     };
@@ -165,7 +169,7 @@ export default function ConfiguringScreen() {
                 {/* Status text */}
                 <View style={styles.statusContainer}>
                     <Text style={[styles.statusTitle, isComplete && styles.statusTitleComplete]}>
-                        {isComplete ? 'Configuration Complete' : 'Setting Up ScanCaddie'}
+                        {isComplete ? t('Configuration Complete') : t('Setting Up ScanCaddie')}
                     </Text>
 
                     {!isComplete && (

@@ -15,12 +15,14 @@ import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
 import { OnboardingButton } from '@/components/onboarding/OnboardingButton';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { DollarSign, ArrowRight } from 'lucide-react-native';
+import { useT } from '@/lib/i18n';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function ValueGamesScreen() {
     const router = useRouter();
     const { setCurrentStep } = useOnboardingStore();
+    const t = useT();
 
     // Animation refs
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -77,10 +79,10 @@ export default function ValueGamesScreen() {
                         alignItems: 'center',
                     }}
                 >
-                    <Text style={styles.preTitle}>But if you want more...</Text>
-                    <Text style={styles.title}>Game Day Ready</Text>
+                    <Text style={styles.preTitle}>{t('But if you want more...')}</Text>
+                    <Text style={styles.title}>{t('Game Day Ready')}</Text>
                     <Text style={styles.subtitle}>
-                        Set up friendly games or bets before playing. We handle all the scoring — just scan at the end to settle everything.
+                        {t('Set up friendly games or bets before playing. We handle all the scoring — just scan at the end to settle everything.')}
                     </Text>
                 </Animated.View>
 
@@ -107,7 +109,7 @@ export default function ValueGamesScreen() {
                         <DollarSign size={20} color={colors.success} />
                     </View>
                     <Text style={styles.betInfoText}>
-                        Automatic bet settlement with handicap strokes applied
+                        {t('Automatic bet settlement with handicap strokes applied')}
                     </Text>
                 </Animated.View>
 
@@ -116,14 +118,14 @@ export default function ValueGamesScreen() {
                 >
                     <ArrowRight size={18} color={colors.textSecondary} />
                     <Text style={styles.reassuranceText}>
-                        Optional — you can always just scan without setting up a game
+                        {t('Optional — you can always just scan without setting up a game')}
                     </Text>
                 </Animated.View>
             </View>
 
             <View style={styles.buttonContainer}>
                 <OnboardingButton
-                    title="Got It"
+                    title={t('Got It')}
                     onPress={handleContinue}
                 />
             </View>

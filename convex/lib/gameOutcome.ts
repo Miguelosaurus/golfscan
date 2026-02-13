@@ -366,11 +366,12 @@ function segmentsForNassau(holeSelection: "18" | "front_9" | "back_9"): Segment[
       { name: "overall", startHole: 1, endHole: 18 },
     ];
   }
-  const startHole = holeSelection === "front_9" ? 1 : 10;
-  const endHole = holeSelection === "front_9" ? 9 : 18;
-  const primary: Segment = { name: holeSelection === "front_9" ? "front" : "back", startHole, endHole };
-  const overall: Segment = { name: "overall", startHole, endHole };
-  return [primary, overall];
+  // Keep 9-hole Nassau segment definitions aligned with settlement V2:
+  // front_9 settles only Front 9, back_9 settles only Back 9.
+  if (holeSelection === "front_9") {
+    return [{ name: "front", startHole: 1, endHole: 9 }];
+  }
+  return [{ name: "back", startHole: 10, endHole: 18 }];
 }
 
 function buildRecord(wins: number, losses: number, ties: number): string {
@@ -908,7 +909,7 @@ export function computeGameOutcome(args: ComputeGameOutcomeArgs): GameOutcome {
         }
       }
 
-      const rangeMax = args.holeSelection === "18" ? 3 : 2;
+      const rangeMax = segments.length;
 
       const metricASummaryFor = (sideId: string) => {
         const isA = sideId === sideAId;
@@ -1080,7 +1081,7 @@ export function computeGameOutcome(args: ComputeGameOutcomeArgs): GameOutcome {
         ? `for the win with ${best.metricB.display} units: ${tiedWinners}.`
         : args.gameMode === "individual"
           ? `won Nassau with ${best.metricB.display} units.`
-          : `won Nassau with ${best.metricB.display}/${args.holeSelection === "18" ? 3 : 2} units.`;
+          : `won Nassau with ${best.metricB.display}/${segments.length} units.`;
 
     return {
       resultsVersion: GAME_OUTCOME_VERSION,

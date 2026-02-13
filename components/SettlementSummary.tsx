@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Share } from 'react-native';
 import { colors } from '@/constants/colors';
 import { DollarSign, TrendingUp, TrendingDown, Share2 } from 'lucide-react-native';
+import { useT } from '@/lib/i18n';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -63,6 +64,7 @@ export function SettlementSummary({
     transactions,
     onShare,
 }: SettlementSummaryProps) {
+    const t = useT();
     const netBalance = calculateNetBalance(transactions, myPlayerName);
     const isPositive = netBalance >= 0;
 
@@ -139,12 +141,13 @@ export function SettlementSummary({
         }
 
         // Build share message
-        let message = `🏌️ ${gameType.replace('_', ' ').toUpperCase()} Results\n\n`;
+        const gameTitle = gameType.replace('_', ' ').toUpperCase();
+        let message = `🏌️ ${gameTitle} ${t('Results')}\n\n`;
 
         // Add consolidated settlements
-        message += `💵 Settlement:\n`;
+        message += `💵 ${t('Settlement')}:\n`;
         for (const tx of consolidatedTransactions) {
-            message += `• ${tx.from} owes ${tx.to}: ${formatCents(tx.amount)}\n`;
+            message += `• ${tx.from} ${t('owes')} ${tx.to}: ${formatCents(tx.amount)}\n`;
             if (tx.reasons.length > 0) {
                 message += `  (${tx.reasons.join(', ')})\n`;
             }
@@ -163,7 +166,7 @@ export function SettlementSummary({
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
                     <DollarSign size={20} color={colors.primary} />
-                    <Text style={styles.title}>Settlement</Text>
+                    <Text style={styles.title}>{t('Settlement')}</Text>
                 </View>
                 <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
                     <Share2 size={18} color={colors.textSecondary} />
@@ -173,12 +176,12 @@ export function SettlementSummary({
             {/* Segment Results (for Nassau) */}
             {segmentResults && segmentResults.length > 0 && (
                 <View style={styles.segmentsContainer}>
-                    <Text style={styles.sectionLabel}>Results:</Text>
+                    <Text style={styles.sectionLabel}>{t('Results:')}</Text>
                     {segmentResults.map((seg, idx) => (
                         <View key={idx} style={styles.segmentRow}>
                             <Text style={styles.segmentName}>{seg.segment}</Text>
                             <Text style={styles.segmentWinner}>
-                                {seg.winnerName} won
+                                {seg.winnerName} {t('won')}
                             </Text>
                             <Text style={styles.segmentAmount}>
                                 {formatCents(seg.amountCents)}
@@ -190,9 +193,9 @@ export function SettlementSummary({
 
             {/* Who Owes Whom - Consolidated */}
             <View style={styles.transactionsContainer}>
-                <Text style={styles.sectionLabel}>Who Owes Whom:</Text>
+                <Text style={styles.sectionLabel}>{t('Who Owes Whom:')}</Text>
                 {consolidatedTransactions.length === 0 ? (
-                    <Text style={styles.noDebtText}>All settled up! 🎉</Text>
+                    <Text style={styles.noDebtText}>{t('All settled up! 🎉')}</Text>
                 ) : (
                     consolidatedTransactions.map((tx, idx) => (
                         <View key={idx} style={styles.transactionRow}>
@@ -226,7 +229,7 @@ export function SettlementSummary({
                     )}
                 </View>
                 <View style={styles.balanceContent}>
-                    <Text style={styles.balanceLabel}>Your Balance</Text>
+                    <Text style={styles.balanceLabel}>{t('Your Balance')}</Text>
                     <Text style={[styles.balanceAmount, isPositive ? styles.positiveText : styles.negativeText]}>
                         {isPositive ? '+' : ''}{formatCents(netBalance)}
                     </Text>
@@ -239,7 +242,7 @@ export function SettlementSummary({
             {/* Share Button */}
             <TouchableOpacity style={styles.shareResultsButton} onPress={handleShare}>
                 <Share2 size={18} color="white" />
-                <Text style={styles.shareResultsText}>Share Results</Text>
+                <Text style={styles.shareResultsText}>{t('Share Results')}</Text>
             </TouchableOpacity>
         </View>
     );

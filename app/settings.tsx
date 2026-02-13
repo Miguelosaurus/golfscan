@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -7,24 +7,23 @@ import {
     TouchableOpacity,
     Alert,
     Linking,
-    Switch
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { colors } from '@/constants/colors';
-import { Button } from '@/components/Button';
 import {
     HelpCircle,
-    Globe,
     FileText,
     Shield,
     LogOut,
     ChevronRight,
     Bell,
-    Moon,
     Smartphone,
     RotateCcw,
+    Ruler,
+    Languages,
+    Trash2,
 } from 'lucide-react-native';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { useQuery, useMutation } from '@/lib/convex';
@@ -32,16 +31,27 @@ import { api } from '@/convex/_generated/api';
 import { useGolfStore } from '@/store/useGolfStore';
 import { useOnboardingStore } from '@/store/useOnboardingStore';
 import { resetAnalytics } from '@/lib/analytics';
+import Constants from 'expo-constants';
+import { useFocusEffect } from '@react-navigation/native';
+import { useT } from '@/lib/i18n';
 
 export default function SettingsScreen() {
     const router = useRouter();
+    const t = useT();
     const { signOut, isSignedIn } = useAuth();
     const { user } = useUser();
     const profile = useQuery(api.users.getProfile);
     const setPreferredAiModel = useMutation(api.users.setPreferredAiModel);
-    const devMode = useGolfStore((s) => s.devMode);
-    const setDevMode = useGolfStore((s) => s.setDevMode);
     const resetOnboarding = useOnboardingStore((s) => s.resetOnboarding);
+    const distanceUnit = useOnboardingStore((s) => s.distanceUnit);
+    const setDistanceUnit = useOnboardingStore((s) => s.setDistanceUnit);
+    const language = useOnboardingStore((s) => s.language);
+    const setLanguage = useOnboardingStore((s) => s.setLanguage);
+    const deleteAccount = useMutation(api.users.deleteAccount);
+    const [showDeveloperSection, setShowDeveloperSection] = useState(false);
+    const devTapCountRef = useRef(0);
+    const devTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const devTapLastRef = useRef(0);
 
     const displayName =
         profile?.name ||
@@ -54,106 +64,94 @@ export default function SettingsScreen() {
         'Signed in with Clerk';
     const initial = displayName?.charAt(0) || 'S';
 
+    const appVersion = useMemo(() => {
+        const expoConfig = (Constants as any).expoConfig;
+        const manifest = (Constants as any).manifest;
+        return expoConfig?.version || manifest?.version || '1.0.0';
+    }, []);
+
+    const buildNumber = useMemo(() => {
+        const expoConfig = (Constants as any).expoConfig;
+        const manifest = (Constants as any).manifest;
+        const iosBuild = expoConfig?.ios?.buildNumber || manifest?.ios?.buildNumber;
+        const androidBuild = expoConfig?.android?.versionCode || manifest?.android?.versionCode;
+        return iosBuild || androidBuild || null;
+    }, []);
+
     const handleHelp = () => {
         Alert.alert(
-            'Help & Support',
-            'Need help with ScanCaddie? Contact our support team.',
+            t('Help & Support'),
+            t('Need help with ScanCaddie? Contact our support team.'),
             [
-                { text: 'Email Support', onPress: () => Linking.openURL('mailto:support@golfscan.ai') },
-                { text: 'FAQ', onPress: () => console.log('Open FAQ') },
-                { text: 'Cancel', style: 'cancel' }
+                { text: t('Email Support'), onPress: () => Linking.openURL('mailto:support@golfscan.ai') },
+                { text: t('Cancel'), style: 'cancel' }
             ]
         );
     };
 
-    const handleLanguage = () => {
-        Alert.alert(
-            'Language',
-            'Select your preferred language',
-            [
-                { text: 'English', onPress: () => console.log('English selected') },
-                { text: 'Spanish', onPress: () => console.log('Spanish selected') },
-                { text: 'French', onPress: () => console.log('French selected') },
-                { text: 'Cancel', style: 'cancel' }
-            ]
-        );
+    const handleNotifications = async () => {
+        try {
+            await Linking.openSettings();
+        } catch {
+            Alert.alert(t('Notifications'), t('Open iOS Settings → Notifications → ScanCaddie to manage alerts.'));
+        }
     };
 
-    const handleNotifications = () => {
-        Alert.alert(
-            'Notifications',
-            'Manage your notification preferences',
-            [
-                { text: 'Enable All', onPress: () => console.log('Enable all notifications') },
-                { text: 'Disable All', onPress: () => console.log('Disable all notifications') },
-                { text: 'Customize', onPress: () => console.log('Customize notifications') },
-                { text: 'Cancel', style: 'cancel' }
-            ]
-        );
+    const handleUnits = () => {
+        const current = distanceUnit === 'yards' ? t('Yards') : t('Meters');
+        Alert.alert(t('Units'), t('Current: {{current}}', { current }), [
+            {
+                text: t('Yards'),
+                onPress: () => setDistanceUnit('yards'),
+            },
+            {
+                text: t('Meters'),
+                onPress: () => setDistanceUnit('meters'),
+            },
+            { text: t('Cancel'), style: 'cancel' },
+        ]);
     };
 
-    const handleTheme = () => {
-        Alert.alert(
-            'Theme',
-            'Choose your preferred theme',
-            [
-                { text: 'Light', onPress: () => console.log('Light theme selected') },
-                { text: 'Dark', onPress: () => console.log('Dark theme selected') },
-                { text: 'System', onPress: () => console.log('System theme selected') },
-                { text: 'Cancel', style: 'cancel' }
-            ]
-        );
-    };
-
-    const handleTerms = () => {
-        Alert.alert(
-            'Terms & Conditions',
-            'View our terms and conditions',
-            [
-                { text: 'View Online', onPress: () => Linking.openURL('https://golfscan.ai/terms') },
-                { text: 'Cancel', style: 'cancel' }
-            ]
-        );
-    };
+    const handleTerms = () => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/');
 
     const handlePrivacy = () => {
         Alert.alert(
-            'Privacy Policy',
-            'View our privacy policy',
+            t('Privacy Policy'),
+            t('View our privacy policy'),
             [
-                { text: 'View Online', onPress: () => Linking.openURL('https://golfscan.ai/privacy') },
-                { text: 'Cancel', style: 'cancel' }
+                { text: t('View Online'), onPress: () => Linking.openURL('https://golfscan.ai/privacy') },
+                { text: t('Cancel'), style: 'cancel' }
             ]
         );
     };
 
     const handleAbout = () => {
         Alert.alert(
-            'About ScanCaddie',
-            `Version 1.0.0
+            t('About ScanCaddie'),
+            `${t('Version')} ${appVersion}${buildNumber ? ` (${buildNumber})` : ''}
 
-ScanCaddie uses advanced machine learning to scan and analyze your golf scorecards, providing detailed insights into your game.
+${t('ScanCaddie uses advanced machine learning to scan and analyze your golf scorecards, providing detailed insights into your game.')}
 
-© 2025 ScanCaddie. All rights reserved.`,
-            [{ text: 'OK' }]
+© 2026 ScanCaddie. ${t('All rights reserved.')}`,
+            [{ text: t('OK') }]
         );
     };
 
     const handleLogout = () => {
         if (!isSignedIn) {
-            Alert.alert("Not signed in", "You are not currently signed in.");
+            Alert.alert(t("Not signed in"), t("You are not currently signed in."));
             return;
         }
         Alert.alert(
-            "Logout",
-            "Are you sure you want to logout?",
+            t("Logout"),
+            t("Are you sure you want to logout?"),
             [
                 {
-                    text: "Cancel",
+                    text: t("Cancel"),
                     style: "cancel"
                 },
                 {
-                    text: "Logout",
+                    text: t("Logout"),
                     style: "destructive",
                     onPress: async () => {
                         try {
@@ -174,14 +172,58 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
         );
     };
 
+    const handleDeleteAccount = () => {
+        if (!isSignedIn) {
+            Alert.alert(t("Not signed in"), t("You are not currently signed in."));
+            return;
+        }
+
+        Alert.alert(
+            t('Delete Account'),
+            t('This will permanently delete your ScanCaddie account and associated data. This cannot be undone.'),
+            [
+                { text: t('Cancel'), style: 'cancel' },
+                {
+                    text: t('Delete'),
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await deleteAccount({});
+                        } catch {
+                            Alert.alert(t('Error'), t('Could not delete your account. Please try again.'));
+                            return;
+                        }
+
+                        try {
+                            await user?.delete();
+                        } catch {
+                            // no-op (still sign out and clear local state)
+                        }
+
+                        try {
+                            await signOut();
+                        } catch {
+                            // no-op
+                        }
+
+                        resetAnalytics();
+                        await useGolfStore.persist.clearStorage();
+                        useGolfStore.getState().resetGolfStore();
+                        router.replace("/");
+                    },
+                },
+            ]
+        );
+    };
+
     const handleReplayOnboarding = () => {
         Alert.alert(
-            'Replay Onboarding',
-            'This will reset your onboarding preferences and show the welcome screens again.',
+            t('Replay Onboarding'),
+            t('This will reset your onboarding preferences and show the welcome screens again.'),
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: t('Cancel'), style: 'cancel' },
                 {
-                    text: 'Replay',
+                    text: t('Replay'),
                     onPress: () => {
                         resetOnboarding();
                         router.replace('/(onboarding)/welcome');
@@ -189,6 +231,50 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
                 },
             ]
         );
+    };
+
+    const handleDevUnlockTap = useCallback(() => {
+        const now = Date.now();
+        const tooSlow = now - devTapLastRef.current > 650;
+        devTapLastRef.current = now;
+
+        if (tooSlow) devTapCountRef.current = 0;
+        devTapCountRef.current += 1;
+
+        if (devTapTimerRef.current) clearTimeout(devTapTimerRef.current);
+        devTapTimerRef.current = setTimeout(() => {
+            devTapCountRef.current = 0;
+        }, 900);
+
+        if (devTapCountRef.current >= 5) {
+            devTapCountRef.current = 0;
+            setShowDeveloperSection(true);
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (devTapTimerRef.current) clearTimeout(devTapTimerRef.current);
+        };
+    }, []);
+
+    useFocusEffect(
+        useCallback(() => {
+            return () => setShowDeveloperSection(false);
+        }, [])
+    );
+
+    const aiModelLabel =
+        (profile?.preferredAiModel ?? 'gemini-3-flash-preview') === 'gemini-3-flash-preview'
+            ? t('Gemini 3 Flash (faster)')
+            : t('Gemini 3 Pro (best quality)');
+
+    const handleLanguage = () => {
+        Alert.alert(t('Select Language'), undefined, [
+            { text: t('English'), onPress: () => setLanguage('en') },
+            { text: t('Spanish'), onPress: () => setLanguage('es') },
+            { text: t('Cancel'), style: 'cancel' },
+        ]);
     };
 
     return (
@@ -201,13 +287,9 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
             <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
                 <Stack.Screen
                     options={{
-                        title: "Settings",
-                        headerStyle: {
-                            backgroundColor: colors.background,
-                        },
-                        headerTitleStyle: {
-                            color: colors.text,
-                        },
+                        title: t("Settings"),
+                        headerStyle: { backgroundColor: colors.background },
+                        headerTitleStyle: { color: colors.text },
                         headerTintColor: colors.text,
                     }}
                 />
@@ -219,7 +301,7 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
                 >
                     {user && (
                         <View style={styles.menuSection}>
-                            <Text style={styles.menuSectionTitle}>Account</Text>
+                            <Text style={styles.menuSectionTitle}>{t('Account')}</Text>
                             <View style={styles.accountRow}>
                                 <View style={styles.accountAvatar}>
                                     <Text style={styles.accountInitial}>{initial}</Text>
@@ -233,139 +315,156 @@ ScanCaddie uses advanced machine learning to scan and analyze your golf scorecar
                     )}
 
                     <View style={styles.menuSection}>
-                        <Text style={styles.menuSectionTitle}>Preferences</Text>
+                        <Text style={styles.menuSectionTitle}>{t('Preferences')}</Text>
 
                         <TouchableOpacity style={styles.menuItem} onPress={handleNotifications}>
                             <Bell size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Notifications</Text>
+                            <Text style={styles.menuItemText}>{t('Notifications')}</Text>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={handleTheme}>
-                            <Moon size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Theme</Text>
-                            <ChevronRight size={20} color={colors.text} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.menuItem} onPress={handleLanguage}>
-                            <Globe size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Language</Text>
+                        <TouchableOpacity style={[styles.menuItem, styles.menuItemNoBorder]} onPress={handleUnits}>
+                            <Ruler size={20} color={colors.text} />
+                            <Text style={styles.menuItemText}>{t('Units')}</Text>
+                            <Text style={styles.menuItemValue}>
+                                {distanceUnit === 'yards' ? t('Yards') : t('Meters')}
+                            </Text>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
                     </View>
 
                     <View style={styles.menuSection}>
-                        <Text style={styles.menuSectionTitle}>Developer</Text>
-
-                        <View style={[styles.menuItem]}>
-                            <Smartphone size={20} color={colors.text} />
-                            <View style={styles.menuItemDevTextWrap}>
-                                <Text style={styles.menuItemText}>Dev Mode</Text>
-                                <Text style={styles.menuItemSubtext}>Simulate scan responses locally</Text>
-                            </View>
-                            <Switch
-                                value={devMode}
-                                onValueChange={setDevMode}
-                                trackColor={{ false: '#DADFE0', true: '#CDE7E2' }}
-                                thumbColor={devMode ? colors.primary : '#f4f3f4'}
-                            />
-                        </View>
-
-                        <View style={[styles.menuItem, styles.menuItemNoBorder]}>
-                            <Moon size={20} color={colors.text} />
-                            <View style={styles.menuItemDevTextWrap}>
-                                <Text style={styles.menuItemText}>AI Model</Text>
-                                <Text style={styles.menuItemSubtext}>
-                                    {(profile?.preferredAiModel ?? 'gemini-3-flash-preview') === 'gemini-3-flash-preview'
-                                        ? 'Gemini 3 Flash (faster)'
-                                        : 'Gemini 3 Pro (best quality)'}
-                                </Text>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.modelPickerButton}
-                                onPress={() => {
-                                    Alert.alert(
-                                        'Select AI Model',
-                                        'Choose the model for scorecard scanning',
-                                        [
-                                            {
-                                                text: 'Gemini 3 Pro (best quality)',
-                                                onPress: async () => {
-                                                    try {
-                                                        await setPreferredAiModel({ model: 'gemini-3-pro-preview' });
-                                                    } catch (e) {
-                                                        console.error('Failed to set model:', e);
-                                                    }
-                                                },
-                                            },
-                                            {
-                                                text: 'Gemini 3 Flash (faster)',
-                                                onPress: async () => {
-                                                    try {
-                                                        await setPreferredAiModel({ model: 'gemini-3-flash-preview' });
-                                                    } catch (e) {
-                                                        console.error('Failed to set model:', e);
-                                                    }
-                                                },
-                                            },
-                                            { text: 'Cancel', style: 'cancel' },
-                                        ]
-                                    );
-                                }}
-                            >
-                                <Text style={styles.modelPickerText}>Change</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    <View style={styles.menuSection}>
-                        <Text style={styles.menuSectionTitle}>Support</Text>
+                        <Text style={styles.menuSectionTitle}>{t('Support')}</Text>
 
                         <TouchableOpacity style={styles.menuItem} onPress={handleHelp}>
                             <HelpCircle size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Help & Support</Text>
+                            <Text style={styles.menuItemText}>{t('Help & Support')}</Text>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={handleAbout}>
+                        <TouchableOpacity style={[styles.menuItem, styles.menuItemNoBorder]} onPress={handleAbout}>
                             <Smartphone size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>About</Text>
-                            <ChevronRight size={20} color={colors.text} />
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={[styles.menuItem, styles.menuItemNoBorder]} onPress={handleReplayOnboarding}>
-                            <RotateCcw size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Replay Onboarding</Text>
+                            <Text style={styles.menuItemText}>{t('About')}</Text>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
                     </View>
 
                     <View style={styles.menuSection}>
-                        <Text style={styles.menuSectionTitle}>Legal</Text>
+                        <Text style={styles.menuSectionTitle}>{t('Legal')}</Text>
 
                         <TouchableOpacity style={styles.menuItem} onPress={handleTerms}>
                             <FileText size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Terms & Conditions</Text>
+                            <Text style={styles.menuItemText}>{t('Terms & Conditions')}</Text>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={styles.menuItem} onPress={handlePrivacy}>
+                        <TouchableOpacity style={[styles.menuItem, styles.menuItemNoBorder]} onPress={handlePrivacy}>
                             <Shield size={20} color={colors.text} />
-                            <Text style={styles.menuItemText}>Privacy Policy</Text>
+                            <Text style={styles.menuItemText}>{t('Privacy Policy')}</Text>
                             <ChevronRight size={20} color={colors.text} />
                         </TouchableOpacity>
                     </View>
 
-                    <Button
-                        title={isSignedIn ? "Logout" : "Sign in"}
-                        onPress={isSignedIn ? handleLogout : () => router.push('/')}
-                        variant="outline"
-                        style={styles.logoutButton}
-                    />
+                    <View style={styles.menuSection}>
+                        <Text style={styles.menuSectionTitle}>{t('Language')}</Text>
 
-                    <View style={styles.versionContainer}>
-                        <Text style={styles.versionText}>ScanCaddie v1.0.0</Text>
+                        <TouchableOpacity style={[styles.menuItem, styles.menuItemNoBorder]} onPress={handleLanguage}>
+                            <Languages size={20} color={colors.text} />
+                            <Text style={styles.menuItemText}>{t('Language')}</Text>
+                            <Text style={styles.menuItemValue}>
+                                {language === 'es' ? t('Spanish') : t('English')}
+                            </Text>
+                            <ChevronRight size={20} color={colors.text} />
+                        </TouchableOpacity>
                     </View>
+
+                    {showDeveloperSection && (
+                        <View style={styles.menuSection}>
+                            <Text style={styles.menuSectionTitle}>{t('Developer')}</Text>
+
+                            <View style={[styles.menuItem, styles.menuItemNoBorder]}>
+                                <Smartphone size={20} color={colors.text} />
+                                <View style={styles.menuItemDevTextWrap}>
+                                    <Text style={styles.menuItemText}>{t('AI Model')}</Text>
+                                    <Text style={styles.menuItemSubtext}>{aiModelLabel}</Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.modelPickerButton}
+                                    onPress={() => {
+                                        Alert.alert(
+                                            t('Select AI Model'),
+                                            t('Choose the model for scorecard scanning'),
+                                            [
+                                                {
+                                                    text: t('Gemini 3 Pro (best quality)'),
+                                                    onPress: async () => {
+                                                        try {
+                                                            await setPreferredAiModel({ model: 'gemini-3-pro-preview' });
+                                                        } catch {
+                                                            // no-op
+                                                        }
+                                                    },
+                                                },
+                                                {
+                                                    text: t('Gemini 3 Flash (faster)'),
+                                                    onPress: async () => {
+                                                        try {
+                                                            await setPreferredAiModel({ model: 'gemini-3-flash-preview' });
+                                                        } catch {
+                                                            // no-op
+                                                        }
+                                                    },
+                                                },
+                                                { text: t('Cancel'), style: 'cancel' },
+                                            ]
+                                        );
+                                    }}
+                                >
+                                    <Text style={styles.modelPickerText}>{t('Change')}</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity style={styles.menuItem} onPress={handleReplayOnboarding}>
+                                <RotateCcw size={20} color={colors.text} />
+                                <Text style={styles.menuItemText}>{t('Replay Onboarding')}</Text>
+                                <ChevronRight size={20} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                    )}
+
+                    <View style={styles.menuSection}>
+                        <Text style={styles.menuSectionTitle}>{t('Account Actions')}</Text>
+
+                        <TouchableOpacity
+                            style={styles.menuItem}
+                            onPress={isSignedIn ? handleLogout : () => router.push('/')}
+                        >
+                            <LogOut size={20} color={colors.text} />
+                            <Text style={styles.menuItemText}>{isSignedIn ? t('Sign Out') : t('Sign in')}</Text>
+                            <ChevronRight size={20} color={colors.text} />
+                        </TouchableOpacity>
+
+                        {isSignedIn && (
+                            <TouchableOpacity
+                                style={[styles.menuItem, styles.menuItemNoBorder]}
+                                onPress={handleDeleteAccount}
+                            >
+                                <Trash2 size={20} color={colors.text} />
+                                <Text style={styles.menuItemText}>{t('Delete Account')}</Text>
+                                <ChevronRight size={20} color={colors.text} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    <TouchableOpacity
+                        style={styles.versionContainer}
+                        onPress={handleDevUnlockTap}
+                    >
+                        <Text style={styles.versionText}>
+                            {t('ScanCaddie Version')} {appVersion}
+                            {buildNumber ? ` (${buildNumber})` : ''}
+                        </Text>
+                    </TouchableOpacity>
                 </ScrollView>
             </SafeAreaView>
         </View>
@@ -406,6 +505,11 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: colors.text,
         marginLeft: 12,
+    },
+    menuItemValue: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        marginRight: 8,
     },
     menuItemSubtext: {
         fontSize: 12,
@@ -449,16 +553,13 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginTop: 2,
     },
-    logoutButton: {
-        marginBottom: 24,
-    },
     versionContainer: {
         alignItems: 'center',
-        paddingVertical: 16,
+        paddingVertical: 14,
     },
     versionText: {
         fontSize: 14,
-        color: colors.text,
+        color: colors.textSecondary,
     },
     modelPickerButton: {
         backgroundColor: colors.primary,

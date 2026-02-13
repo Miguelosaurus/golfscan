@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { colors } from '@/constants/colors';
+import { useT } from '@/lib/i18n';
 import {
     Target,
     Swords,
@@ -70,6 +71,8 @@ const GAME_TYPES: GameTypeOption[] = [
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function GameTypeGrid({ selected, onSelect, onShowRules, playerCount = 0 }: GameTypeGridProps) {
+    const t = useT();
+
     // Determine if a game type is available based on player count
     const getAvailability = (type: GameType): { available: boolean; reason?: string } => {
         // All game types require at least 2 players
@@ -90,7 +93,7 @@ export function GameTypeGrid({ selected, onSelect, onShowRules, playerCount = 0 
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Choose Game Type</Text>
+            <Text style={styles.title}>{t("Choose Game Type")}</Text>
             <View style={styles.grid}>
                 {GAME_TYPES.map((game) => {
                     const isSelected = selected === game.type;
@@ -124,10 +127,10 @@ export function GameTypeGrid({ selected, onSelect, onShowRules, playerCount = 0 
                                 )}
                             </View>
                             <Text style={[styles.cardTitle, !available && styles.textDisabled]}>
-                                {game.name}
+                                {t(game.name)}
                             </Text>
                             <Text style={[styles.cardDescription, !available && styles.textDisabled]}>
-                                {available ? game.description : reason}
+                                {available ? t(game.description) : (reason ? t(reason) : "")}
                             </Text>
                             {isSelected && available && <View style={styles.selectedIndicator} />}
                         </TouchableOpacity>

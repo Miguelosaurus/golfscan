@@ -370,7 +370,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.golfscanai.app.dev";
-				PRODUCT_NAME = "SCANDEV";
+					PRODUCT_NAME = "SCAN-DEV";
 				SWIFT_OBJC_BRIDGING_HEADER = "ScanCaddie/ScanCaddie-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;

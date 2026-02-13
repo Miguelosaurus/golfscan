@@ -19,6 +19,8 @@ interface ActiveScanJob {
   result?: ScorecardScanResult | null;
   requiresReview?: boolean;
   autoReviewLaunched?: boolean;
+  // Onboarding demo scan (prevents Home from auto-navigating in the background)
+  onboardingDemo?: boolean;
   // Course/tee selection during scan flow
   selectedCourseId?: string;
   selectedCourseName?: string;

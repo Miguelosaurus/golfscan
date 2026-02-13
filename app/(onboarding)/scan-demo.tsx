@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { colors } from '@/constants/colors';
 import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
 import { Camera, Play, Sparkles } from 'lucide-react-native';
+import { useT } from '@/lib/i18n';
 
 // Demo scorecard data - actual scores from the provided scorecard image
 // Players: ALEX (Gross), BEN (Net), CHRIS (Net)
@@ -26,6 +27,7 @@ const DEMO_PLAYERS = [
 export default function ScanDemoScreen() {
     const router = useRouter();
     const scanAnim = useRef(new Animated.Value(0)).current;
+    const t = useT();
 
     useEffect(() => {
         Animated.loop(
@@ -70,9 +72,9 @@ export default function ScanDemoScreen() {
                     <View style={styles.iconContainer}>
                         <Sparkles size={32} color={colors.primary} />
                     </View>
-                    <Text style={styles.title}>Ready to try it?</Text>
+                    <Text style={styles.title}>{t('Ready to try it?')}</Text>
                     <Text style={styles.subtitle}>
-                        See how fast we digitize your scorecards
+                        {t('See how fast we digitize your scorecards')}
                     </Text>
                 </View>
 
@@ -80,17 +82,17 @@ export default function ScanDemoScreen() {
                 <View style={styles.demoContainer}>
                     <View style={styles.cardPreview}>
                         <View style={styles.cardHeader}>
-                            <Text style={styles.cardTitle}>Sample Scorecard</Text>
+                            <Text style={styles.cardTitle}>{t('Sample Scorecard')}</Text>
                         </View>
                         <View style={styles.cardContent}>
                             <View style={styles.scoreRow}>
-                                <Text style={styles.holeLabel}>Hole</Text>
+                                <Text style={styles.holeLabel}>{t('Hole')}</Text>
                                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((hole) => (
                                     <Text key={hole} style={styles.holeNumber}>{hole}</Text>
                                 ))}
                             </View>
                             <View style={styles.scoreRow}>
-                                <Text style={styles.parLabel}>Par</Text>
+                                <Text style={styles.parLabel}>{t('Par')}</Text>
                                 {DEMO_PARS.map((par, i) => (
                                     <Text key={i} style={styles.parNumber}>{par}</Text>
                                 ))}
@@ -130,9 +132,9 @@ export default function ScanDemoScreen() {
                             <Camera size={28} color={colors.primary} />
                         </View>
                         <View style={styles.optionContent}>
-                            <Text style={styles.optionTitle}>I have a scorecard ready</Text>
+                            <Text style={styles.optionTitle}>{t('I have a scorecard ready')}</Text>
                             <Text style={styles.optionSubtitle}>
-                                Scan it now and see your scores instantly
+                                {t('Scan it now and see your scores instantly')}
                             </Text>
                         </View>
                     </TouchableOpacity>
@@ -148,10 +150,10 @@ export default function ScanDemoScreen() {
                         </View>
                         <View style={styles.optionContent}>
                             <Text style={[styles.optionTitle, styles.optionTitleSecondary]}>
-                                Try a demo scan
+                                {t('Try a demo scan')}
                             </Text>
                             <Text style={styles.optionSubtitle}>
-                                See how it works with a sample scorecard
+                                {t('See how it works with a sample scorecard')}
                             </Text>
                         </View>
                     </TouchableOpacity>

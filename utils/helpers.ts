@@ -39,17 +39,16 @@ export const ensureValidDate = (dateString: string | null | undefined): string =
     return getLocalDateString();
   }
 
-  // Validate the date format (basic YYYY-MM-DD check)
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (!dateRegex.test(dateString)) {
+  const ymd = extractYmdDate(dateString);
+  if (!ymd) {
     return getLocalDateString();
   }
 
   // Try to parse the date to ensure it's valid
-  const parsedDate = parseLocalDateString(dateString);
+  const parsedDate = parseLocalDateString(ymd);
   if (!parsedDate) return getLocalDateString();
 
-  return dateString;
+  return ymd;
 };
 
 export const formatLocalDateString = (dateString: string, style: 'short' | 'long' = 'short'): string => {
@@ -82,6 +81,37 @@ export const formatLocalDateString = (dateString: string, style: 'short' | 'long
     return `${weekday}, ${monthName} ${day}, ${year}`;
   }
   return `${monthName} ${day}, ${year}`;
+};
+
+export const extractYmdDate = (input: string): string | null => {
+  const match = /(\d{4}-\d{2}-\d{2})/.exec(input);
+  return match ? match[1] : null;
+};
+
+export const coerceToLocalDateString = (input: string): string | null => {
+  const ymd = extractYmdDate(input);
+  if (ymd) return ymd;
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return getLocalDateString(parsed);
+};
+
+export const parseAnyDateStringToLocalDate = (input: string): Date | null => {
+  const ymd = extractYmdDate(input);
+  if (ymd) return parseLocalDateString(ymd);
+  const parsed = new Date(input);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+export const formatAnyDateString = (input: string, style: 'short' | 'long' = 'short'): string => {
+  const ymd = coerceToLocalDateString(input);
+  return ymd ? formatLocalDateString(ymd, style) : input;
+};
+
+export const toLocalDateTimeString = (input: string | null | undefined): string => {
+  const ymd = ensureValidDate(input);
+  return `${ymd}T00:00:00`;
 };
 
 export const getScoreDifferential = (playerScore: number, coursePar: number): number => {
