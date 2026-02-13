@@ -5,7 +5,6 @@
     },
     "build": {
         "development": {
-            "buildConfiguration": "Debug",
             "developmentClient": true,
             "distribution": "internal",
             "env": {
@@ -14,7 +13,6 @@
             }
         },
         "staging": {
-            "buildConfiguration": "Release",
             "distribution": "store",
             "env": {
                 "APP_VARIANT": "staging",
@@ -25,7 +23,6 @@
             }
         },
         "production": {
-            "buildConfiguration": "Release",
             "distribution": "store",
             "env": {
                 "APP_VARIANT": "production",
